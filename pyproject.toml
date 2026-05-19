@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sofia"
+version = "0.1.0"
+description = "Bot de WhatsApp para Allos (clínica-escola de psicologia)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Paulo (Allos)", email = "allosgepeto@gmail.com"}
+]
+
+[project.urls]
+Repository = "https://github.com/allos/sofia"
+Documentation = "https://github.com/allos/sofia/blob/main/README.md"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
