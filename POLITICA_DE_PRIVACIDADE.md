@@ -223,7 +223,7 @@ Direito a Não Ser Discriminado:
 ```
 
 **Como exercer seus direitos:**  
-Envie email para: **[email de contato Allos]** com:
+Envie email para: **suporte@allos.org.br** com:
 - Seu nome e número de WhatsApp
 - Qual direito você quer exercer
 - Detalhes da solicitação
@@ -278,13 +278,12 @@ Meta/WhatsApp:
 ## 12. Contato e Responsável
 
 **Responsável pelos Dados na Allos:**  
-Nome: [Nome do Responsável Legal]  
-Email: [email@allos.org.br]  
-Telefone: [Telefone Allos]
+Nome:  Alan Abadallah Rogana
+Email: suporte@allos.org.br  
+Telefone: (31) 8643-2714
 
 **Encarregado de Proteção de Dados (DPO):**  
-Nome: [Nome DPO, se houver]  
-Email: [email DPO]
+Email: suporte@allos.org.br
 
 ---
 
@@ -305,8 +304,7 @@ Se você achar que seus direitos LGPD foram violados, pode:
 
 A Allos pode atualizar esta política. Notificaremos você via email ou aviso no painel se houver mudanças materiais.
 
-**Data da última atualização:** 2024  
-**Data de vigência:** [Data]
+**Data da última atualização:** 2026
 
 ---
 
@@ -324,7 +322,7 @@ LGPD: Lei Geral de Proteção de Dados (Brasil)
 
 **Ao usar Sofia, você concorda com esta Política de Privacidade.**
 
-Se tiver dúvidas, [contate a Allos](mailto:email@allos.org.br).
+Se tiver dúvidas, suporte@allos.org.br.
 
 ---
 

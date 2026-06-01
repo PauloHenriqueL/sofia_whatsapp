@@ -49,7 +49,7 @@ Compreendo que meus dados serão usados para:
 ### 3. Política de Privacidade
 
 Declaro que **li e concordo com a Política de Privacidade** disponível em:  
-**[Link ou local onde está a Política]**
+**(https://allos.org.br/politica-de-privacidade)**
 
 Entendo que:
 
@@ -78,7 +78,7 @@ Entendo que:
 
 Declaro que **entendo que posso revogar este consentimento a qualquer momento** enviando email para:
 
-**[email de contato Allos]**
+**suporte@allos.org.br**
 
 Mencionando:
 - Meu nome e número de WhatsApp
@@ -179,9 +179,9 @@ Assinatura (ou "Aceito" digitado): _____________________________
 
 Se tiver dúvidas sobre este termo ou sua privacidade:
 
-**Email:** [email@allos.org.br]  
-**Telefone:** [Telefone Allos]  
-**Responsável:** [Nome do Responsável]
+**Email:** suporte@allos.org.br 
+**Telefone:** (31) 8643-2714
+**Responsável:** Alan Abdallah Rogana
 
 ---
 
@@ -194,7 +194,7 @@ Ao clicar "Aceito" no app Sofia, você está consentindo digitalmente.
 ### Opção 2: Impressa
 
 Pode imprimir este termo, assinar e enviar para:  
-[Endereço Allos]
+R. Rio Negro, 1048 - Barroca, Belo Horizonte - MG, 30431-058
 
 ### Opção 3: Email
 
@@ -268,7 +268,7 @@ Este termo está em conformidade com:
 
 **Data de Validade:** Este consentimento é válido até revogação pelo titular.
 
-**Para Revogar:** Envie email para [email@allos.org.br] mencionando revogação de consentimento.
+**Para Revogar:** Envie email para suporte@allos.org.br mencionando revogação de consentimento.
 
 ---
 
