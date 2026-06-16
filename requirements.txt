@@ -14,7 +14,8 @@ pydantic-settings==2.1.0
 # ============================================================================
 sqlalchemy[asyncio]==2.0.23
 alembic==1.13.0
-asyncpg==0.29.0  # Driver async para Postgres
+asyncpg==0.29.0  # Driver async para Postgres (produção/Neon)
+aiosqlite==0.19.0  # Driver async para SQLite (dev local)
 
 # ============================================================================
 # HTTP Client (para chamadas externas)

@@ -4,11 +4,14 @@ import hashlib
 import hmac
 import json
 import pytest
-from unittest.mock import patch
+import pytest_asyncio
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.database import Base
 from app.main import app
-from app.routers.webhook import verify_signature
+from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
 
 
 class TestWebhookVerification:
@@ -90,6 +93,122 @@ class TestSignatureVerification:
         """Deve rejeitar request sem assinatura"""
         body = b"test payload"
         assert verify_signature(body, "") is False
+
+
+def _payload_texto(numero="5531999998888", texto="olá", msg_id="wamid.abc"):
+    """Monta um payload de webhook com uma mensagem de texto."""
+    return {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": numero,
+                                    "id": msg_id,
+                                    "type": "text",
+                                    "text": {"body": texto},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+
+class TestExtrairMensagens:
+    """Testes para o parser do payload do webhook"""
+
+    def test_extrai_mensagem_texto(self):
+        mensagens = extrair_mensagens(_payload_texto(texto="oi"))
+        assert len(mensagens) == 1
+        assert mensagens[0]["text"]["body"] == "oi"
+
+    def test_ignora_evento_de_status(self):
+        """Eventos de status (entregue/lido) não têm 'messages'."""
+        payload = {
+            "entry": [
+                {"changes": [{"value": {"statuses": [{"status": "delivered"}]}}]}
+            ]
+        }
+        assert extrair_mensagens(payload) == []
+
+    def test_payload_vazio(self):
+        assert extrair_mensagens({}) == []
+
+
+@pytest_asyncio.fixture
+async def db_em_memoria():
+    """Patcha o async_session do webhook para um SQLite em memória isolado."""
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    with patch("app.routers.webhook.async_session", maker):
+        yield maker
+    await engine.dispose()
+
+
+class TestProcessarPayload:
+    """Testes para o processamento async (persistência + eco)"""
+
+    @pytest.mark.asyncio
+    async def test_eco_de_texto(self, db_em_memoria):
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar:
+            await processar_payload(_payload_texto(numero="5531911112222", texto="oi"))
+
+        mock_enviar.assert_awaited_once_with("5531911112222", "ok, recebi: oi")
+
+    @pytest.mark.asyncio
+    async def test_mensagem_duplicada_e_ignorada(self, db_em_memoria):
+        """Mesmo wamid duas vezes: só responde uma vez (idempotência)."""
+        payload = _payload_texto(msg_id="wamid.dup")
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar:
+            await processar_payload(payload)
+            await processar_payload(payload)
+
+        mock_enviar.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tipo_nao_texto_pede_texto(self, db_em_memoria):
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "from": "5531911112222",
+                                        "id": "wamid.audio",
+                                        "type": "audio",
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar:
+            await processar_payload(payload)
+
+        mock_enviar.assert_awaited_once()
+        numero, texto = mock_enviar.await_args.args
+        assert numero == "5531911112222"
+        assert "texto" in texto.lower()
 
 
 class TestHealthEndpoint:

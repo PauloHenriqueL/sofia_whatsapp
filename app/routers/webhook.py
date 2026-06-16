@@ -1,4 +1,4 @@
-"""Webhook do WhatsApp - Passo 1: Modo eco"""
+"""Webhook do WhatsApp - Passo 2: Eco real via Cloud API"""
 
 import hashlib
 import hmac
@@ -6,11 +6,13 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.database import async_session
+from app.services import conversation, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -50,11 +52,11 @@ async def verify_webhook(
 
 
 @router.post("/whatsapp")
-async def receive_webhook(request: Request):
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     """POST /webhook/whatsapp - Recebe mensagens do WhatsApp
 
-    Passo 1 (MVP): Apenas validar assinatura e logar payload.
-    Futuros passos vão processar a mensagem.
+    Passo 2 (MVP): valida assinatura, responde 200 imediatamente e processa
+    a mensagem em background (eco real via Cloud API).
 
     Validação de assinatura: X-Hub-Signature-256 header com HMAC SHA256
     """
@@ -66,18 +68,86 @@ async def receive_webhook(request: Request):
         logger.warning("Invalid webhook signature")
         return JSONResponse({"error": "Invalid signature"}, status_code=403)
 
-    # Log do payload (por enquanto, apenas eco)
     try:
         payload = json.loads(body)
-        logger.info(f"Webhook received: {json.dumps(payload, indent=2)}")
-
-        # Responder imediatamente (Meta quer 200 em <3s)
-        # Processamento async vai acontecer depois
-        return JSONResponse({"status": "received"})
-
     except json.JSONDecodeError:
         logger.error("Invalid JSON payload")
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    logger.info(f"Webhook received: {json.dumps(payload, indent=2)}")
+
+    # Responde 200 imediatamente (Meta exige <3s). Processa async.
+    background_tasks.add_task(processar_payload, payload)
+    return JSONResponse({"status": "received"})
+
+
+def extrair_mensagens(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extrai a lista de mensagens recebidas do payload do webhook.
+
+    O webhook da Meta também envia eventos de status (entregue, lido) que
+    não contêm `messages`; esses são ignorados.
+    """
+    mensagens: list[dict[str, Any]] = []
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            mensagens.extend(value.get("messages", []))
+    return mensagens
+
+
+async def processar_payload(payload: dict[str, Any]) -> None:
+    """Processa o payload do webhook em background.
+
+    Passo 3: persiste conversa e mensagem (com idempotência) antes de
+    responder. Para texto, responde com eco; outros tipos recebem mensagem
+    fixa pedindo texto (será substituído por LLM e detecção de áudio).
+    """
+    for mensagem in extrair_mensagens(payload):
+        numero = mensagem.get("from")
+        tipo = mensagem.get("type")
+        wamid = mensagem.get("id")
+        if not numero:
+            continue
+
+        async with async_session() as session:
+            if await conversation.mensagem_ja_processada(session, wamid):
+                logger.info(f"Mensagem {wamid} já processada, ignorando")
+                continue
+
+            conversa = await conversation.obter_ou_criar_conversa(session, numero)
+
+            if tipo == "text":
+                texto = mensagem.get("text", {}).get("body", "")
+                await conversation.registrar_mensagem_recebida(
+                    session, conversa, tipo="texto", texto=texto,
+                    whatsapp_message_id=wamid,
+                )
+                resposta = f"ok, recebi: {texto}"
+            else:
+                await conversation.registrar_mensagem_recebida(
+                    session, conversa, tipo=tipo, texto=None,
+                    whatsapp_message_id=wamid,
+                )
+                resposta = (
+                    "Por enquanto consigo ler só mensagens de texto. "
+                    "Pode me escrever?"
+                )
+
+            await session.commit()
+
+            enviado = False
+            try:
+                await whatsapp_client.enviar_texto(numero, resposta)
+                enviado = True
+            except whatsapp_client.WhatsAppError:
+                # Já logado no cliente; persistência da entrada não é perdida.
+                logger.error(f"Não consegui responder ao número {numero}")
+
+            if enviado:
+                await conversation.registrar_mensagem_enviada(
+                    session, conversa, texto=resposta
+                )
+                await session.commit()
 
 
 def verify_signature(body: bytes, x_hub_signature: str) -> bool:
