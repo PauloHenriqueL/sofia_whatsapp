@@ -20,6 +20,7 @@ from app.services import (
     tools,
     whatsapp_client,
 )
+from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -248,7 +249,8 @@ async def processar_payload(payload: dict[str, Any]) -> None:
             await _processar_mensagem(mensagem)
         except Exception:  # resiliência: nenhuma mensagem pode matar o worker
             logger.exception(
-                f"Erro processando mensagem {mensagem.get('id')} " f"de {mensagem.get('from')}"
+                f"Erro processando mensagem {mensagem.get('id')} "
+                f"de {mascarar_telefone(mensagem.get('from'))}"
             )
 
 
@@ -326,7 +328,7 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
             enviado = True
         except whatsapp_client.WhatsAppError:
             # Já logado no cliente; persistência da entrada não é perdida.
-            logger.error(f"Não consegui responder ao número {numero}")
+            logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
 
         if enviado:
             await conversation.registrar_mensagem_enviada(session, conversa, texto=resposta)

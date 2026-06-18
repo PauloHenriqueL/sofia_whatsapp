@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Mensagem
+from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def obter_ou_criar_conversa(session: AsyncSession, numero: str) -> Convers
         conversa = Conversa(numero_whatsapp=numero)
         session.add(conversa)
         await session.flush()  # garante conversa.id disponível
-        logger.info(f"Nova conversa criada para {numero} (id={conversa.id})")
+        logger.info(f"Nova conversa criada para {mascarar_telefone(numero)} (id={conversa.id})")
     return conversa
 
 

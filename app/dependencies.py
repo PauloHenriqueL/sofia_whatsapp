@@ -1,14 +1,32 @@
 """Dependências compartilhadas: autenticação do painel e sessão de banco."""
 
 import secrets
+from urllib.parse import urlparse
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.config import settings
 from app.database import get_db  # noqa: F401 (reexport p/ conveniência dos routers)
 
 _security = HTTPBasic()
+
+
+def verificar_origem(request: Request) -> None:
+    """Defesa contra CSRF: se houver header Origin, ele tem que bater com o host.
+
+    Funciona com Basic Auth (sem sessão/cookie): um POST cross-site disparado por
+    um site malicioso sempre carrega Origin da origem atacante, que não bate com
+    o host do painel e é rejeitado. Requisições sem Origin (navegação direta,
+    clientes não-browser) passam — o ataque CSRF via browser sempre tem Origin.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    origin_host = urlparse(origin).netloc
+    host = request.headers.get("host", "")
+    if origin_host and origin_host != host:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origem inválida")
 
 
 def autenticar(

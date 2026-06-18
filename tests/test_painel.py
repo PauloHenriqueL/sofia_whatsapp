@@ -128,3 +128,19 @@ class TestAcoes:
         assert resp.status_code == 200
         async with maker() as s:
             assert (await s.get(Conversa, cid)).modo == "bot"
+
+
+class TestCSRF:
+    @pytest.mark.asyncio
+    async def test_post_de_outra_origem_e_rejeitado(self, ambiente):
+        """POST cross-site (Origin de outro host) é bloqueado mesmo com auth."""
+        client, maker = ambiente
+        cid = await _seed_conversa(maker)
+        resp = await client.post(
+            f"/api/conversas/{cid}/assumir/",
+            auth=AUTH,
+            headers={"Origin": "http://site-malicioso.example"},
+        )
+        assert resp.status_code == 403
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).modo == "bot"  # não mudou

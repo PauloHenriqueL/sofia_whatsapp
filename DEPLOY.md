@@ -145,10 +145,16 @@ para a coordenação fazer o match depois.
 
 ---
 
-## Segurança (lembretes)
+## Segurança (já implementado)
 
-- Nunca commitar o `.env` (já está no `.gitignore`).
-- HTTPS é fornecido pelo Render automaticamente.
-- O webhook valida `X-Hub-Signature-256` (HMAC) — exige `WHATSAPP_APP_SECRET` correto.
-- O painel usa HTTP Basic Auth (trocar por algo melhor pós-MVP).
-- Trocar `PAINEL_PASSWORD` e `SECRET_KEY` por valores fortes em produção.
+- `.env` nunca é commitado (`.gitignore`); HTTPS é fornecido pelo Render.
+- Webhook valida `X-Hub-Signature-256` (HMAC) — exige `WHATSAPP_APP_SECRET` correto.
+- CORS fechado (sem `*`/credenciais cross-origin).
+- Painel/API com HTTP Basic Auth + checagem de **Origin** (defesa CSRF).
+- `/docs` e `/redoc` desabilitados quando `ENVIRONMENT=production`.
+- Logs **não** registram conteúdo de mensagem (LGPD) e mascaram telefone.
+
+**Lembretes:**
+- Definir `PAINEL_PASSWORD` e `SECRET_KEY` fortes em produção
+  (`python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+- Basic Auth do painel é adequado para o MVP; trocar por sessão/OAuth depois.

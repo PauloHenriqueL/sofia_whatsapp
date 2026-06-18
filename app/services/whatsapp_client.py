@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ async def enviar_texto(numero: str, texto: str) -> dict[str, Any]:
         "type": "text",
         "text": {"body": texto},
     }
-    return await _enviar(payload, descricao=f"texto para {numero}")
+    return await _enviar(payload, descricao=f"texto para {mascarar_telefone(numero)}")
 
 
 async def enviar_template(
@@ -89,7 +90,9 @@ async def enviar_template(
         "type": "template",
         "template": template,
     }
-    return await _enviar(payload, descricao=f"template {template_name} para {numero}")
+    return await _enviar(
+        payload, descricao=f"template {template_name} para {mascarar_telefone(numero)}"
+    )
 
 
 async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:

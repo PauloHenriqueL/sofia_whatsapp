@@ -6,11 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import autenticar, get_db
+from app.dependencies import autenticar, get_db, verificar_origem
 from app.services import painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(autenticar)])
+router = APIRouter(
+    prefix="/api",
+    tags=["api"],
+    dependencies=[Depends(autenticar), Depends(verificar_origem)],
+)
 
 
 class RespostaIn(BaseModel):

@@ -28,12 +28,18 @@ async def lifespan(app: FastAPI):
     logger.info("Sofia encerrada")
 
 
+# Em produção, não expõe a documentação interativa da API (/docs, /redoc).
+_producao = settings.environment == "production"
+
 # Criar aplicação
 app = FastAPI(
     title="Sofia",
     description="Bot de WhatsApp para Allos - Clínica-escola de Psicologia",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if _producao else "/docs",
+    redoc_url=None if _producao else "/redoc",
+    openapi_url=None if _producao else "/openapi.json",
 )
 
 # CORS: o painel é same-origin (server-rendered) e o webhook é server-to-server
