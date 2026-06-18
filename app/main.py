@@ -7,19 +7,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.logging_config import configurar_logging
 from app.routers import api, health, painel, webhook
 
-# Configurar logging
-logging.basicConfig(
-    level=settings.log_level,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configurar_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -66,3 +63,10 @@ app.include_router(painel.router)
 async def root():
     """Raiz: leva ao painel da Thainá."""
     return RedirectResponse("/painel/")
+
+
+@app.exception_handler(Exception)
+async def erro_nao_tratado(request: Request, exc: Exception):
+    """Loga qualquer erro não tratado com stack trace e responde 500 genérico."""
+    logger.exception(f"Erro não tratado em {request.method} {request.url.path}")
+    return JSONResponse({"error": "internal_server_error"}, status_code=500)

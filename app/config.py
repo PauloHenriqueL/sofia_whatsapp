@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 5000
     log_level: str = "INFO"
+    log_json: bool = False
     secret_key: str = "dev-secret-change-in-prod"
 
     # WhatsApp

@@ -134,8 +134,8 @@ Variáveis de ambiente no dashboard do Render (todas as vars do `.env.example`).
 - [x] Passo 4: OpenAI integration (`llm_client.py`, system prompt versionado)
 - [x] Passo 5: Tool calling (cadastro, escalada) + alerta à Thainá
 - [x] Passo 6: Hamilton integration (cliente JWT + endpoint REST no Hamilton)
-- [x] Passo 7: Painel web (Jinja2 + HTMX + Basic Auth) ← **Estamos aqui**
-- [ ] Passo 8: Polimento + produção
+- [x] Passo 7: Painel web (Jinja2 + HTMX + Basic Auth)
+- [x] Passo 8: Polimento + produção (áudio→escalada, LGPD, deploy) ← **MVP completo**
 
 ### Detalhe do que já está pronto
 
@@ -171,7 +171,14 @@ Variáveis de ambiente no dashboard do Render (todas as vars do `.env.example`).
 - Lista de conversas com filtros e auto-refresh (15s); chat por conversa com auto-refresh (5s), campo de resposta e botões "Assumir"/"Devolver ao bot".
 - Acesso em `/` → `/painel/` (usuário/senha de `PAINEL_USER`/`PAINEL_PASSWORD`). Templates Jinja2 em [`app/templates/`](app/templates/), estilo Pico.css + HTMX (CDN).
 
-- **43 testes passando** no total.
+**Passo 8 — Polimento + produção**
+- **Áudio → escalada automática**: mensagem de áudio é persistida como `[áudio recebido]`, escala pra Thainá (`motivo=audio_recebido`, sem passar pelo LLM) e responde uma mensagem fixa. Imagem/vídeo/sticker pedem texto.
+- **LGPD**: o webhook loga só metadados (quantidade, tipos e ids) — nunca o **conteúdo** das mensagens (dado de saúde sensível).
+- **Logging estruturado**: [`app/logging_config.py`](app/logging_config.py) — texto no dev, JSON na produção (`LOG_JSON=true`).
+- **Erros**: handler global loga stack trace e responde 500 genérico; falhas de OpenAI/Hamilton/Cloud API já degradam sem derrubar a conversa.
+- **Deploy**: [`render.yaml`](render.yaml) (build com `alembic upgrade head`, start Uvicorn, health check `/health`, segredos via dashboard).
+
+- **45 testes passando** no total.
 
 ### ⚠️ Estado operacional (Meta / integrações)
 - `WHATSAPP_PHONE_NUMBER_ID` do número de **teste**: `1135643296298652`.

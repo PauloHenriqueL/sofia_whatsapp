@@ -334,12 +334,13 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - Endpoints `/api/conversas`, `/painel` + HTTP Basic Auth
 - Thainá assume/responde/devolve ao bot
 
-### Passo 8: Polimento + produção (em aberto)
-- Detecção áudio→escalada automática
-- Logging sem dado sensível de paciente (LGPD)
-- Tratamento de erros (Hamilton offline, OpenAI quota)
-- Submissão template na Meta (1 semana antes go-live)
-- README + documentação
+### Passo 8: Polimento + produção ✅
+- Áudio→escalada automática; imagem/vídeo pedem texto
+- Logging seguro (LGPD: sem conteúdo de mensagem) + estruturado (JSON no prod)
+- Handler global de erro 500 + degradação graciosa (OpenAI/Hamilton/Cloud API)
+- `render.yaml` (build com `alembic upgrade head`, health check `/health`)
+- **Falta só (manual/go-live)**: comprar número, submeter template `alerta_thaina`
+  na Meta, e plugar credenciais reais (OpenAI key, usuário JWT do Hamilton)
 
 ---
 

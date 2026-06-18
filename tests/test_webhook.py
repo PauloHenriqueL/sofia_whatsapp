@@ -286,36 +286,66 @@ class TestProcessarPayload:
         mock_enviar.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_tipo_nao_texto_pede_texto(self, db_em_memoria):
-        payload = {
+    def _payload_tipo(self, tipo, numero="5531911112222", msg_id="wamid.x"):
+        return {
             "entry": [
                 {
                     "changes": [
-                        {
-                            "value": {
-                                "messages": [
-                                    {
-                                        "from": "5531911112222",
-                                        "id": "wamid.audio",
-                                        "type": "audio",
-                                    }
-                                ]
-                            }
-                        }
+                        {"value": {"messages": [{"from": numero, "id": msg_id, "type": tipo}]}}
                     ]
                 }
             ]
         }
-        with patch(
-            "app.routers.webhook.whatsapp_client.enviar_texto",
-            new_callable=AsyncMock,
-        ) as mock_enviar:
-            await processar_payload(payload)
 
-        mock_enviar.assert_awaited_once()
-        numero, texto = mock_enviar.await_args.args
-        assert numero == "5531911112222"
+    @pytest.mark.asyncio
+    async def test_audio_escala_para_thaina(self, db_em_memoria):
+        """Áudio escala imediatamente (sem LLM): marca humano, alerta, responde."""
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_texto, patch(
+            "app.services.escalation.whatsapp_client.enviar_template",
+            new_callable=AsyncMock,
+        ) as mock_template:
+            await processar_payload(
+                self._payload_tipo("audio", numero="5531944443333", msg_id="wamid.a")
+            )
+
+        mock_template.assert_awaited_once()
+        _, texto = mock_texto.await_args.args
+        assert "áudio" in texto.lower()
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531944443333")
+            assert conversa.modo == "humano"
+            assert conversa.estado == "escalado"
+
+    @pytest.mark.asyncio
+    async def test_imagem_pede_texto(self, db_em_memoria):
+        """Imagem (não áudio) pede texto, sem escalar nem chamar o LLM."""
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_texto:
+            await processar_payload(
+                self._payload_tipo("image", numero="5531955554444", msg_id="wamid.i")
+            )
+
+        _, texto = mock_texto.await_args.args
         assert "texto" in texto.lower()
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531955554444")
+            assert conversa.modo == "bot"
+
+
+class TestResumoPayload:
+    def test_nao_vaza_conteudo_da_mensagem(self):
+        from app.routers.webhook import _resumo_payload
+
+        payload = _payload_texto(texto="ansiedade e questões pessoais")
+        resumo = _resumo_payload(payload)
+        assert resumo["qtd_mensagens"] == 1
+        assert resumo["tipos"] == ["text"]
+        # O conteúdo sensível NÃO pode aparecer no resumo de log.
+        assert "ansiedade" not in str(resumo)
 
 
 class TestHealthEndpoint:

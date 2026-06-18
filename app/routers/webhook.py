@@ -31,8 +31,10 @@ FALLBACK_RESPOSTA = (
     "Pode me mandar de novo daqui a pouco?"
 )
 
-# Resposta fixa para tipos sem texto (áudio/imagem/etc). A detecção de áudio
-# com escalada imediata é um próximo incremento; por ora pedimos texto.
+# Áudio: a Sofia não transcreve; escala imediatamente pra Thainá.
+AUDIO_RECEBIDO = "Recebi seu áudio. Vou chamar a Thainá pra te responder direito."
+
+# Resposta fixa para tipos sem texto que não são áudio (imagem, vídeo, sticker...).
 PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
 
 
@@ -92,11 +94,23 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.error("Invalid JSON payload")
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    logger.info(f"Webhook received: {json.dumps(payload, indent=2)}")
+    # LGPD: não logamos o conteúdo das mensagens (dado de saúde sensível),
+    # apenas metadados (quantidade, tipos e ids).
+    logger.info("Webhook recebido: %s", _resumo_payload(payload))
 
     # Responde 200 imediatamente (Meta exige <3s). Processa async.
     background_tasks.add_task(processar_payload, payload)
     return JSONResponse({"status": "received"})
+
+
+def _resumo_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resumo do payload sem conteúdo de mensagem (para logging seguro/LGPD)."""
+    mensagens = extrair_mensagens(payload)
+    return {
+        "qtd_mensagens": len(mensagens),
+        "tipos": [m.get("type") for m in mensagens],
+        "ids": [m.get("id") for m in mensagens],
+    }
 
 
 def extrair_mensagens(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -268,6 +282,14 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
                 texto=texto,
                 whatsapp_message_id=wamid,
             )
+        elif tipo == "audio":
+            await conversation.registrar_mensagem_recebida(
+                session,
+                conversa,
+                tipo="audio",
+                texto="[áudio recebido]",
+                whatsapp_message_id=wamid,
+            )
         else:
             await conversation.registrar_mensagem_recebida(
                 session,
@@ -282,7 +304,12 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
             await session.commit()
             return
 
-        if tipo == "text":
+        if tipo == "audio":
+            # Áudio escala direto pra Thainá, sem passar pelo LLM.
+            await escalation.registrar_escalada(session, conversa, "audio_recebido")
+            await escalation.alertar_thaina(conversa, "audio_recebido")
+            resposta = AUDIO_RECEBIDO
+        elif tipo == "text":
             resposta = await processar_turno_bot(session, conversa)
         else:
             resposta = PEDIR_TEXTO

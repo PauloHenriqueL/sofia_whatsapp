@@ -1,0 +1,59 @@
+# Deploy da Sofia no Render.
+# As variáveis com `sync: false` são preenchidas no dashboard do Render (segredos).
+services:
+  - type: web
+    name: sofia
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_JSON
+        value: "true"
+
+      # WhatsApp Cloud API
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: THAINA_WHATSAPP_NUMBER
+        sync: false
+      - key: ALERT_TEMPLATE_NAME
+        value: alerta_thaina
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+      # Banco (Neon)
+      - key: DATABASE_URL
+        sync: false
+
+      # Hamilton (auth JWT)
+      - key: HAMILTON_API_URL
+        sync: false
+      - key: HAMILTON_USERNAME
+        sync: false
+      - key: HAMILTON_PASSWORD
+        sync: false
+
+      # Painel
+      - key: PAINEL_USER
+        value: thaina
+      - key: PAINEL_PASSWORD
+        sync: false
+
+      # App
+      - key: SECRET_KEY
+        sync: false
