@@ -6,16 +6,7 @@ JSON em SQLite) e timestamps com timezone.
 
 from datetime import datetime
 
-from sqlalchemy import (
-    JSON,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    func,
-)
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,9 +25,7 @@ class Conversa(Base):
     modo: Mapped[str] = mapped_column(String(10), default="bot", index=True)
     estado: Mapped[str] = mapped_column(String(30), default="novo")
     dados_coletados: Mapped[dict] = mapped_column(JSONType, default=dict)
-    criada_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizada_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -53,21 +42,15 @@ class Mensagem(Base):
     __tablename__ = "mensagem"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    conversa_id: Mapped[int] = mapped_column(
-        ForeignKey("conversa.id", ondelete="CASCADE")
-    )
+    conversa_id: Mapped[int] = mapped_column(ForeignKey("conversa.id", ondelete="CASCADE"))
     direcao: Mapped[str] = mapped_column(String(10))  # 'recebida' | 'enviada'
     origem: Mapped[str] = mapped_column(String(30))  # 'paciente' | 'bot' | 'thaina'
     tipo: Mapped[str] = mapped_column(String(20), default="texto")
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
-    whatsapp_message_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True
-    )
+    whatsapp_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Atributo 'extra' mapeado pra coluna 'metadata' ('metadata' é reservado no ORM).
     extra: Mapped[dict] = mapped_column("metadata", JSONType, default=dict)
-    criada_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversa: Mapped["Conversa"] = relationship(back_populates="mensagens")
 
@@ -93,11 +76,7 @@ class Escalada(Base):
     )
     motivo: Mapped[str] = mapped_column(String(50))
     contexto: Mapped[str | None] = mapped_column(Text, nullable=True)
-    criada_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    resolvida_em: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolvida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversa: Mapped["Conversa"] = relationship(back_populates="escaladas")

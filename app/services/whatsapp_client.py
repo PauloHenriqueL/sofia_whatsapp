@@ -109,12 +109,9 @@ async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:
 
     if response.status_code >= 400:
         logger.error(
-            f"Cloud API retornou {response.status_code} ao enviar {descricao}: "
-            f"{response.text}"
+            f"Cloud API retornou {response.status_code} ao enviar {descricao}: " f"{response.text}"
         )
-        raise WhatsAppError(
-            f"Cloud API erro {response.status_code} ao enviar {descricao}"
-        )
+        raise WhatsAppError(f"Cloud API erro {response.status_code} ao enviar {descricao}")
 
     data = response.json()
     logger.info(f"Enviado {descricao}: {data}")
