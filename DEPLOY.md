@@ -63,8 +63,9 @@ A Sofia cadastra paciente via API REST que **criamos** no Hamilton.
 Pacientes criados pela Sofia ficam **sem terapeuta**, status `AGUARDANDO_INICIO`,
 para a coordenação fazer o match depois.
 
-> Bug latente encontrado (não corrigido, não afeta a Sofia): `PacienteSerializer`
-> usa `source='fk_captacao.captacao'`, mas o campo correto é `nome`.
+> Bug latente **corrigido** na branch: `PacienteSerializer` usava
+> `source='fk_captacao.captacao'` (campo correto é `nome`) — serializar um
+> Paciente levantava `AttributeError`. Corrigido + teste de regressão.
 
 ---
 
