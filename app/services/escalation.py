@@ -15,10 +15,10 @@ from app.services import whatsapp_client
 logger = logging.getLogger(__name__)
 
 # Texto de acolhimento usado quando o LLM escala mas não gera uma fala própria.
-# Revisado manualmente (não passa pelo prompt): sem travessões, acolhedor.
+# Alinhado ao briefing (seção System prompt): sem travessões, acolhedor.
 ESCALADA_FALLBACK = (
-    "Vou chamar a Thainá pra continuar com você por aqui. Ela é a "
-    "coordenadora da nossa clínica e te responde em pouco tempo. 🩵"
+    "Vou chamar a Thainá pra continuar daqui contigo. Ela é a coordenadora "
+    "da nossa clínica e vai te responder em pouco tempo."
 )
 
 

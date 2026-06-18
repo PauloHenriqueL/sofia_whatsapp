@@ -28,9 +28,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
-    # Hamilton
+    # Hamilton (auth JWT: username/password -> token Bearer)
     hamilton_api_url: str
-    hamilton_api_key: str
+    hamilton_api_key: str = ""
+    hamilton_username: str = ""
+    hamilton_password: str = ""
 
     # Painel
     painel_user: str = "thaina"

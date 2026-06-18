@@ -12,7 +12,14 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.database import async_session
-from app.services import conversation, escalation, llm_client, tools, whatsapp_client
+from app.services import (
+    conversation,
+    escalation,
+    hamilton_client,
+    llm_client,
+    tools,
+    whatsapp_client,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -152,11 +159,31 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         return {"status": "escalado", "thaina_alertada": alertada}
 
     if tc.name == tools.CADASTRAR_PACIENTE:
-        # Passo 5: guarda os dados coletados; o POST no Hamilton entra no Passo 6.
+        # Guarda os dados coletados e cadastra no Hamilton (buscar antes de criar).
         conversa.dados_coletados = {**(conversa.dados_coletados or {}), **tc.arguments}
-        conversa.estado = "cadastro_pendente"
-        await session.flush()
-        return {"status": "dados_recebidos", "cadastro": "pendente"}
+        client = hamilton_client.get_hamilton_client()
+        try:
+            existentes = await client.buscar_paciente_por_telefone(
+                tc.arguments.get("telefone_contato")
+            )
+            if existentes:
+                pid = existentes[0].get("pk_paciente")
+                conversa.paciente_hamilton_id = pid
+                conversa.estado = "cadastrado"
+                await session.flush()
+                return {"status": "ja_cadastrado", "paciente_id": pid}
+
+            criado = await client.criar_paciente(tc.arguments)
+            conversa.paciente_hamilton_id = criado.get("pk_paciente")
+            conversa.estado = "cadastrado"
+            await session.flush()
+            return {"status": "cadastrado", "paciente_id": conversa.paciente_hamilton_id}
+        except hamilton_client.HamiltonError:
+            # Hamilton indisponível: não derruba a conversa; Thainá cadastra manual.
+            logger.error(f"Hamilton falhou no cadastro da conversa {conversa.id}")
+            conversa.estado = "cadastro_pendente"
+            await session.flush()
+            return {"status": "cadastro_pendente"}
 
     logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
     return {"status": "desconhecida"}
@@ -199,70 +226,84 @@ async def _finalizar_apos_tools(historico, resp, resultados) -> str | None:
 async def processar_payload(payload: dict[str, Any]) -> None:
     """Processa o payload do webhook em background.
 
+    Cada mensagem é processada isoladamente: um erro inesperado em uma não
+    derruba o background task nem impede as demais (apenas é logado).
+    """
+    for mensagem in extrair_mensagens(payload):
+        try:
+            await _processar_mensagem(mensagem)
+        except Exception:  # resiliência: nenhuma mensagem pode matar o worker
+            logger.exception(
+                f"Erro processando mensagem {mensagem.get('id')} " f"de {mensagem.get('from')}"
+            )
+
+
+async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
+    """Persiste e responde uma única mensagem recebida.
+
     Persiste conversa e mensagem (com idempotência) e, quando a conversa está
     em modo bot, gera a resposta via LLM (que pode disparar tools: escalada ou
     cadastro). Em modo humano apenas persiste (o painel da Thainá cuida da
     resposta). Tipos sem texto recebem uma mensagem fixa pedindo texto.
     """
-    for mensagem in extrair_mensagens(payload):
-        numero = mensagem.get("from")
-        tipo = mensagem.get("type")
-        wamid = mensagem.get("id")
-        if not numero:
-            continue
+    numero = mensagem.get("from")
+    tipo = mensagem.get("type")
+    wamid = mensagem.get("id")
+    if not numero:
+        return
 
-        async with async_session() as session:
-            if await conversation.mensagem_ja_processada(session, wamid):
-                logger.info(f"Mensagem {wamid} já processada, ignorando")
-                continue
+    async with async_session() as session:
+        if await conversation.mensagem_ja_processada(session, wamid):
+            logger.info(f"Mensagem {wamid} já processada, ignorando")
+            return
 
-            conversa = await conversation.obter_ou_criar_conversa(session, numero)
+        conversa = await conversation.obter_ou_criar_conversa(session, numero)
 
-            if tipo == "text":
-                texto = mensagem.get("text", {}).get("body", "")
-                await conversation.registrar_mensagem_recebida(
-                    session,
-                    conversa,
-                    tipo="texto",
-                    texto=texto,
-                    whatsapp_message_id=wamid,
-                )
-            else:
-                await conversation.registrar_mensagem_recebida(
-                    session,
-                    conversa,
-                    tipo=tipo,
-                    texto=None,
-                    whatsapp_message_id=wamid,
-                )
+        if tipo == "text":
+            texto = mensagem.get("text", {}).get("body", "")
+            await conversation.registrar_mensagem_recebida(
+                session,
+                conversa,
+                tipo="texto",
+                texto=texto,
+                whatsapp_message_id=wamid,
+            )
+        else:
+            await conversation.registrar_mensagem_recebida(
+                session,
+                conversa,
+                tipo=tipo,
+                texto=None,
+                whatsapp_message_id=wamid,
+            )
 
-            # Modo humano: só persiste; a Thainá responde pelo painel.
-            if conversa.modo == "humano":
-                await session.commit()
-                continue
-
-            if tipo == "text":
-                resposta = await processar_turno_bot(session, conversa)
-            else:
-                resposta = PEDIR_TEXTO
-
+        # Modo humano: só persiste; a Thainá responde pelo painel.
+        if conversa.modo == "humano":
             await session.commit()
+            return
 
-            # Pode não haver texto a enviar (ex.: round-trip sem fala final).
-            if resposta is None:
-                continue
+        if tipo == "text":
+            resposta = await processar_turno_bot(session, conversa)
+        else:
+            resposta = PEDIR_TEXTO
 
-            enviado = False
-            try:
-                await whatsapp_client.enviar_texto(numero, resposta)
-                enviado = True
-            except whatsapp_client.WhatsAppError:
-                # Já logado no cliente; persistência da entrada não é perdida.
-                logger.error(f"Não consegui responder ao número {numero}")
+        await session.commit()
 
-            if enviado:
-                await conversation.registrar_mensagem_enviada(session, conversa, texto=resposta)
-                await session.commit()
+        # Pode não haver texto a enviar (ex.: round-trip sem fala final).
+        if resposta is None:
+            return
+
+        enviado = False
+        try:
+            await whatsapp_client.enviar_texto(numero, resposta)
+            enviado = True
+        except whatsapp_client.WhatsAppError:
+            # Já logado no cliente; persistência da entrada não é perdida.
+            logger.error(f"Não consegui responder ao número {numero}")
+
+        if enviado:
+            await conversation.registrar_mensagem_enviada(session, conversa, texto=resposta)
+            await session.commit()
 
 
 def verify_signature(body: bytes, x_hub_signature: str) -> bool:
