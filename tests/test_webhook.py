@@ -2,16 +2,18 @@
 
 import hashlib
 import hmac
-import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.main import app
+from app.routers import webhook as webhook_module
 from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
+from app.services import conversation, llm_client
 
 
 class TestWebhookVerification:
@@ -21,6 +23,7 @@ class TestWebhookVerification:
         """Deve validar webhook quando token está correto"""
         # Use o token do .env
         from app.config import settings
+
         client = TestClient(app)
         response = client.get(
             "/webhook/whatsapp",
@@ -49,6 +52,7 @@ class TestWebhookVerification:
     def test_verify_webhook_invalid_mode(self):
         """Deve rejeitar webhook com mode inválido"""
         from app.config import settings
+
         client = TestClient(app)
         response = client.get(
             "/webhook/whatsapp",
@@ -74,6 +78,7 @@ class TestSignatureVerification:
 
         # Mock config
         from app import config
+
         original_secret = config.settings.whatsapp_app_secret
         config.settings.whatsapp_app_secret = secret
 
@@ -129,11 +134,7 @@ class TestExtrairMensagens:
 
     def test_ignora_evento_de_status(self):
         """Eventos de status (entregue/lido) não têm 'messages'."""
-        payload = {
-            "entry": [
-                {"changes": [{"value": {"statuses": [{"status": "delivered"}]}}]}
-            ]
-        }
+        payload = {"entry": [{"changes": [{"value": {"statuses": [{"status": "delivered"}]}}]}]}
         assert extrair_mensagens(payload) == []
 
     def test_payload_vazio(self):
@@ -152,27 +153,80 @@ async def db_em_memoria():
     await engine.dispose()
 
 
+class _FakeLLM:
+    """LLM falso para os testes: registra o histórico e devolve texto fixo."""
+
+    def __init__(self, resposta="Oi, sou a Sofia da Allos."):
+        self.resposta = resposta
+        self.historicos: list[list[dict]] = []
+
+    async def gerar_resposta(self, historico):
+        self.historicos.append(historico)
+        return self.resposta
+
+
 class TestProcessarPayload:
-    """Testes para o processamento async (persistência + eco)"""
+    """Testes para o processamento async (persistência + resposta via LLM)"""
 
     @pytest.mark.asyncio
-    async def test_eco_de_texto(self, db_em_memoria):
+    async def test_responde_texto_com_llm(self, db_em_memoria):
+        fake = _FakeLLM(resposta="Oi! Como posso te ajudar?")
         with patch(
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
-        ) as mock_enviar:
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
             await processar_payload(_payload_texto(numero="5531911112222", texto="oi"))
 
-        mock_enviar.assert_awaited_once_with("5531911112222", "ok, recebi: oi")
+        mock_enviar.assert_awaited_once_with("5531911112222", "Oi! Como posso te ajudar?")
+        # O histórico enviado ao LLM termina com a mensagem do paciente.
+        assert fake.historicos[0][-1] == {"role": "user", "content": "oi"}
+
+    @pytest.mark.asyncio
+    async def test_llm_falha_usa_fallback(self, db_em_memoria):
+        class _LLMQuebra:
+            async def gerar_resposta(self, historico):
+                raise llm_client.LLMError("boom")
+
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=_LLMQuebra(),
+        ):
+            await processar_payload(_payload_texto(texto="oi"))
+
+        _, texto = mock_enviar.await_args.args
+        assert texto == webhook_module.FALLBACK_RESPOSTA
+
+    @pytest.mark.asyncio
+    async def test_modo_humano_nao_responde(self, db_em_memoria):
+        """Em modo humano o bot só persiste; quem responde é a Thainá."""
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531911112222")
+            conversa.modo = "humano"
+            await s.commit()
+
+        fake = _FakeLLM()
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await processar_payload(
+                _payload_texto(numero="5531911112222", texto="oi", msg_id="wamid.h")
+            )
+
+        mock_enviar.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_mensagem_duplicada_e_ignorada(self, db_em_memoria):
         """Mesmo wamid duas vezes: só responde uma vez (idempotência)."""
         payload = _payload_texto(msg_id="wamid.dup")
+        fake = _FakeLLM()
         with patch(
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
-        ) as mock_enviar:
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
             await processar_payload(payload)
             await processar_payload(payload)
 

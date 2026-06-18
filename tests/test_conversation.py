@@ -1,6 +1,5 @@
 """Testes da persistência e orquestração da conversa (Passo 3)."""
 
-import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -50,6 +49,60 @@ class TestIdempotencia:
         )
         await session.commit()
         assert await conversation.mensagem_ja_processada(session, "wamid.1") is True
+
+
+class TestCarregarHistorico:
+    async def test_mapeia_roles_e_ordena_cronologicamente(self, session):
+        conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="texto", texto="oi", whatsapp_message_id="w1"
+        )
+        await conversation.registrar_mensagem_enviada(session, conversa, texto="olá, sou a Sofia")
+        await conversation.registrar_mensagem_recebida(
+            session,
+            conversa,
+            tipo="texto",
+            texto="quero terapia",
+            whatsapp_message_id="w2",
+        )
+        await session.commit()
+
+        hist = await conversation.carregar_historico(session, conversa)
+        assert hist == [
+            {"role": "user", "content": "oi"},
+            {"role": "assistant", "content": "olá, sou a Sofia"},
+            {"role": "user", "content": "quero terapia"},
+        ]
+
+    async def test_ignora_mensagens_sem_texto(self, session):
+        conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="audio", texto=None, whatsapp_message_id="wa"
+        )
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="texto", texto="oi", whatsapp_message_id="wt"
+        )
+        await session.commit()
+
+        hist = await conversation.carregar_historico(session, conversa)
+        assert hist == [{"role": "user", "content": "oi"}]
+
+    async def test_respeita_limite_e_pega_as_mais_recentes(self, session):
+        conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
+        for i in range(25):
+            await conversation.registrar_mensagem_recebida(
+                session,
+                conversa,
+                tipo="texto",
+                texto=f"msg {i}",
+                whatsapp_message_id=f"w{i}",
+            )
+        await session.commit()
+
+        hist = await conversation.carregar_historico(session, conversa, limite=20)
+        assert len(hist) == 20
+        assert hist[0]["content"] == "msg 5"
+        assert hist[-1]["content"] == "msg 24"
 
 
 class TestRegistroDeMensagens:

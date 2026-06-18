@@ -1,4 +1,4 @@
-"""Webhook do WhatsApp - Passo 2: Eco real via Cloud API"""
+"""Webhook do WhatsApp - Passo 4: resposta gerada por LLM (OpenAI)"""
 
 import hashlib
 import hmac
@@ -12,10 +12,21 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.database import async_session
-from app.services import conversation, whatsapp_client
+from app.services import conversation, llm_client, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
+
+# Resposta de degradação quando o LLM falha. Revisada manualmente (não passa
+# pelo prompt da Sofia); segue o estilo dela: sem travessões, acolhedora.
+FALLBACK_RESPOSTA = (
+    "Oi, tive um probleminha técnico aqui pra te responder agora. "
+    "Pode me mandar de novo daqui a pouco?"
+)
+
+# Resposta fixa para tipos sem texto (áudio/imagem/etc). A detecção de áudio
+# com escalada entra no Passo 5; por ora pedimos texto.
+PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
 
 
 class WebhookPayload(BaseModel):
@@ -44,7 +55,7 @@ async def verify_webhook(
         return JSONResponse({"error": "Invalid mode"}, status_code=403)
 
     if hub_verify_token != settings.whatsapp_verify_token:
-        logger.warning(f"Invalid verify token")
+        logger.warning("Invalid verify token")
         return JSONResponse({"error": "Invalid token"}, status_code=403)
 
     logger.info("Webhook verified successfully")
@@ -55,8 +66,8 @@ async def verify_webhook(
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     """POST /webhook/whatsapp - Recebe mensagens do WhatsApp
 
-    Passo 2 (MVP): valida assinatura, responde 200 imediatamente e processa
-    a mensagem em background (eco real via Cloud API).
+    Valida assinatura, responde 200 imediatamente e processa a mensagem em
+    background (persistência + resposta via LLM).
 
     Validação de assinatura: X-Hub-Signature-256 header com HMAC SHA256
     """
@@ -95,12 +106,27 @@ def extrair_mensagens(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return mensagens
 
 
+async def gerar_resposta_bot(session, conversa) -> str:
+    """Gera a resposta do bot via LLM a partir do histórico da conversa.
+
+    Em caso de falha do LLM, loga e devolve uma resposta de degradação para
+    não deixar o paciente sem retorno (a falha não derruba a conversa).
+    """
+    historico = await conversation.carregar_historico(session, conversa)
+    try:
+        return await llm_client.get_llm_client().gerar_resposta(historico)
+    except llm_client.LLMError:
+        logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
+        return FALLBACK_RESPOSTA
+
+
 async def processar_payload(payload: dict[str, Any]) -> None:
     """Processa o payload do webhook em background.
 
-    Passo 3: persiste conversa e mensagem (com idempotência) antes de
-    responder. Para texto, responde com eco; outros tipos recebem mensagem
-    fixa pedindo texto (será substituído por LLM e detecção de áudio).
+    Passo 4: persiste conversa e mensagem (com idempotência) e, quando a
+    conversa está em modo bot, gera a resposta via LLM. Em modo humano apenas
+    persiste (o painel da Thainá cuida da resposta). Tipos sem texto recebem
+    uma mensagem fixa pedindo texto (áudio com escalada vem no Passo 5).
     """
     for mensagem in extrair_mensagens(payload):
         numero = mensagem.get("from")
@@ -119,19 +145,30 @@ async def processar_payload(payload: dict[str, Any]) -> None:
             if tipo == "text":
                 texto = mensagem.get("text", {}).get("body", "")
                 await conversation.registrar_mensagem_recebida(
-                    session, conversa, tipo="texto", texto=texto,
+                    session,
+                    conversa,
+                    tipo="texto",
+                    texto=texto,
                     whatsapp_message_id=wamid,
                 )
-                resposta = f"ok, recebi: {texto}"
             else:
                 await conversation.registrar_mensagem_recebida(
-                    session, conversa, tipo=tipo, texto=None,
+                    session,
+                    conversa,
+                    tipo=tipo,
+                    texto=None,
                     whatsapp_message_id=wamid,
                 )
-                resposta = (
-                    "Por enquanto consigo ler só mensagens de texto. "
-                    "Pode me escrever?"
-                )
+
+            # Modo humano: só persiste; a Thainá responde pelo painel.
+            if conversa.modo == "humano":
+                await session.commit()
+                continue
+
+            if tipo == "text":
+                resposta = await gerar_resposta_bot(session, conversa)
+            else:
+                resposta = PEDIR_TEXTO
 
             await session.commit()
 
@@ -144,9 +181,7 @@ async def processar_payload(payload: dict[str, Any]) -> None:
                 logger.error(f"Não consegui responder ao número {numero}")
 
             if enviado:
-                await conversation.registrar_mensagem_enviada(
-                    session, conversa, texto=resposta
-                )
+                await conversation.registrar_mensagem_enviada(session, conversa, texto=resposta)
                 await session.commit()
 
 
