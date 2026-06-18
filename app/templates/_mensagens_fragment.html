@@ -1,0 +1,8 @@
+{% for m in mensagens %}
+  <div class="msg msg-{{ m.origem }}">
+    <small>{{ m.origem }} · {{ m.criada_em | data }}</small>
+    <p>{{ m.texto if m.texto else '[' ~ m.tipo ~ ']' }}</p>
+  </div>
+{% else %}
+  <p>Sem mensagens ainda.</p>
+{% endfor %}

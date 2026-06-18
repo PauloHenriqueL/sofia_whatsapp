@@ -8,9 +8,9 @@ Automação de atendimento de pacientes novos:
 - Cadastro no Hamilton (sistema clínico existente)
 - Escalada para Thainá em casos específicos
 
-**Stack**: FastAPI + Postgres + OpenAI + Meta WhatsApp Cloud API
+**Stack**: FastAPI + Postgres/SQLite + OpenAI + Meta WhatsApp Cloud API
 
-**Status**: 🚧 MVP em desenvolvimento (Passo 1: Webhook eco)
+**Status**: 🚧 MVP em desenvolvimento (Passo 3 concluído: persistência)
 
 ---
 
@@ -18,7 +18,7 @@ Automação de atendimento de pacientes novos:
 
 ### Pré-requisitos
 - Python 3.11+
-- PostgreSQL (ou conexão Neon)
+- Banco: **SQLite** já funciona no dev local (sem instalar nada). Postgres/Neon é usado em produção.
 
 ### 1. Clonar repositório
 ```bash
@@ -45,9 +45,15 @@ cp .env.example .env
 # Editar .env com seus valores (veja commentários no .env.example)
 ```
 
-**Nota**: Muitos valores estão vazios até a Meta Business Account estar pronta. Você pode deixar placeholders no .env local.
+**Nota**: Muitos valores estão vazios até a Meta Business Account estar pronta. Você pode deixar placeholders no .env local. O `DATABASE_URL` padrão local é `sqlite:///sofia_dev.db`.
 
-### 5. Rodar aplicação
+### 5. Criar/atualizar o banco (migrations)
+```bash
+alembic upgrade head
+```
+Roda as migrations no banco apontado por `DATABASE_URL` (SQLite local ou Postgres/Neon).
+
+### 6. Rodar aplicação
 ```bash
 uvicorn app.main:app --reload
 ```
@@ -122,14 +128,57 @@ Variáveis de ambiente no dashboard do Render (todas as vars do `.env.example`).
 
 ## 🛣️ Roadmap
 
-- [x] Passo 1: Esqueleto + Webhook eco ← **Estamos aqui**
-- [ ] Passo 2: Enviar mensagens
-- [ ] Passo 3: Persistência (Postgres)
-- [ ] Passo 4: OpenAI integration
-- [ ] Passo 5: Tool calling (cadastro, escalada)
-- [ ] Passo 6: Hamilton integration
-- [ ] Passo 7: Painel web
+- [x] Passo 1: Esqueleto + Webhook eco
+- [x] Passo 2: Enviar mensagens (`whatsapp_client.py`, eco real via Cloud API)
+- [x] Passo 3: Persistência (SQLAlchemy async, Alembic, idempotência)
+- [x] Passo 4: OpenAI integration (`llm_client.py`, system prompt versionado)
+- [x] Passo 5: Tool calling (cadastro, escalada) + alerta à Thainá
+- [x] Passo 6: Hamilton integration (cliente JWT + endpoint REST no Hamilton)
+- [x] Passo 7: Painel web (Jinja2 + HTMX + Basic Auth) ← **Estamos aqui**
 - [ ] Passo 8: Polimento + produção
+
+### Detalhe do que já está pronto
+
+**Passo 2 — Enviar mensagens**
+- [`app/services/whatsapp_client.py`](app/services/whatsapp_client.py): `enviar_texto()` e `enviar_template()` (httpx async, Graph API v18).
+- Webhook responde 200 na hora e processa em `BackgroundTasks` (<3s exigido pela Meta).
+- Parser `extrair_mensagens()` ignora eventos de status (entregue/lido).
+
+**Passo 3 — Persistência**
+- [`app/database.py`](app/database.py): engine async portável — SQLite (`aiosqlite`) no dev, Postgres (`asyncpg`) na produção/Neon. Driver derivado do esquema do `DATABASE_URL`.
+- [`app/models.py`](app/models.py): `Conversa`, `Mensagem`, `Escalada` (JSON portável JSONB/JSON, timestamps com timezone).
+- [`app/services/conversation.py`](app/services/conversation.py): cria/busca conversa, persiste mensagens e garante **idempotência** por `whatsapp_message_id` (índice único parcial).
+- Migrations Alembic em [`alembic/`](alembic/) (template async, `render_as_batch` pra SQLite).
+- 21 testes passando nesse passo.
+
+**Passo 4 — OpenAI**
+- [`app/services/llm_client.py`](app/services/llm_client.py): interface `LLMClient` (abstrata, trocável) + `OpenAIClient` async. System prompt versionado em [`app/prompts/sofia_v01.txt`](app/prompts/sofia_v01.txt).
+- `conversation.carregar_historico()`: últimas 20 mensagens no formato role/content.
+- Falha do LLM degrada para uma mensagem de fallback (não derruba a conversa).
+
+**Passo 5 — Tool calling + escalada**
+- [`app/services/tools.py`](app/services/tools.py): schemas de `cadastrar_paciente` e `escalar_para_thaina`.
+- [`app/services/escalation.py`](app/services/escalation.py): marca `modo=humano`/`estado=escalado`, registra a escalada e alerta a Thainá via template.
+- O webhook executa as tools e faz um *round-trip* ao LLM para a fala final.
+
+**Passo 6 — Hamilton**
+- [`app/services/hamilton_client.py`](app/services/hamilton_client.py): cliente HTTP async, auth **JWT** (usuário/senha → token), `buscar_paciente_por_telefone()` e `criar_paciente()` (normaliza telefone, remove DDI 55).
+- `cadastrar_paciente` busca-antes-de-criar; falha do Hamilton → `estado=cadastro_pendente` (Thainá cadastra manual).
+- Lado Hamilton (repo `hamilton-api`, branch `feat/api-paciente-sofia`): endpoints REST `POST /api/v1/pacientes/` e `GET /api/v1/pacientes/buscar/?telefone=`; paciente "lead" criado **sem terapeuta** até a coordenação fazer o match.
+
+**Passo 7 — Painel web (Thainá)**
+- [`app/routers/painel.py`](app/routers/painel.py) (HTML + HTMX) e [`app/routers/api.py`](app/routers/api.py) (JSON), protegidos por **HTTP Basic Auth** ([`app/dependencies.py`](app/dependencies.py)).
+- Lista de conversas com filtros e auto-refresh (15s); chat por conversa com auto-refresh (5s), campo de resposta e botões "Assumir"/"Devolver ao bot".
+- Acesso em `/` → `/painel/` (usuário/senha de `PAINEL_USER`/`PAINEL_PASSWORD`). Templates Jinja2 em [`app/templates/`](app/templates/), estilo Pico.css + HTMX (CDN).
+
+- **43 testes passando** no total.
+
+### ⚠️ Estado operacional (Meta / integrações)
+- `WHATSAPP_PHONE_NUMBER_ID` do número de **teste**: `1135643296298652`.
+- Verificação da empresa na Meta: **aprovada** ✅.
+- Falta um **número de telefone dedicado** (a comprar) e aprovar o template `alerta_thaina` para o WhatsApp ir ao ar.
+- Faltam credenciais reais (placeholders no `.env`): **OpenAI API key** e **usuário JWT do Hamilton** (`HAMILTON_USERNAME`/`HAMILTON_PASSWORD`).
+- O desenvolvimento **não depende** dessas liberações: tudo é testável com mocks; o modo ao vivo é só plugar as credenciais.
 
 ---
 

@@ -1,0 +1,47 @@
+/* Painel da Sofia — estilos mínimos sobre o Pico.css */
+
+#mensagens {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.msg {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.6rem;
+  max-width: 80%;
+}
+
+.msg small {
+  display: block;
+  color: var(--pico-muted-color);
+  font-size: 0.72rem;
+  margin-bottom: 0.15rem;
+}
+
+.msg p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Recebidas do paciente à esquerda; bot e Thainá à direita. */
+.msg-paciente {
+  background: var(--pico-card-sectioning-background-color);
+  align-self: flex-start;
+}
+
+.msg-bot {
+  background: #e8f0fe;
+  align-self: flex-end;
+}
+
+.msg-thaina {
+  background: #e6f4ea;
+  align-self: flex-end;
+}
+
+nav a[role="button"] {
+  margin-right: 0.3rem;
+}

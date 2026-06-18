@@ -1,0 +1,26 @@
+<table>
+  <thead>
+    <tr>
+      <th>Número</th>
+      <th>Nome</th>
+      <th>Modo</th>
+      <th>Estado</th>
+      <th>Última mensagem</th>
+      <th>Atividade</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in conversas %}
+    <tr onclick="window.location='/painel/conversas/{{ c.id }}/'" style="cursor:pointer">
+      <td>{{ c.numero_whatsapp }}</td>
+      <td>{{ c.nome or '—' }}</td>
+      <td>{% if c.modo == 'humano' %}<mark>humano</mark>{% else %}bot{% endif %}</td>
+      <td>{{ c.estado }}</td>
+      <td>{{ c.preview or '' }}</td>
+      <td>{{ c.atualizada_em | desde }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">Nenhuma conversa por aqui.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

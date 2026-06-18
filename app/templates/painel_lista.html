@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Conversas · Sofia{% endblock %}
+{% block conteudo %}
+<header>
+  <hgroup>
+    <h2>Conversas</h2>
+    <p>Painel de atendimento da Allos</p>
+  </hgroup>
+  <nav>
+    {% set filtros = [
+      ('todas', 'Todas'),
+      ('humano', 'Em modo humano'),
+      ('escalada', 'Em escalada'),
+      ('cadastradas_hoje', 'Cadastradas hoje')
+    ] %}
+    {% for chave, rotulo in filtros %}
+      <a role="button" href="/painel/?filtro={{ chave }}"
+         class="{{ '' if filtro == chave else 'secondary outline' }}">{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+</header>
+
+<div hx-get="/painel/fragment/conversas?filtro={{ filtro }}"
+     hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "_conversas_fragment.html" %}
+</div>
+{% endblock %}

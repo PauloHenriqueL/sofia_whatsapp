@@ -1,15 +1,19 @@
 """Sofia — FastAPI application
-Passo 1: Esqueleto + Webhook em modo eco
+
+Monta o webhook do WhatsApp, a API interna e o painel web da Thainá.
 """
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import health, webhook
+from app.routers import api, health, painel, webhook
 
 # Configurar logging
 logging.basicConfig(
@@ -44,17 +48,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Arquivos estáticos do painel (css)
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
+    name="static",
+)
+
 # Rotas
 app.include_router(health.router)
 app.include_router(webhook.router)
+app.include_router(api.router)
+app.include_router(painel.router)
 
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
-    return {
-        "status": "ok",
-        "app": "Sofia",
-        "version": "0.1.0",
-        "environment": settings.environment,
-    }
+    """Raiz: leva ao painel da Thainá."""
+    return RedirectResponse("/painel/")

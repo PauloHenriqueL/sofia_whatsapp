@@ -302,45 +302,41 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - Deploy no Render
 - **Validar**: mandar msg WhatsApp → ver payload no log
 
-### Passo 2: Enviar mensagens
-- `whatsapp_client.py` com `enviar_texto(numero, texto)`
+### Passo 2: Enviar mensagens ✅
+- `whatsapp_client.py` com `enviar_texto(numero, texto)` e `enviar_template(...)`
+- Webhook responde 200 na hora e processa em BackgroundTasks (<3s)
 - Bot responde "ok, recebi: <msg>"
-- **Validar**: paciente → eco
+- **Validar**: paciente → eco (depende do desbloqueio da Meta — ver README)
 
-### Passo 3: Persistência
-- Neon + DATABASE_URL
+### Passo 3: Persistência ✅
+- Engine async portável: SQLite (aiosqlite) no dev, Postgres (asyncpg) na produção/Neon
 - Modelos SQLAlchemy (Conversa, Mensagem, Escalada)
-- Alembic migrations
-- Webhook persiste antes de responder
-- **Validar**: várias msgs → banco atualiza
+- Alembic migrations (template async, render_as_batch p/ SQLite)
+- Webhook persiste antes de responder; idempotência por whatsapp_message_id
+- **Validar**: várias msgs → banco atualiza (21 testes passando)
 
-### Passo 4: OpenAI
+### Passo 4: OpenAI ✅
 - `llm_client.py` abstrato + impl OpenAI
 - System prompt de arquivo
 - Carregar últimas 20 msgs, enviar ao LLM
 - Bot responde com texto gerado
-- **Validar**: conversa fluida em português
 
-### Passo 5: Tool calling + escalada
-- Adicionar tools `cadastrar_paciente` e `escalar_para_thaina`
-- Handlers de tool call
+### Passo 5: Tool calling + escalada ✅
+- Tools `cadastrar_paciente` e `escalar_para_thaina` + handlers + round-trip
 - Envio de template `alerta_thaina` pra Thainá
-- **Validar**: paciente "quero falar com Thainá" → escalada funciona
 
-### Passo 6: Hamilton
-- `hamilton_client.py` com buscar/criar paciente
-- Handler de tool call cadastro
-- **Validar**: cadastro end-to-end funciona
+### Passo 6: Hamilton ✅
+- `hamilton_client.py` (JWT) com buscar/criar paciente; busca-antes-de-criar
+- Endpoint REST criado no `hamilton-api` (branch `feat/api-paciente-sofia`)
 
-### Passo 7: Painel web
-- Jinja2 + HTMX (lista, conversa)
-- Endpoints `/api/conversas`, `/painel`
-- HTTP Basic Auth
-- **Validar**: Thainá assume e responde
+### Passo 7: Painel web ✅
+- Jinja2 + HTMX (lista 15s, conversa 5s)
+- Endpoints `/api/conversas`, `/painel` + HTTP Basic Auth
+- Thainá assume/responde/devolve ao bot
 
-### Passo 8: Polimento + produção
-- Refresh automático HTMX (15s lista, 5s conversa)
-- Logging estruturado
+### Passo 8: Polimento + produção (em aberto)
+- Detecção áudio→escalada automática
+- Logging sem dado sensível de paciente (LGPD)
 - Tratamento de erros (Hamilton offline, OpenAI quota)
 - Submissão template na Meta (1 semana antes go-live)
 - README + documentação

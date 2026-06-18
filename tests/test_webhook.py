@@ -332,11 +332,9 @@ class TestHealthEndpoint:
 class TestRootEndpoint:
     """Testes para root endpoint"""
 
-    def test_root(self):
-        """Deve retornar informações da app"""
+    def test_root_redireciona_pro_painel(self):
+        """A raiz redireciona para o painel da Thainá."""
         client = TestClient(app)
-        response = client.get("/")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["app"] == "Sofia"
+        response = client.get("/", follow_redirects=False)
+        assert response.status_code in (302, 307)
+        assert response.headers["location"] == "/painel/"
