@@ -36,11 +36,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS: o painel é same-origin (server-rendered) e o webhook é server-to-server
+# (Meta), então não há cliente browser cross-origin. Mantemos fechado para evitar
+# requisições credenciadas de outras origens. `*` + credentials seria inseguro.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Restringir em produção
-    allow_credentials=True,
+    allow_origins=[],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
