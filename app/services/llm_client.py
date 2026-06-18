@@ -1,14 +1,16 @@
 """Cliente LLM: interface abstrata + implementação OpenAI.
 
 Passo 4: gera respostas em texto a partir do histórico da conversa.
-Tool calling (`cadastrar_paciente`, `escalar_para_thaina`) entra no Passo 5.
+Passo 5: suporta tool calling (`cadastrar_paciente`, `escalar_para_thaina`).
 
 A interface `LLMClient` existe pra permitir trocar de provedor (OpenAI por
 Claude ou outro) sem mexer no resto da aplicação.
 """
 
+import json
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,6 +27,23 @@ class LLMError(Exception):
     """Falha ao gerar resposta no provedor LLM."""
 
 
+@dataclass
+class ToolCall:
+    """Uma chamada de ferramenta pedida pelo modelo."""
+
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class LLMResposta:
+    """Resultado de um turno do LLM: texto e/ou chamadas de ferramenta."""
+
+    texto: str | None = None
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+
 @lru_cache(maxsize=1)
 def carregar_system_prompt() -> str:
     """Lê o system prompt versionado do disco (cacheado em memória)."""
@@ -35,16 +54,21 @@ class LLMClient(ABC):
     """Interface de geração de resposta. Implementação atual: OpenAIClient."""
 
     @abstractmethod
-    async def gerar_resposta(self, historico: list[dict[str, str]]) -> str:
-        """Gera a próxima resposta da Sofia.
+    async def gerar_resposta(
+        self, historico: list[dict], tools: list[dict] | None = None
+    ) -> LLMResposta:
+        """Gera o próximo turno da Sofia.
 
         Args:
-            historico: mensagens em ordem cronológica, cada uma no formato
-                {"role": "user" | "assistant", "content": "..."}. O system
-                prompt é adicionado pela implementação, não vem no histórico.
+            historico: mensagens em ordem cronológica no formato da API
+                (role/content e, no round-trip pós-tool, também mensagens
+                'assistant' com tool_calls e 'tool' com resultados). O system
+                prompt é adicionado pela implementação.
+            tools: schemas de ferramentas (function calling). Se None, o modelo
+                só pode responder em texto.
 
         Returns:
-            Texto da resposta gerada.
+            LLMResposta com texto e/ou tool_calls.
 
         Raises:
             LLMError: se o provedor falhar ou devolver resposta vazia.
@@ -64,25 +88,43 @@ class OpenAIClient(LLMClient):
         self._client = client or AsyncOpenAI(api_key=settings.openai_api_key)
         self._temperature = temperature
 
-    async def gerar_resposta(self, historico: list[dict[str, str]]) -> str:
+    async def gerar_resposta(
+        self, historico: list[dict], tools: list[dict] | None = None
+    ) -> LLMResposta:
         mensagens = [
             {"role": "system", "content": carregar_system_prompt()},
             *historico,
         ]
+        kwargs: dict = {
+            "model": self._model,
+            "messages": mensagens,
+            "temperature": self._temperature,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
         try:
-            resposta = await self._client.chat.completions.create(
-                model=self._model,
-                messages=mensagens,
-                temperature=self._temperature,
-            )
+            resposta = await self._client.chat.completions.create(**kwargs)
         except OpenAIError as exc:
             logger.error(f"OpenAI falhou ao gerar resposta: {exc}")
             raise LLMError("Falha ao gerar resposta no OpenAI") from exc
 
-        conteudo = resposta.choices[0].message.content
-        if not conteudo or not conteudo.strip():
+        msg = resposta.choices[0].message
+        texto = (msg.content or "").strip() or None
+
+        tool_calls: list[ToolCall] = []
+        for tc in msg.tool_calls or []:
+            try:
+                argumentos = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                logger.error(f"Argumentos inválidos na tool {tc.function.name}")
+                argumentos = {}
+            tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=argumentos))
+
+        if texto is None and not tool_calls:
             raise LLMError("OpenAI retornou resposta vazia")
-        return conteudo.strip()
+        return LLMResposta(texto=texto, tool_calls=tool_calls)
 
 
 @lru_cache(maxsize=1)

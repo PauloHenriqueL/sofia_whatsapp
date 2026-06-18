@@ -1,4 +1,4 @@
-"""Webhook do WhatsApp - Passo 4: resposta gerada por LLM (OpenAI)"""
+"""Webhook do WhatsApp - Passo 5: LLM com tool calling (escalada / cadastro)"""
 
 import hashlib
 import hmac
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.database import async_session
-from app.services import conversation, llm_client, whatsapp_client
+from app.services import conversation, escalation, llm_client, tools, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -25,7 +25,7 @@ FALLBACK_RESPOSTA = (
 )
 
 # Resposta fixa para tipos sem texto (áudio/imagem/etc). A detecção de áudio
-# com escalada entra no Passo 5; por ora pedimos texto.
+# com escalada imediata é um próximo incremento; por ora pedimos texto.
 PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
 
 
@@ -106,27 +106,103 @@ def extrair_mensagens(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return mensagens
 
 
-async def gerar_resposta_bot(session, conversa) -> str:
-    """Gera a resposta do bot via LLM a partir do histórico da conversa.
+async def processar_turno_bot(session, conversa) -> str | None:
+    """Executa um turno do bot: chama o LLM (com tools), aplica as ações e
+    devolve o texto a enviar ao paciente (ou None se não há nada a enviar).
 
-    Em caso de falha do LLM, loga e devolve uma resposta de degradação para
-    não deixar o paciente sem retorno (a falha não derruba a conversa).
+    Falha do LLM cai em resposta de degradação, sem derrubar a conversa.
     """
     historico = await conversation.carregar_historico(session, conversa)
     try:
-        return await llm_client.get_llm_client().gerar_resposta(historico)
+        resp = await llm_client.get_llm_client().gerar_resposta(historico, tools=tools.TOOLS)
     except llm_client.LLMError:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
         return FALLBACK_RESPOSTA
+
+    # Conversa normal, sem ações: devolve o texto gerado.
+    if not resp.tool_calls:
+        return resp.texto
+
+    # Executa cada ferramenta e coleta os resultados pro round-trip.
+    resultados = []
+    for tc in resp.tool_calls:
+        resultado = await _executar_tool(session, conversa, tc)
+        resultados.append((tc, resultado))
+
+    # Segundo turno: devolve os resultados ao modelo pra ele gerar a fala final.
+    texto_final = await _finalizar_apos_tools(historico, resp, resultados)
+    if texto_final:
+        return texto_final
+
+    # Sem texto do modelo: usa um default seguro conforme a ação tomada.
+    if any(tc.name == tools.ESCALAR_PARA_THAINA for tc in resp.tool_calls):
+        return escalation.ESCALADA_FALLBACK
+    return resp.texto
+
+
+async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
+    """Executa uma chamada de ferramenta e devolve o resultado estruturado."""
+    if tc.name == tools.ESCALAR_PARA_THAINA:
+        motivo = tc.arguments.get("motivo", "outro")
+        if motivo not in tools.MOTIVOS_ESCALADA:
+            motivo = "outro"
+        contexto = tc.arguments.get("contexto")
+        await escalation.registrar_escalada(session, conversa, motivo, contexto)
+        alertada = await escalation.alertar_thaina(conversa, motivo)
+        return {"status": "escalado", "thaina_alertada": alertada}
+
+    if tc.name == tools.CADASTRAR_PACIENTE:
+        # Passo 5: guarda os dados coletados; o POST no Hamilton entra no Passo 6.
+        conversa.dados_coletados = {**(conversa.dados_coletados or {}), **tc.arguments}
+        conversa.estado = "cadastro_pendente"
+        await session.flush()
+        return {"status": "dados_recebidos", "cadastro": "pendente"}
+
+    logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
+    return {"status": "desconhecida"}
+
+
+async def _finalizar_apos_tools(historico, resp, resultados) -> str | None:
+    """Round-trip: reenvia ao modelo os resultados das tools pra fala final."""
+    assistant_msg = {
+        "role": "assistant",
+        "content": resp.texto or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                },
+            }
+            for tc, _ in resultados
+        ],
+    }
+    tool_msgs = [
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": json.dumps(res, ensure_ascii=False),
+        }
+        for tc, res in resultados
+    ]
+    mensagens = [*historico, assistant_msg, *tool_msgs]
+    try:
+        final = await llm_client.get_llm_client().gerar_resposta(mensagens)
+        return final.texto
+    except llm_client.LLMError:
+        logger.error("LLM falhou no round-trip pós-tool")
+        return None
 
 
 async def processar_payload(payload: dict[str, Any]) -> None:
     """Processa o payload do webhook em background.
 
-    Passo 4: persiste conversa e mensagem (com idempotência) e, quando a
-    conversa está em modo bot, gera a resposta via LLM. Em modo humano apenas
-    persiste (o painel da Thainá cuida da resposta). Tipos sem texto recebem
-    uma mensagem fixa pedindo texto (áudio com escalada vem no Passo 5).
+    Persiste conversa e mensagem (com idempotência) e, quando a conversa está
+    em modo bot, gera a resposta via LLM (que pode disparar tools: escalada ou
+    cadastro). Em modo humano apenas persiste (o painel da Thainá cuida da
+    resposta). Tipos sem texto recebem uma mensagem fixa pedindo texto.
     """
     for mensagem in extrair_mensagens(payload):
         numero = mensagem.get("from")
@@ -166,11 +242,15 @@ async def processar_payload(payload: dict[str, Any]) -> None:
                 continue
 
             if tipo == "text":
-                resposta = await gerar_resposta_bot(session, conversa)
+                resposta = await processar_turno_bot(session, conversa)
             else:
                 resposta = PEDIR_TEXTO
 
             await session.commit()
+
+            # Pode não haver texto a enviar (ex.: round-trip sem fala final).
+            if resposta is None:
+                continue
 
             enviado = False
             try:

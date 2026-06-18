@@ -160,9 +160,31 @@ class _FakeLLM:
         self.resposta = resposta
         self.historicos: list[list[dict]] = []
 
-    async def gerar_resposta(self, historico):
+    async def gerar_resposta(self, historico, tools=None):
         self.historicos.append(historico)
-        return self.resposta
+        return llm_client.LLMResposta(texto=self.resposta)
+
+
+class _FakeLLMComTool:
+    """Primeiro turno pede escalada; segundo turno (round-trip) dá a fala final."""
+
+    def __init__(self, texto_final="Vou chamar a Thainá pra você. 🩵"):
+        self.texto_final = texto_final
+        self.chamadas = 0
+
+    async def gerar_resposta(self, historico, tools=None):
+        self.chamadas += 1
+        if self.chamadas == 1:
+            return llm_client.LLMResposta(
+                tool_calls=[
+                    llm_client.ToolCall(
+                        id="call_1",
+                        name="escalar_para_thaina",
+                        arguments={"motivo": "pedido_humano"},
+                    )
+                ],
+            )
+        return llm_client.LLMResposta(texto=self.texto_final)
 
 
 class TestProcessarPayload:
@@ -182,9 +204,40 @@ class TestProcessarPayload:
         assert fake.historicos[0][-1] == {"role": "user", "content": "oi"}
 
     @pytest.mark.asyncio
+    async def test_escala_para_thaina(self, db_em_memoria):
+        """Tool escalar_para_thaina: marca humano, alerta a Thainá, responde."""
+        fake = _FakeLLMComTool()
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_texto, patch(
+            "app.services.escalation.whatsapp_client.enviar_template",
+            new_callable=AsyncMock,
+        ) as mock_template, patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=fake
+        ):
+            await processar_payload(
+                _payload_texto(
+                    numero="5531977776666",
+                    texto="quero falar com uma pessoa",
+                    msg_id="wamid.esc",
+                )
+            )
+
+        mock_template.assert_awaited_once()
+        mock_texto.assert_awaited_once()
+        _, texto = mock_texto.await_args.args
+        assert texto == fake.texto_final
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531977776666")
+            assert conversa.modo == "humano"
+            assert conversa.estado == "escalado"
+
+    @pytest.mark.asyncio
     async def test_llm_falha_usa_fallback(self, db_em_memoria):
         class _LLMQuebra:
-            async def gerar_resposta(self, historico):
+            async def gerar_resposta(self, historico, tools=None):
                 raise llm_client.LLMError("boom")
 
         with patch(

@@ -12,6 +12,7 @@ def _resposta_openai(conteudo):
     """Monta um objeto no formato da resposta de chat.completions.create."""
     msg = MagicMock()
     msg.content = conteudo
+    msg.tool_calls = None
     choice = MagicMock()
     choice.message = msg
     resp = MagicMock()
@@ -37,7 +38,7 @@ class TestOpenAIClient:
 
         resposta = await client.gerar_resposta([{"role": "user", "content": "oi"}])
 
-        assert resposta == "Oi, sou a Sofia."
+        assert resposta.texto == "Oi, sou a Sofia."
         kwargs = fake_client.chat.completions.create.await_args.kwargs
         assert kwargs["model"] == "gpt-test"
         assert kwargs["messages"][0]["role"] == "system"
