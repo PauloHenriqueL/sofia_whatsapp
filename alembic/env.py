@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from app.config import settings
-from app.database import Base, _async_url
+from app.database import Base, _async_url, _connect_args
 
 # Importa os modelos para que fiquem registrados no metadata (autogenerate).
 from app import models  # noqa: F401
@@ -81,6 +81,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=_connect_args(config.get_main_option("sqlalchemy.url")),
     )
 
     async with connectable.connect() as connection:
