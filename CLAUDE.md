@@ -99,6 +99,80 @@ Para:
 
 ---
 
+## 🧩 Como adicionar novas funcionalidades (roteiro)
+
+A Sofia é um bot que **conversa via LLM** e **age através de ferramentas**
+(function calling). Quase toda funcionalidade nova é uma **nova ferramenta**
+que o modelo aprende a chamar na hora certa (como `cadastrar_paciente` e
+`escalar_para_thaina`). Algumas são automáticas (ex.: áudio → escala) ou de
+painel (ex.: lista de cadastrados). Este roteiro existe pra agilizar essas
+conversas.
+
+### 1. Você me especifica a função
+
+Não precisa ser formal. Quanto mais claro, melhor. Tente cobrir:
+
+1. **Objetivo** — o que faz, em uma frase.
+   Ex.: "Quando o paciente já tem consulta marcada no Hamilton, pedir o
+   comprovante de pagamento."
+2. **Gatilho** — o que dispara? O paciente pede? A Sofia percebe na conversa?
+   Roda sozinho em algum momento?
+3. **Dados/sistemas** — precisa consultar o Hamilton? Outra API? Qual
+   informação ela usa ou grava?
+4. **O que a Sofia faz e diz** — a ação concreta e o tom da resposta.
+5. **Casos de borda** — e se não houver consulta? Se já pagou? Quando escalar
+   pra Thainá?
+6. **Credenciais novas (se você já souber)** — alguma API, login ou token novo?
+
+### 2. Eu (Claude) implemento nos lugares certos
+
+- **`app/services/tools.py`** — defino a ferramenta (nome + campos). Regra de
+  ouro: **só o essencial como obrigatório**, pra não forçar o modelo a inventar
+  dado (foi o que quebrou o cadastro da Maria com `"[SEU_NÚMERO]"`).
+- **`app/routers/webhook.py`** (`_executar_tool`) — ligo o nome da ferramenta
+  ao código que executa a ação.
+- **`app/services/<novo>.py`** — a regra de negócio de verdade (fica no
+  serviço, não no router).
+- **`app/services/hamilton_client.py`** (ou um cliente novo) — se a função fala
+  com o Hamilton ou outra API, o acesso vai aqui.
+- **`app/prompts/sofia_v01.txt`** — ensino a Sofia **quando** e **como** usar a
+  ferramenta. Sem isso o modelo não usa direito.
+- **`app/config.py`** — se precisar de credencial/URL nova, adiciono a
+  configuração (e te digo o nome exato da variável).
+- **`tests/test_<novo>.py`** — testes pra garantir que funciona.
+
+Rodo os testes e **sempre te falo, no final, o que falta você fazer do lado de
+fora** (a parte que eu não consigo sozinho).
+
+### 3. O que VOCÊ talvez precise providenciar
+
+Depende da função. Os casos comuns:
+
+- **Credencial/API nova** (ex.: gateway de pagamento) → você pega a key e
+  coloca nas **Env Vars do Render** (e me passa pra eu testar no dev). Eu te
+  digo o nome exato da variável.
+- **Dado que o Hamilton ainda não expõe** → o Hamilton é outro sistema (repo
+  `hamilton-api`). Se a Sofia precisa de algo que a API dele não tem (ex.:
+  "listar consultas marcadas de um paciente"), alguém precisa **criar esse
+  endpoint lá primeiro**. Eu te aviso e posso ajudar a fazer.
+- **Mensagem proativa fora da conversa** (a Sofia falar com o paciente sem ele
+  ter escrito nas últimas 24h) → exige um **template aprovado pela Meta**, que
+  demora pra aprovar. Eu monto, você submete e espera a aprovação.
+- **Receber arquivo/imagem** (ex.: comprovante) → hoje a Sofia só lê texto;
+  imagem e áudio têm tratamento próprio. Se a função depende de receber
+  arquivo, eu te explico o que muda.
+- **Decisões de regra** — quando escalar, o que fazer em caso ambíguo. Melhor
+  combinar antes.
+
+### 4. Depois de pronto
+
+`git commit` + `git push` → o Render redeploya sozinho. Credencial nova é a
+única coisa que você mexe **no painel do Render** (Environment), não no código.
+Configs simples do dia a dia (preço, frases prontas, etc.) você mesmo altera —
+peça que eu te lembro onde fica cada uma.
+
+---
+
 ## 📊 Arquitetura Rápida
 
 ```
