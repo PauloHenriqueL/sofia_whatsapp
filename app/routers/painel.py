@@ -9,14 +9,14 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import autenticar, get_db, verificar_origem
+from app.dependencies import get_db, requer_login_pagina, verificar_origem
 from app.services import painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/painel",
     tags=["painel"],
-    dependencies=[Depends(autenticar), Depends(verificar_origem)],
+    dependencies=[Depends(requer_login_pagina), Depends(verificar_origem)],
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))

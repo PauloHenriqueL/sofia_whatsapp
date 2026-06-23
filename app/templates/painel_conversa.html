@@ -1,37 +1,46 @@
 {% extends "base.html" %}
 {% block titulo %}Conversa · Sofia{% endblock %}
-{% block conteudo %}
-<header>
-  <a href="/painel/">← Voltar</a>
-  <hgroup>
-    <h3>{{ (conversa.dados_coletados or {}).get('nome_completo') or conversa.numero_whatsapp }}</h3>
-    <p>
-      {{ conversa.numero_whatsapp }} ·
-      {% if conversa.modo == 'humano' %}<mark>modo humano</mark>{% else %}modo bot{% endif %} ·
-      estado: {{ conversa.estado }}
-    </p>
-  </hgroup>
-  {% if conversa.modo == 'humano' %}
-    <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot">
-      <button type="submit" class="secondary">Devolver ao bot</button>
-    </form>
-  {% else %}
-    <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir">
-      <button type="submit">Assumir conversa</button>
-    </form>
-  {% endif %}
-</header>
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app" style="max-width:780px">
+  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar</a>
 
-<article id="mensagens"
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <h1 style="font-size:23px">{{ (conversa.dados_coletados or {}).get('nome_completo') or conversa.numero_whatsapp }}</h1>
+      <div class="subtitle">
+        {{ conversa.numero_whatsapp }} ·
+        {% if conversa.modo == 'humano' %}<span class="badge badge-humano">modo humano</span>
+        {% else %}<span class="badge">modo bot</span>{% endif %}
+        · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado }}</span>
+      </div>
+    </div>
+    {% if conversa.modo == 'humano' %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
+        <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
+      </form>
+    {% else %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir" style="margin:0">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-person-raised-hand"></i> Assumir conversa</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div id="mensagens" class="chat"
          hx-get="/painel/conversas/{{ conversa.id }}/fragment/mensagens"
          hx-trigger="every 5s" hx-swap="innerHTML">
-  {% include "_mensagens_fragment.html" %}
-</article>
+      {% include "_mensagens_fragment.html" %}
+    </div>
+  </div>
 
-<form hx-post="/painel/conversas/{{ conversa.id }}/responder"
-      hx-target="#mensagens" hx-swap="innerHTML"
-      hx-on::after-request="this.reset()">
-  <textarea name="texto" rows="2" placeholder="Escreva a resposta para o paciente..." required></textarea>
-  <button type="submit">Enviar</button>
-</form>
+  <form class="card" style="margin-top:14px; padding:12px; display:flex; gap:10px; align-items:flex-end"
+        hx-post="/painel/conversas/{{ conversa.id }}/responder"
+        hx-target="#mensagens" hx-swap="innerHTML"
+        hx-on::after-request="this.reset()">
+    <textarea name="texto" class="input" rows="2" required
+              placeholder="Escreva a resposta para o paciente..." style="flex:1"></textarea>
+    <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar</button>
+  </form>
+</div>
 {% endblock %}

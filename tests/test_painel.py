@@ -1,4 +1,4 @@
-"""Testes do painel da Thainá (API interna + páginas HTML). Passo 7."""
+"""Testes do painel da Thainá: login por sessão, API, páginas e CSRF."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -13,8 +13,6 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Mensagem
-
-AUTH = (settings.painel_user, settings.painel_password)
 
 
 @pytest_asyncio.fixture
@@ -37,6 +35,14 @@ async def ambiente():
     await engine.dispose()
 
 
+async def _login(client):
+    resp = await client.post(
+        "/login",
+        data={"usuario": settings.painel_user, "senha": settings.painel_password},
+    )
+    assert resp.status_code == 303
+
+
 async def _seed_conversa(maker, numero="5531999998888", modo="bot"):
     async with maker() as s:
         c = Conversa(numero_whatsapp=numero, modo=modo, estado="novo")
@@ -55,26 +61,48 @@ async def _seed_conversa(maker, numero="5531999998888", modo="bot"):
         return c.id
 
 
+class TestLogin:
+    @pytest.mark.asyncio
+    async def test_pagina_login_abre(self, ambiente):
+        client, _ = ambiente
+        resp = await client.get("/login")
+        assert resp.status_code == 200
+        assert "Allos" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_login_invalido(self, ambiente):
+        client, _ = ambiente
+        resp = await client.post("/login", data={"usuario": "x", "senha": "y"})
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_login_valido(self, ambiente):
+        client, _ = ambiente
+        await _login(client)
+
+
 class TestAuth:
     @pytest.mark.asyncio
-    async def test_api_exige_autenticacao(self, ambiente):
+    async def test_api_exige_login(self, ambiente):
         client, _ = ambiente
         resp = await client.get("/api/conversas/")
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_painel_exige_autenticacao(self, ambiente):
+    async def test_painel_sem_login_redireciona(self, ambiente):
         client, _ = ambiente
         resp = await client.get("/painel/")
-        assert resp.status_code == 401
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/login"
 
 
 class TestListaEDetalhe:
     @pytest.mark.asyncio
     async def test_lista_conversas(self, ambiente):
         client, maker = ambiente
+        await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/api/conversas/", auth=AUTH)
+        resp = await client.get("/api/conversas/")
         assert resp.status_code == 200
         dados = resp.json()
         assert len(dados) == 1
@@ -84,8 +112,9 @@ class TestListaEDetalhe:
     @pytest.mark.asyncio
     async def test_painel_html_renderiza(self, ambiente):
         client, maker = ambiente
+        await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/painel/", auth=AUTH)
+        resp = await client.get("/painel/")
         assert resp.status_code == 200
         assert "Conversas" in resp.text
         assert "5531999998888" in resp.text
@@ -95,6 +124,7 @@ class TestAcoes:
     @pytest.mark.asyncio
     async def test_responder_envia_e_persiste(self, ambiente):
         client, maker = ambiente
+        await _login(client)
         cid = await _seed_conversa(maker)
         with patch(
             "app.services.painel.whatsapp_client.enviar_texto", new_callable=AsyncMock
@@ -102,7 +132,6 @@ class TestAcoes:
             resp = await client.post(
                 f"/api/conversas/{cid}/responder/",
                 json={"texto": "Oi, aqui é a Thainá"},
-                auth=AUTH,
             )
         assert resp.status_code == 200
         mock_enviar.assert_awaited_once_with("5531999998888", "Oi, aqui é a Thainá")
@@ -117,14 +146,15 @@ class TestAcoes:
     @pytest.mark.asyncio
     async def test_assumir_e_devolver(self, ambiente):
         client, maker = ambiente
+        await _login(client)
         cid = await _seed_conversa(maker, modo="bot")
 
-        resp = await client.post(f"/api/conversas/{cid}/assumir/", auth=AUTH)
+        resp = await client.post(f"/api/conversas/{cid}/assumir/")
         assert resp.status_code == 200
         async with maker() as s:
             assert (await s.get(Conversa, cid)).modo == "humano"
 
-        resp = await client.post(f"/api/conversas/{cid}/devolver-bot/", auth=AUTH)
+        resp = await client.post(f"/api/conversas/{cid}/devolver-bot/")
         assert resp.status_code == 200
         async with maker() as s:
             assert (await s.get(Conversa, cid)).modo == "bot"
@@ -133,12 +163,12 @@ class TestAcoes:
 class TestCSRF:
     @pytest.mark.asyncio
     async def test_post_de_outra_origem_e_rejeitado(self, ambiente):
-        """POST cross-site (Origin de outro host) é bloqueado mesmo com auth."""
+        """Mesmo logado, POST cross-site (Origin de outro host) é bloqueado."""
         client, maker = ambiente
+        await _login(client)
         cid = await _seed_conversa(maker)
         resp = await client.post(
             f"/api/conversas/{cid}/assumir/",
-            auth=AUTH,
             headers={"Origin": "http://site-malicioso.example"},
         )
         assert resp.status_code == 403

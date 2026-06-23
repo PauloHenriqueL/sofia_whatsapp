@@ -1,4 +1,4 @@
-<table>
+<table class="table">
   <thead>
     <tr>
       <th>Número</th>
@@ -11,16 +11,24 @@
   </thead>
   <tbody>
     {% for c in conversas %}
-    <tr onclick="window.location='/painel/conversas/{{ c.id }}/'" style="cursor:pointer">
-      <td>{{ c.numero_whatsapp }}</td>
+    <tr onclick="window.location='/painel/conversas/{{ c.id }}/'">
+      <td style="font-weight:600">{{ c.numero_whatsapp }}</td>
       <td>{{ c.nome or '—' }}</td>
-      <td>{% if c.modo == 'humano' %}<mark>humano</mark>{% else %}bot{% endif %}</td>
-      <td>{{ c.estado }}</td>
-      <td>{{ c.preview or '' }}</td>
-      <td>{{ c.atualizada_em | desde }}</td>
+      <td>
+        {% if c.modo == 'humano' %}<span class="badge badge-humano">humano</span>
+        {% else %}<span class="badge">bot</span>{% endif %}
+      </td>
+      <td><span class="badge badge-{{ c.estado }}">{{ c.estado }}</span></td>
+      <td class="muted">{{ c.preview or '' }}</td>
+      <td class="muted">{{ c.atualizada_em | desde }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="6">Nenhuma conversa por aqui.</td></tr>
+    <tr>
+      <td colspan="6" class="empty">
+        <i class="bi bi-chat-dots"></i>
+        Nenhuma conversa por aqui ainda.
+      </td>
+    </tr>
     {% endfor %}
   </tbody>
 </table>

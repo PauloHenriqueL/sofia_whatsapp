@@ -11,10 +11,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logging_config import configurar_logging
-from app.routers import api, health, painel, webhook
+from app.routers import api, auth, health, painel, webhook
 
 configurar_logging()
 logger = logging.getLogger(__name__)
@@ -53,6 +54,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Sessão do painel (cookie assinado). https_only só em produção (dev é http).
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    https_only=_producao,
+    same_site="lax",
+)
+
 # Arquivos estáticos do painel (css)
 app.mount(
     "/static",
@@ -63,6 +72,7 @@ app.mount(
 # Rotas
 app.include_router(health.router)
 app.include_router(webhook.router)
+app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(painel.router)
 

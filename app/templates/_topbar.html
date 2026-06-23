@@ -1,0 +1,12 @@
+<div class="topbar">
+  <a href="/painel/" class="brand">
+    <span class="logo">a</span>
+    <span>Allos <small>· Sofia</small></span>
+  </a>
+  <div class="topbar-right">
+    <span class="muted"><i class="bi bi-person-circle"></i> {{ request.session.usuario }}</span>
+    <form method="post" action="/logout" style="margin:0">
+      <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-box-arrow-right"></i> Sair</button>
+    </form>
+  </div>
+</div>

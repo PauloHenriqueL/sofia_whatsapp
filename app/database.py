@@ -33,9 +33,7 @@ def _async_url(url: str) -> str:
         return url
 
     partes = urlsplit(url)
-    query = [
-        (k, v) for k, v in parse_qsl(partes.query) if k not in _PARAMS_INCOMPATIVEIS
-    ]
+    query = [(k, v) for k, v in parse_qsl(partes.query) if k not in _PARAMS_INCOMPATIVEIS]
     return urlunsplit(partes._replace(query=urlencode(query)))
 
 

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar · Sofia{% endblock %}
+{% block corpo %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">a</div>
+    <h1>Allos · Sofia</h1>
+    <div class="subtitle">Painel de atendimento</div>
+
+    {% if erro %}
+    <div class="login-error"><i class="bi bi-exclamation-circle"></i> {{ erro }}</div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <div class="login-field">
+        <label>Usuário</label>
+        <input class="input" name="usuario" autocomplete="username" required autofocus>
+      </div>
+      <div class="login-field">
+        <label>Senha</label>
+        <input class="input" type="password" name="senha" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" type="submit"><i class="bi bi-box-arrow-in-right"></i> Entrar</button>
+    </form>
+
+    <div class="login-foot">Associação Allos · clínica-escola de psicologia</div>
+  </div>
+</div>
+{% endblock %}

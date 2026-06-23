@@ -1,24 +1,20 @@
-"""Dependências compartilhadas: autenticação do painel e sessão de banco."""
+"""Dependências compartilhadas: autenticação (sessão), CSRF e sessão de banco."""
 
 import secrets
 from urllib.parse import urlparse
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import HTTPException, Request, status
 
 from app.config import settings
 from app.database import get_db  # noqa: F401 (reexport p/ conveniência dos routers)
-
-_security = HTTPBasic()
 
 
 def verificar_origem(request: Request) -> None:
     """Defesa contra CSRF: se houver header Origin, ele tem que bater com o host.
 
-    Funciona com Basic Auth (sem sessão/cookie): um POST cross-site disparado por
-    um site malicioso sempre carrega Origin da origem atacante, que não bate com
-    o host do painel e é rejeitado. Requisições sem Origin (navegação direta,
-    clientes não-browser) passam — o ataque CSRF via browser sempre tem Origin.
+    Um POST cross-site disparado por outro site sempre carrega o Origin da origem
+    atacante, que não bate com o host do painel e é rejeitado. Requisições sem
+    Origin (navegação direta, clientes não-browser) passam.
     """
     origin = request.headers.get("origin")
     if not origin:
@@ -29,19 +25,24 @@ def verificar_origem(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origem inválida")
 
 
-def autenticar(
-    credentials: HTTPBasicCredentials = Depends(_security),
-) -> str:
-    """HTTP Basic Auth do painel. Compara usuário e senha em tempo constante.
+def credenciais_validas(usuario: str, senha: str) -> bool:
+    """Compara usuário e senha do painel em tempo constante (timing-safe)."""
+    usuario_ok = secrets.compare_digest(usuario, settings.painel_user)
+    senha_ok = secrets.compare_digest(senha, settings.painel_password)
+    return usuario_ok and senha_ok
 
-    Substituir por algo melhor pós-MVP (ver sofia_briefing.md).
-    """
-    usuario_ok = secrets.compare_digest(credentials.username, settings.painel_user)
-    senha_ok = secrets.compare_digest(credentials.password, settings.painel_password)
-    if not (usuario_ok and senha_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais inválidas",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+
+def requer_login_pagina(request: Request) -> str:
+    """Páginas HTML: redireciona pro /login se não estiver autenticado."""
+    usuario = request.session.get("usuario")
+    if not usuario:
+        raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
+    return usuario
+
+
+def requer_login_api(request: Request) -> str:
+    """API JSON: responde 401 se não estiver autenticado."""
+    usuario = request.session.get("usuario")
+    if not usuario:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado")
+    return usuario

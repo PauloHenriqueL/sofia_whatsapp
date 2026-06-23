@@ -1,27 +1,32 @@
 {% extends "base.html" %}
 {% block titulo %}Conversas · Sofia{% endblock %}
-{% block conteudo %}
-<header>
-  <hgroup>
-    <h2>Conversas</h2>
-    <p>Painel de atendimento da Allos</p>
-  </hgroup>
-  <nav>
-    {% set filtros = [
-      ('todas', 'Todas'),
-      ('humano', 'Em modo humano'),
-      ('escalada', 'Em escalada'),
-      ('cadastradas_hoje', 'Cadastradas hoje')
-    ] %}
-    {% for chave, rotulo in filtros %}
-      <a role="button" href="/painel/?filtro={{ chave }}"
-         class="{{ '' if filtro == chave else 'secondary outline' }}">{{ rotulo }}</a>
-    {% endfor %}
-  </nav>
-</header>
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app">
+  <div class="page-head">
+    <div>
+      <h1>Conversas</h1>
+      <div class="subtitle">Atendimentos da Sofia no WhatsApp</div>
+    </div>
+  </div>
 
-<div hx-get="/painel/fragment/conversas?filtro={{ filtro }}"
-     hx-trigger="every 15s" hx-swap="innerHTML">
-  {% include "_conversas_fragment.html" %}
+  <div class="filters">
+    {% set filtros = [
+      ('todas', 'Todas', 'bi-collection'),
+      ('humano', 'Em modo humano', 'bi-person-raised-hand'),
+      ('escalada', 'Em escalada', 'bi-exclamation-triangle'),
+      ('cadastradas_hoje', 'Cadastradas hoje', 'bi-check2-circle')
+    ] %}
+    {% for chave, rotulo, icone in filtros %}
+      <a class="chip {{ 'active' if filtro == chave else '' }}" href="/painel/?filtro={{ chave }}">
+        <i class="bi {{ icone }}"></i> {{ rotulo }}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="card" hx-get="/painel/fragment/conversas?filtro={{ filtro }}"
+       hx-trigger="every 15s" hx-swap="innerHTML">
+    {% include "_conversas_fragment.html" %}
+  </div>
 </div>
 {% endblock %}

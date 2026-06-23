@@ -4,5 +4,5 @@
     <p>{{ m.texto if m.texto else '[' ~ m.tipo ~ ']' }}</p>
   </div>
 {% else %}
-  <p>Sem mensagens ainda.</p>
+  <div class="empty">Sem mensagens ainda.</div>
 {% endfor %}
