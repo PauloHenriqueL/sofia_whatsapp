@@ -35,13 +35,13 @@ TOOLS = [
                     "preferencia_terapeuta": {"type": "string"},
                     "motivo_busca": {"type": "string"},
                 },
+                # Mínimo pra registrar um lead. O resto a Thainá completa depois
+                # no Hamilton (botão "Completar" no painel). Mantido alinhado ao
+                # prompt: não forçar o modelo a inventar endereço/telefone/horário
+                # só pra satisfazer o schema (era a origem do bug do "[SEU_NÚMERO]").
                 "required": [
                     "nome_completo",
                     "data_nascimento",
-                    "telefone_contato",
-                    "telefone_apoio",
-                    "endereco",
-                    "horarios_disponiveis",
                 ],
             },
         },

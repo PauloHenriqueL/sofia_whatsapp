@@ -22,9 +22,11 @@ def _resposta_openai(conteudo):
 
 class TestCarregarSystemPrompt:
     def test_carrega_prompt_da_sofia(self):
+        # Checagem estável (identidade), não atrelada à redação do tom, que a
+        # equipe ajusta com frequência no prompt.
         prompt = llm_client.carregar_system_prompt()
         assert "Sofia" in prompt
-        assert "NUNCA use travessões" in prompt
+        assert "Allos" in prompt
 
 
 class TestOpenAIClient:
