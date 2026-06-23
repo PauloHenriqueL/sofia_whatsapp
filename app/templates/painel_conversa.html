@@ -15,15 +15,22 @@
         · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado }}</span>
       </div>
     </div>
-    {% if conversa.modo == 'humano' %}
-      <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
-        <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
-      </form>
-    {% else %}
-      <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir" style="margin:0">
-        <button class="btn btn-primary" type="submit"><i class="bi bi-person-raised-hand"></i> Assumir conversa</button>
-      </form>
-    {% endif %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      {% if conversa.estado == 'cadastro_pendente' %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/cadastrar" style="margin:0">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-clipboard-plus"></i> Cadastrar no Hamilton</button>
+        </form>
+      {% endif %}
+      {% if conversa.modo == 'humano' %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
+        </form>
+      {% else %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir" style="margin:0">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-person-raised-hand"></i> Assumir conversa</button>
+        </form>
+      {% endif %}
+    </div>
   </div>
 
   <div class="card">

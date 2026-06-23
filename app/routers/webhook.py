@@ -12,14 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.database import async_session
-from app.services import (
-    conversation,
-    escalation,
-    hamilton_client,
-    llm_client,
-    tools,
-    whatsapp_client,
-)
+from app.services import cadastro, conversation, escalation, llm_client, tools, whatsapp_client
 from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
@@ -174,31 +167,10 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         return {"status": "escalado", "thaina_alertada": alertada}
 
     if tc.name == tools.CADASTRAR_PACIENTE:
-        # Guarda os dados coletados e cadastra no Hamilton (buscar antes de criar).
+        # Mescla os dados coletados e delega pro serviço de cadastro (que garante
+        # um telefone válido e faz busca-antes-de-criar no Hamilton).
         conversa.dados_coletados = {**(conversa.dados_coletados or {}), **tc.arguments}
-        client = hamilton_client.get_hamilton_client()
-        try:
-            existentes = await client.buscar_paciente_por_telefone(
-                tc.arguments.get("telefone_contato")
-            )
-            if existentes:
-                pid = existentes[0].get("pk_paciente")
-                conversa.paciente_hamilton_id = pid
-                conversa.estado = "cadastrado"
-                await session.flush()
-                return {"status": "ja_cadastrado", "paciente_id": pid}
-
-            criado = await client.criar_paciente(tc.arguments)
-            conversa.paciente_hamilton_id = criado.get("pk_paciente")
-            conversa.estado = "cadastrado"
-            await session.flush()
-            return {"status": "cadastrado", "paciente_id": conversa.paciente_hamilton_id}
-        except hamilton_client.HamiltonError:
-            # Hamilton indisponível: não derruba a conversa; Thainá cadastra manual.
-            logger.error(f"Hamilton falhou no cadastro da conversa {conversa.id}")
-            conversa.estado = "cadastro_pendente"
-            await session.flush()
-            return {"status": "cadastro_pendente"}
+        return await cadastro.cadastrar_paciente(session, conversa)
 
     logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
     return {"status": "desconhecida"}

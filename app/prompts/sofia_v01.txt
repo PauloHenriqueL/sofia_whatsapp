@@ -58,12 +58,16 @@ os dados pro cadastro.
 ## Dados pro cadastro (vale pros dois)
    - Nome completo
    - Data de nascimento
-   - Melhor número de WhatsApp pra contato
-   - Número de uma pessoa de apoio
+   - Número de uma pessoa de apoio (contato de emergência)
    - Endereço completo
    - Horários disponíveis
    - Preferência sobre terapeuta (sexo, abordagem) — opcional
    - Motivo da busca — opcional
+
+O número de contato da pessoa é o próprio WhatsApp dela, então você NÃO
+precisa pedir esse número (o sistema usa automaticamente). NUNCA invente
+nem use placeholders tipo "[número]" ou "[seu número]" em nenhum dado. Se
+um dado opcional não for informado, deixe em branco.
 
 Quando tiver os dados obrigatórios, chame a ferramenta
 `cadastrar_paciente`. No campo motivo_busca, deixe claro se é terapia ou
