@@ -178,14 +178,35 @@ Variáveis de ambiente no dashboard do Render (todas as vars do `.env.example`).
 - **Erros**: handler global loga stack trace e responde 500 genérico; falhas de OpenAI/Hamilton/Cloud API já degradam sem derrubar a conversa.
 - **Deploy**: [`render.yaml`](render.yaml) (build com `alembic upgrade head`, start Uvicorn, health check `/health`, segredos via dashboard).
 
-- **45 testes passando** no total.
+**Extra — Painel repaginado**
+- Identidade visual do Hamilton (Allos Design System): paleta teal `#2E9E8F`, fontes Fraunces/DM Sans, Bootstrap Icons, cards e badges ([`app/static/allos.css`](app/static/allos.css)).
+- **Tela de login** própria (no lugar do popup Basic Auth) com **sessão por cookie assinado** ([`app/routers/auth.py`](app/routers/auth.py)).
+- **52 testes passando** no total.
 
-### ⚠️ Estado operacional (Meta / integrações)
-- `WHATSAPP_PHONE_NUMBER_ID` do número de **teste**: `1135643296298652`.
-- Verificação da empresa na Meta: **aprovada** ✅.
-- Falta um **número de telefone dedicado** (a comprar) e aprovar o template `alerta_thaina` para o WhatsApp ir ao ar.
-- Faltam credenciais reais (placeholders no `.env`): **OpenAI API key** e **usuário JWT do Hamilton** (`HAMILTON_USERNAME`/`HAMILTON_PASSWORD`).
-- O desenvolvimento **não depende** dessas liberações: tudo é testável com mocks; o modo ao vivo é só plugar as credenciais.
+---
+
+## 🟢 Status de produção (go-live em andamento)
+
+| Peça | Status |
+|---|---|
+| Sofia no ar (Render) | ✅ **https://sofia-whatsapp.onrender.com** |
+| Banco Postgres (Neon) | ✅ tabelas criadas |
+| Integração Hamilton (cadastro) | ✅ endpoints no ar + usuário `sofia-bot` (validado) |
+| WhatsApp (token, número, app secret) | ✅ número real registrado (`+55 31 8667-3359`) |
+| OpenAI key | ✅ (confirmar **crédito/saldo** na conta) |
+| Painel + login | ✅ `https://sofia-whatsapp.onrender.com/` (login `thaina`) |
+| **Webhook na Meta** | ⏳ configurar Callback + assinar `messages` |
+| **Publicar o app na Meta** | ⏳ pra receber msgs de qualquer paciente |
+| **Template `alerta_thaina`** | ⏳ submeter (aprovação 24–72h) |
+
+> Variáveis de produção ficam em `render.env` (gitignored) e nas Env Vars do Render.
+> O `.env` local segue em SQLite para desenvolvimento.
+
+### Próximos passos pro go-live
+1. Na Meta: **WhatsApp → Configuração → Webhooks** → Callback `https://sofia-whatsapp.onrender.com/webhook/whatsapp` + verify token → **assinar `messages`**.
+2. **Publicar o app** na Meta (modo Live) para receber mensagens de qualquer número.
+3. Submeter o template **`alerta_thaina`** (Utility, pt_BR) — necessário pros alertas de escalada.
+4. Confirmar **crédito na OpenAI** (senão a Sofia cai na mensagem de fallback).
 
 ---
 

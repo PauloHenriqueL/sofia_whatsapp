@@ -339,8 +339,15 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - Logging seguro (LGPD: sem conteúdo de mensagem) + estruturado (JSON no prod)
 - Handler global de erro 500 + degradação graciosa (OpenAI/Hamilton/Cloud API)
 - `render.yaml` (build com `alembic upgrade head`, health check `/health`)
-- **Falta só (manual/go-live)**: comprar número, submeter template `alerta_thaina`
-  na Meta, e plugar credenciais reais (OpenAI key, usuário JWT do Hamilton)
+- Painel repaginado (design do Hamilton) + tela de login por sessão
+
+### Status de produção (go-live em andamento)
+- **No ar**: https://sofia-whatsapp.onrender.com (Render). Login painel: `thaina`.
+- **Neon** Postgres com tabelas criadas; **Hamilton** integrado (usuário `sofia-bot`, validado).
+- **Número real** registrado na Meta (`+55 31 8667-3359`); credenciais nas Env Vars do Render
+  (e em `render.env`, gitignored).
+- **Falta (manual)**: configurar o webhook na Meta + assinar `messages`, publicar o app,
+  submeter o template `alerta_thaina`, e garantir crédito na OpenAI. Ver `DEPLOY.md`.
 
 ---
 
