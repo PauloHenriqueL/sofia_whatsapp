@@ -15,7 +15,8 @@
       ('todas', 'Todas', 'bi-collection'),
       ('humano', 'Em modo humano', 'bi-person-raised-hand'),
       ('escalada', 'Em escalada', 'bi-exclamation-triangle'),
-      ('cadastradas_hoje', 'Cadastradas hoje', 'bi-check2-circle')
+      ('cadastradas_hoje', 'Cadastradas hoje', 'bi-check2-circle'),
+      ('cadastrados', 'Cadastrados', 'bi-person-check')
     ] %}
     {% for chave, rotulo, icone in filtros %}
       <a class="chip {{ 'active' if filtro == chave else '' }}" href="/painel/?filtro={{ chave }}">

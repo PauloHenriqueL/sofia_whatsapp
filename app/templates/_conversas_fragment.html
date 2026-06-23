@@ -7,6 +7,7 @@
       <th>Estado</th>
       <th>Última mensagem</th>
       <th>Atividade</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -21,10 +22,18 @@
       <td><span class="badge badge-{{ c.estado }}">{{ c.estado }}</span></td>
       <td class="muted">{{ c.preview or '' }}</td>
       <td class="muted">{{ c.atualizada_em | desde }}</td>
+      <td>
+        {% if c.hamilton_url %}
+        <a class="btn btn-ghost btn-sm" href="{{ c.hamilton_url }}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()" title="Completar o cadastro no Hamilton">
+          <i class="bi bi-box-arrow-up-right"></i> Completar
+        </a>
+        {% endif %}
+      </td>
     </tr>
     {% else %}
     <tr>
-      <td colspan="6" class="empty">
+      <td colspan="7" class="empty">
         <i class="bi bi-chat-dots"></i>
         Nenhuma conversa por aqui ainda.
       </td>

@@ -13,6 +13,21 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Mensagem
+from app.services import painel as painel_service
+
+
+class TestUrlHamiltonPaciente:
+    def test_monta_url_da_tela_de_edicao(self):
+        original = settings.hamilton_api_url
+        settings.hamilton_api_url = "https://hamilton-v2.onrender.com/"
+        try:
+            url = painel_service.url_hamilton_paciente(123)
+        finally:
+            settings.hamilton_api_url = original
+        assert url == "https://hamilton-v2.onrender.com/api/v1/pacientes/123/editar/"
+
+    def test_sem_id_retorna_none(self):
+        assert painel_service.url_hamilton_paciente(None) is None
 
 
 @pytest_asyncio.fixture

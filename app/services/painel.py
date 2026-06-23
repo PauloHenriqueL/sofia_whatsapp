@@ -9,8 +9,21 @@ from datetime import datetime, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import Conversa, Mensagem
 from app.services import conversation, whatsapp_client
+
+
+def url_hamilton_paciente(paciente_hamilton_id: int | None) -> str | None:
+    """URL da tela de edição do paciente no Hamilton.
+
+    É onde a Thainá completa os campos que a Sofia não coleta na conversa.
+    Devolve None enquanto o paciente ainda não tem cadastro no Hamilton.
+    """
+    if not paciente_hamilton_id:
+        return None
+    base = settings.hamilton_api_url.rstrip("/")
+    return f"{base}/api/v1/pacientes/{paciente_hamilton_id}/editar/"
 
 
 async def listar_conversas(
@@ -26,6 +39,9 @@ async def listar_conversas(
     elif filtro == "cadastradas_hoje":
         inicio = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         q = q.where(Conversa.estado == "cadastrado", Conversa.atualizada_em >= inicio)
+    elif filtro == "cadastrados":
+        # Pacientes que já entraram no Hamilton (têm pk lá).
+        q = q.where(Conversa.paciente_hamilton_id.isnot(None))
 
     q = q.limit(limite).offset(offset)
     conversas = (await db.execute(q)).scalars().all()
@@ -48,6 +64,7 @@ async def listar_conversas(
                 "modo": c.modo,
                 "estado": c.estado,
                 "paciente_hamilton_id": c.paciente_hamilton_id,
+                "hamilton_url": url_hamilton_paciente(c.paciente_hamilton_id),
                 "atualizada_em": c.atualizada_em,
                 "preview": (ultima.texto[:80] if ultima and ultima.texto else None),
             }

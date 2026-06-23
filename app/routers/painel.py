@@ -76,7 +76,12 @@ async def pagina_conversa(request: Request, conversa_id: int, db: AsyncSession =
     mensagens = await painel.carregar_mensagens(db, conversa_id)
     return templates.TemplateResponse(
         "painel_conversa.html",
-        {"request": request, "conversa": conversa, "mensagens": mensagens},
+        {
+            "request": request,
+            "conversa": conversa,
+            "mensagens": mensagens,
+            "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
+        },
     )
 
 
