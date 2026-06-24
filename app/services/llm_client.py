@@ -17,6 +17,7 @@ from pathlib import Path
 from openai import AsyncOpenAI, OpenAIError
 
 from app.config import settings
+from app.services import config_negocio
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +51,30 @@ def _formatar_reais(valor: int) -> str:
 
 
 def _valores_prompt() -> dict[str, str]:
-    """Valores de negócio injetados no prompt (configuráveis via env/Render)."""
-    preco_terapia = settings.preco_terapia_mensal
+    """Valores de negócio injetados no prompt (editáveis no painel da Thainá)."""
+    v = config_negocio.valores()
+    preco_terapia = v["preco_terapia_mensal"]
     return {
         "{{PRECO_TERAPIA}}": _formatar_reais(preco_terapia),
         "{{PRECO_TERAPIA_SESSAO}}": _formatar_reais(round(preco_terapia / 4)),
-        "{{PRECO_NEURO}}": _formatar_reais(settings.preco_neuro),
-        "{{PARCELAS_MAX}}": str(settings.parcelas_max),
+        "{{PRECO_NEURO}}": _formatar_reais(v["preco_neuro"]),
+        "{{PARCELAS_MAX}}": str(v["parcelas_max"]),
     }
 
 
 @lru_cache(maxsize=1)
+def _ler_template() -> str:
+    """Lê o arquivo do prompt (cacheado; o conteúdo do arquivo não muda em runtime)."""
+    return PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
 def carregar_system_prompt() -> str:
-    """Lê o system prompt versionado e injeta os valores de negócio (cacheado)."""
-    texto = PROMPT_PATH.read_text(encoding="utf-8").strip()
+    """System prompt com os valores de negócio atuais injetados.
+
+    Não é cacheado no nível final de propósito: os valores podem mudar em runtime
+    (painel) e a substituição é barata. O arquivo em si fica cacheado.
+    """
+    texto = _ler_template()
     for token, valor in _valores_prompt().items():
         texto = texto.replace(token, valor)
     return texto

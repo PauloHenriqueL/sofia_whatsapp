@@ -72,6 +72,22 @@ class Mensagem(Base):
     )
 
 
+class Configuracao(Base):
+    """Valores de negócio editáveis pela Thainá no painel (preço, parcelas...).
+
+    Chave/valor simples; o valor é guardado como texto e convertido no uso.
+    """
+
+    __tablename__ = "configuracao"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chave: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    valor: Mapped[str] = mapped_column(String(100))
+    atualizada_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Escalada(Base):
     __tablename__ = "escalada"
 

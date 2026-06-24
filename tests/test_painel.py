@@ -143,6 +143,34 @@ class TestListaEDetalhe:
         assert resp.status_code == 200
         assert "Resultados da Sofia" in resp.text
 
+    @pytest.mark.asyncio
+    async def test_pagina_config_renderiza_e_salva(self, ambiente):
+        from app.services import config_negocio
+
+        original = dict(config_negocio._cache)
+        client, _ = ambiente
+        await _login(client)
+        try:
+            resp = await client.get("/painel/config")
+            assert resp.status_code == 200
+            assert "Configurações" in resp.text
+
+            resp2 = await client.post(
+                "/painel/config",
+                data={
+                    "preco_terapia_mensal": "250",
+                    "preco_neuro": "1500",
+                    "parcelas_max": "6",
+                    "followup_horas": "18",
+                },
+                follow_redirects=False,
+            )
+            assert resp2.status_code == 303
+            assert config_negocio.valor("preco_neuro") == 1500
+        finally:
+            config_negocio._cache.clear()
+            config_negocio._cache.update(original)
+
 
 class TestAcoes:
     @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import cadastro, metricas, painel, whatsapp_client
+from app.services import cadastro, config_negocio, metricas, painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -55,6 +55,37 @@ async def pagina_lista(request: Request, filtro: str = "todas", db: AsyncSession
         "painel_lista.html",
         {"request": request, "conversas": conversas, "filtro": filtro},
     )
+
+
+@router.get("/config")
+async def pagina_config(request: Request, salvo: int = 0):
+    return templates.TemplateResponse(
+        "painel_config.html",
+        {
+            "request": request,
+            "campos": config_negocio.CAMPOS,
+            "valores": config_negocio.valores(),
+            "salvo": salvo,
+        },
+    )
+
+
+@router.post("/config")
+async def salvar_config(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    novos: dict[str, int] = {}
+    for chave in config_negocio.CAMPOS:
+        try:
+            n = int(form.get(chave))
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            novos[chave] = n
+    # Follow-up tem que caber na janela de 24h da Meta.
+    if "followup_horas" in novos:
+        novos["followup_horas"] = min(novos["followup_horas"], 23)
+    await config_negocio.salvar(db, novos)
+    return RedirectResponse("/painel/config?salvo=1", status_code=303)
 
 
 @router.get("/metricas")

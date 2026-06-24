@@ -12,9 +12,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models import Conversa, Mensagem
-from app.services import conversation, whatsapp_client
+from app.services import config_negocio, conversation, whatsapp_client
 from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ async def buscar_leads_parados(db: AsyncSession, agora: datetime) -> list[Conver
     mensagem do paciente caiu na janela [followup_horas, 24h) atrás (ou seja,
     parou de responder, mas ainda dá pra falar com texto livre).
     """
-    limite_recente = agora - timedelta(hours=settings.followup_horas)
+    limite_recente = agora - timedelta(hours=config_negocio.valor("followup_horas"))
     limite_janela = agora - timedelta(hours=JANELA_META_HORAS)
 
     # Última mensagem recebida (do paciente) por conversa.

@@ -32,7 +32,6 @@ class TestCarregarSystemPrompt:
     def test_injeta_valores_de_negocio(self):
         # Os valores configuráveis (preço terapia/neuro, parcelas) entram no
         # prompt; nenhum placeholder {{...}} pode sobrar sem substituir.
-        llm_client.carregar_system_prompt.cache_clear()
         prompt = llm_client.carregar_system_prompt()
         assert "{{" not in prompt
         assert llm_client._formatar_reais(settings.preco_neuro) in prompt

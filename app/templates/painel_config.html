@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titulo %}Configurações · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app" style="max-width:560px">
+  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar</a>
+
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <h1>Configurações</h1>
+      <div class="subtitle">Valores que a Sofia usa nas conversas</div>
+    </div>
+  </div>
+
+  {% if salvo %}
+  <div class="card" style="border-color:var(--green-border); background:var(--green-bg); color:var(--green-text); margin-bottom:14px; box-shadow:none">
+    <i class="bi bi-check-circle"></i> Salvo. A Sofia já está usando os novos valores.
+  </div>
+  {% endif %}
+
+  <form class="card" method="post" action="/painel/config">
+    {% for chave, campo in campos.items() %}
+    <div class="login-field" style="margin-bottom:16px">
+      <label for="{{ chave }}">{{ campo[0] }}</label>
+      <input class="input" type="number" min="1" id="{{ chave }}" name="{{ chave }}"
+             value="{{ valores[chave] }}" required>
+    </div>
+    {% endfor %}
+    <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
+  </form>
+
+  <div class="subtitle" style="margin-top:14px">
+    O preço da neuroavaliação só é informado pra quem recusa a reunião com a
+    diretora. O follow-up precisa ser menos de 24 horas (limite do WhatsApp).
+  </div>
+</div>
+{% endblock %}
