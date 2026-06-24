@@ -129,3 +129,16 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
   .table tbody td { padding:10px 14px; }
   .msg { max-width:88%; }
 }
+
+/* KPIs / dashboard de resultados (Frente 3) */
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:14px; margin:6px 0 18px; }
+.kpi { background:var(--bg-card); border:1.5px solid var(--border-strong); border-radius:14px; padding:16px 18px; box-shadow:var(--shadow-card); }
+.kpi .num { font-family:var(--font-display); font-weight:600; font-size:30px; line-height:1; color:var(--text-primary); }
+.kpi .lbl { color:var(--text-secondary); font-size:12.5px; margin-top:7px; }
+.kpi.alert { border-color:var(--amber-border); background:var(--amber-bg); }
+.kpi.alert .num { color:var(--warm-500); }
+.bar-row { display:flex; align-items:center; gap:10px; margin:7px 0; font-size:13px; }
+.bar-row .bar-label { width:230px; color:var(--text-secondary); }
+.bar-row .bar-track { flex:1; height:14px; background:var(--bg-input); border-radius:8px; overflow:hidden; }
+.bar-row .bar-fill { height:100%; background:linear-gradient(90deg,var(--teal-600),var(--teal-400)); border-radius:8px; min-width:2px; }
+.bar-row .bar-num { width:34px; text-align:right; font-weight:600; color:var(--text-primary); }

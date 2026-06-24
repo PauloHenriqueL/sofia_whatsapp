@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}Resultados · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app">
+  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
+
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <h1>Resultados da Sofia</h1>
+      <div class="subtitle">Como o atendimento automático está performando</div>
+    </div>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="num">{{ m.total }}</div>
+      <div class="lbl">Leads no total <span class="muted">(+{{ m.leads_hoje }} hoje)</span></div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.cadastrados }}</div>
+      <div class="lbl">Cadastrados no Hamilton</div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.taxa_conversao }}%</div>
+      <div class="lbl">Conversão (lead → cadastro)</div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.autonomia }}%</div>
+      <div class="lbl">Resolvido sem precisar de pessoa</div>
+    </div>
+    <div class="kpi {{ 'alert' if m.pendentes else '' }}">
+      <div class="num">{{ m.pendentes }}</div>
+      <div class="lbl">Cadastro pendente (precisa de atenção)</div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.humano }}</div>
+      <div class="lbl">Em atendimento humano</div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.escalados }}</div>
+      <div class="lbl">Escalados pra Thainá</div>
+    </div>
+    <div class="kpi">
+      <div class="num">{{ m.recuperados }}/{{ m.followups }}</div>
+      <div class="lbl">Recuperados pelo follow-up</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="font-size:16px; margin:0 0 12px">Leads nos últimos 7 dias</h2>
+    {% set maxdia = (m.leads_por_dia | map(attribute='qtd') | max) or 1 %}
+    {% for d in m.leads_por_dia %}
+    <div class="bar-row">
+      <span class="bar-label" style="width:54px">{{ d.dia }}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{ (d.qtd / maxdia * 100) | round }}%"></span></span>
+      <span class="bar-num">{{ d.qtd }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:16px; margin:0 0 12px">Escaladas por motivo</h2>
+    {% if m.escaladas_por_motivo %}
+      {% set maxmot = (m.escaladas_por_motivo | map(attribute='qtd') | max) or 1 %}
+      {% for e in m.escaladas_por_motivo %}
+      <div class="bar-row">
+        <span class="bar-label">{{ e.rotulo }}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{ (e.qtd / maxmot * 100) | round }}%"></span></span>
+        <span class="bar-num">{{ e.qtd }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="muted">Nenhuma escalada ainda.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

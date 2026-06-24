@@ -134,6 +134,15 @@ class TestListaEDetalhe:
         assert "Conversas" in resp.text
         assert "5531999998888" in resp.text
 
+    @pytest.mark.asyncio
+    async def test_pagina_metricas_renderiza(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        await _seed_conversa(maker)
+        resp = await client.get("/painel/metricas")
+        assert resp.status_code == 200
+        assert "Resultados da Sofia" in resp.text
+
 
 class TestAcoes:
     @pytest.mark.asyncio

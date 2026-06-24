@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import cadastro, painel, whatsapp_client
+from app.services import cadastro, metricas, painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -54,6 +54,15 @@ async def pagina_lista(request: Request, filtro: str = "todas", db: AsyncSession
     return templates.TemplateResponse(
         "painel_lista.html",
         {"request": request, "conversas": conversas, "filtro": filtro},
+    )
+
+
+@router.get("/metricas")
+async def pagina_metricas(request: Request, db: AsyncSession = Depends(get_db)):
+    m = await metricas.calcular_metricas(db)
+    return templates.TemplateResponse(
+        "painel_metricas.html",
+        {"request": request, "m": m},
     )
 
 
