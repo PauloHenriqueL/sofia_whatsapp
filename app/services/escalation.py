@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import Conversa, Escalada
-from app.services import whatsapp_client
+from app.services import tools, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,12 @@ async def alertar_thaina(conversa: Conversa, motivo: str) -> bool:
     """
     dados = conversa.dados_coletados or {}
     nome = dados.get("nome_completo") or conversa.numero_whatsapp
+    rotulo = tools.MOTIVO_LABELS.get(motivo, motivo)
     try:
         await whatsapp_client.enviar_template(
             settings.thaina_whatsapp_number,
             settings.alert_template_name,
-            parametros=[str(nome), motivo],
+            parametros=[str(nome), rotulo],
         )
         return True
     except whatsapp_client.WhatsAppError:

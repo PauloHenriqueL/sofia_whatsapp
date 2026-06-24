@@ -9,7 +9,26 @@ ESCALAR_PARA_THAINA = "escalar_para_thaina"
 
 # Motivos válidos de escalada via LLM. 'audio_recebido' não entra aqui porque
 # é detectado em código (Passo 5+), não escolhido pelo modelo.
-MOTIVOS_ESCALADA = ["pedido_humano", "prefeitura", "gratuidade", "outro"]
+MOTIVOS_ESCALADA = [
+    "pedido_humano",
+    "neuro_reuniao",
+    "preco",
+    "prefeitura",
+    "gratuidade",
+    "outro",
+]
+
+# Rótulos legíveis pra Thainá, usados no texto do alerta (template alerta_thaina).
+# Inclui 'audio_recebido', que é detectado em código (não escolhido pelo modelo).
+MOTIVO_LABELS = {
+    "pedido_humano": "pediu pra falar com uma pessoa",
+    "neuro_reuniao": "neuroavaliação (quer reunião com a diretora)",
+    "preco": "dúvida ou objeção sobre o preço",
+    "prefeitura": "mencionou prefeitura / convênio municipal",
+    "gratuidade": "não tem como pagar (gratuidade)",
+    "audio_recebido": "mandou um áudio (a Sofia não transcreve)",
+    "outro": "outro (ver contexto)",
+}
 
 TOOLS = [
     {

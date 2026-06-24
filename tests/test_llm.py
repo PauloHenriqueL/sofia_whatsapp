@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from openai import OpenAIError
 
+from app.config import settings
 from app.services import llm_client
 
 
@@ -27,6 +28,15 @@ class TestCarregarSystemPrompt:
         prompt = llm_client.carregar_system_prompt()
         assert "Sofia" in prompt
         assert "Allos" in prompt
+
+    def test_injeta_valores_de_negocio(self):
+        # Os valores configuráveis (preço terapia/neuro, parcelas) entram no
+        # prompt; nenhum placeholder {{...}} pode sobrar sem substituir.
+        llm_client.carregar_system_prompt.cache_clear()
+        prompt = llm_client.carregar_system_prompt()
+        assert "{{" not in prompt
+        assert llm_client._formatar_reais(settings.preco_neuro) in prompt
+        assert llm_client._formatar_reais(settings.preco_terapia_mensal) in prompt
 
 
 class TestOpenAIClient:

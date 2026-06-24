@@ -44,10 +44,29 @@ class LLMResposta:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
+def _formatar_reais(valor: int) -> str:
+    """1200 -> '1.200' (separador de milhar no estilo brasileiro)."""
+    return f"{valor:,}".replace(",", ".")
+
+
+def _valores_prompt() -> dict[str, str]:
+    """Valores de negócio injetados no prompt (configuráveis via env/Render)."""
+    preco_terapia = settings.preco_terapia_mensal
+    return {
+        "{{PRECO_TERAPIA}}": _formatar_reais(preco_terapia),
+        "{{PRECO_TERAPIA_SESSAO}}": _formatar_reais(round(preco_terapia / 4)),
+        "{{PRECO_NEURO}}": _formatar_reais(settings.preco_neuro),
+        "{{PARCELAS_MAX}}": str(settings.parcelas_max),
+    }
+
+
 @lru_cache(maxsize=1)
 def carregar_system_prompt() -> str:
-    """Lê o system prompt versionado do disco (cacheado em memória)."""
-    return PROMPT_PATH.read_text(encoding="utf-8").strip()
+    """Lê o system prompt versionado e injeta os valores de negócio (cacheado)."""
+    texto = PROMPT_PATH.read_text(encoding="utf-8").strip()
+    for token, valor in _valores_prompt().items():
+        texto = texto.replace(token, valor)
+    return texto
 
 
 class LLMClient(ABC):
