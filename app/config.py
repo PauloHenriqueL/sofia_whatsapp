@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = False
     secret_key: str = "dev-secret-change-in-prod"
+    # Token do endpoint de tarefas (cron externo dispara os follow-ups).
+    # Vazio = endpoint desligado (responde 403). Defina no Render pra ativar.
+    tasks_token: str = ""
 
     # WhatsApp
     whatsapp_token: str

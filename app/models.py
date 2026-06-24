@@ -29,6 +29,11 @@ class Conversa(Base):
     atualizada_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Quando a Sofia já mandou o follow-up automático de lead parado (Frente 2).
+    # NULL = ainda não mandou; garante no máximo um follow-up por conversa.
+    seguimento_enviado_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

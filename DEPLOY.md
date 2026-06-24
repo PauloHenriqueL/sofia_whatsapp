@@ -127,6 +127,30 @@ para a coordenação fazer o match depois.
 
 ---
 
+## 8. Follow-up automático de lead parado (cron externo) 🧑‍💻
+
+A Sofia volta uma vez pra quem conversou e sumiu sem terminar o cadastro
+(dentro de ~20h, ainda na janela de 24h da Meta, sem precisar de template).
+Como o app no Render dorme, quem "acorda" e dispara é um **cron externo**
+batendo num endpoint protegido.
+
+1. No Render, defina `TASKS_TOKEN` (um segredo aleatório) e, se quiser,
+   `FOLLOWUP_HORAS` (padrão 20).
+2. Crie um cron grátis (ex.: [cron-job.org](https://cron-job.org)) apontando para:
+   - **Método**: `POST`
+   - **URL**: `https://SUA-URL/tasks/seguimentos`
+   - **Header**: `X-Tasks-Token: <o TASKS_TOKEN>`
+   - **Frequência**: de hora em hora (`0 * * * *`)
+3. Teste manualmente:
+   ```bash
+   curl -X POST https://SUA-URL/tasks/seguimentos -H "X-Tasks-Token: <TOKEN>"
+   # -> {"enviados": N}
+   ```
+
+Sem `TASKS_TOKEN` o endpoint responde 403 (follow-up fica desligado).
+
+---
+
 ## Checklist de credenciais (`.env` / Render)
 
 | Variável | De onde vem |
@@ -143,6 +167,8 @@ para a coordenação fazer o match depois.
 | `HAMILTON_USERNAME` / `HAMILTON_PASSWORD` | usuário de serviço no Hamilton |
 | `PAINEL_USER` / `PAINEL_PASSWORD` | login do painel da Thainá |
 | `SECRET_KEY` | aleatório |
+| `TASKS_TOKEN` | aleatório (cron do follow-up) — opcional |
+| `PRECO_NEURO` / `PRECO_TERAPIA_MENSAL` / `PARCELAS_MAX` / `FOLLOWUP_HORAS` | valores de negócio — opcionais, têm padrão |
 
 ---
 
