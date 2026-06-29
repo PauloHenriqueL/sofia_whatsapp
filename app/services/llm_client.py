@@ -112,11 +112,14 @@ class OpenAIClient(LLMClient):
         self,
         model: str | None = None,
         client: AsyncOpenAI | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
     ) -> None:
         self._model = model or settings.openai_model
         self._client = client or AsyncOpenAI(api_key=settings.openai_api_key)
+        # temperature opcional: None = não envia o parâmetro (usa o padrão do modelo).
         self._temperature = temperature
+        # Vira True se o modelo rejeitar a temperature; aí paramos de enviar.
+        self._omitir_temperature = False
 
     async def gerar_resposta(
         self, historico: list[dict], tools: list[dict] | None = None
@@ -125,20 +128,14 @@ class OpenAIClient(LLMClient):
             {"role": "system", "content": carregar_system_prompt()},
             *historico,
         ]
-        kwargs: dict = {
-            "model": self._model,
-            "messages": mensagens,
-            "temperature": self._temperature,
-        }
+        kwargs: dict = {"model": self._model, "messages": mensagens}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        if self._temperature is not None and not self._omitir_temperature:
+            kwargs["temperature"] = self._temperature
 
-        try:
-            resposta = await self._client.chat.completions.create(**kwargs)
-        except OpenAIError as exc:
-            logger.error(f"OpenAI falhou ao gerar resposta: {exc}")
-            raise LLMError("Falha ao gerar resposta no OpenAI") from exc
+        resposta = await self._criar(kwargs)
 
         msg = resposta.choices[0].message
         texto = (msg.content or "").strip() or None
@@ -156,8 +153,35 @@ class OpenAIClient(LLMClient):
             raise LLMError("OpenAI retornou resposta vazia")
         return LLMResposta(texto=texto, tool_calls=tool_calls)
 
+    async def _criar(self, kwargs: dict):
+        """Chama a API; se o modelo rejeitar a temperature, reenvia sem ela.
+
+        Alguns modelos novos (de raciocínio) só aceitam a temperature padrão e
+        devolvem erro quando recebem um valor custom. Em vez de derrubar a
+        conversa pro fallback, removemos a temperature, reenviamos uma vez e
+        lembramos disso (não tenta de novo nas próximas chamadas).
+        """
+        try:
+            return await self._client.chat.completions.create(**kwargs)
+        except OpenAIError as exc:
+            if "temperature" in kwargs and "temperature" in str(exc).lower():
+                logger.warning(
+                    "Modelo %s não aceitou temperature=%s; reenviando sem ela.",
+                    self._model,
+                    kwargs.get("temperature"),
+                )
+                self._omitir_temperature = True
+                kwargs.pop("temperature", None)
+                try:
+                    return await self._client.chat.completions.create(**kwargs)
+                except OpenAIError as exc2:
+                    logger.error(f"OpenAI falhou ao gerar resposta: {exc2}")
+                    raise LLMError("Falha ao gerar resposta no OpenAI") from exc2
+            logger.error(f"OpenAI falhou ao gerar resposta: {exc}")
+            raise LLMError("Falha ao gerar resposta no OpenAI") from exc
+
 
 @lru_cache(maxsize=1)
 def get_llm_client() -> LLMClient:
     """Retorna o cliente LLM padrão (singleton). Ponto único de troca/mocking."""
-    return OpenAIClient()
+    return OpenAIClient(temperature=settings.openai_temperature)

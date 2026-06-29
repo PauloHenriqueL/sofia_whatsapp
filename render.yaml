@@ -34,7 +34,10 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
-        value: gpt-4o-mini
+        value: gpt-5.5
+      # OPENAI_TEMPERATURE não é definida aqui de propósito: usa o padrão (0.7) do
+      # código, e a Sofia reenvia sem temperature se o modelo rejeitar. Pra forçar
+      # o padrão do modelo (sem retry), defina OPENAI_TEMPERATURE vazio no dashboard.
 
       # Banco (Neon)
       - key: DATABASE_URL

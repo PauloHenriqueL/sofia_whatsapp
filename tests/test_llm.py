@@ -73,3 +73,46 @@ class TestOpenAIClient:
 
         with pytest.raises(llm_client.LLMError):
             await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+    @pytest.mark.asyncio
+    async def test_temperature_none_nao_envia(self):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))
+        client = llm_client.OpenAIClient(client=fake_client, temperature=None)
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        kwargs = fake_client.chat.completions.create.await_args.kwargs
+        assert "temperature" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_temperature_configurada_e_enviada(self):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))
+        client = llm_client.OpenAIClient(client=fake_client, temperature=0.3)
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        kwargs = fake_client.chat.completions.create.await_args.kwargs
+        assert kwargs["temperature"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_reenvia_sem_temperature_quando_modelo_rejeita(self):
+        # Modelos de raciocínio rejeitam temperature custom; a Sofia reenvia sem ela.
+        fake_client = MagicMock()
+        erro = OpenAIError(
+            "Unsupported value: 'temperature' does not support 0.7 with this model. "
+            "Only the default (1) value is supported."
+        )
+        fake_client.chat.completions.create = AsyncMock(
+            side_effect=[erro, _resposta_openai("respondi sem temperature")]
+        )
+        client = llm_client.OpenAIClient(model="gpt-5.5", client=fake_client, temperature=0.7)
+
+        resposta = await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert resposta.texto == "respondi sem temperature"
+        chamadas = fake_client.chat.completions.create.await_args_list
+        assert chamadas[0].kwargs.get("temperature") == 0.7  # 1ª tentativa, com temperature
+        assert "temperature" not in chamadas[1].kwargs  # retry, sem temperature
+        assert client._omitir_temperature is True  # aprendeu a não enviar mais

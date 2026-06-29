@@ -25,7 +25,9 @@ httpx==0.25.2  # Async HTTP client
 # ============================================================================
 # OpenAI
 # ============================================================================
-openai==1.6.0
+# 2.x é necessário pros modelos novos (ex.: gpt-5.5). Compatível com os pins de
+# httpx (<1,>=0.23) e pydantic (<3,>=1.9) abaixo.
+openai==2.44.0
 
 # ============================================================================
 # Templates (Jinja2 para painel web)

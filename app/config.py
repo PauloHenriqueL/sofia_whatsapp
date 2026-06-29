@@ -1,5 +1,6 @@
 """Configuração da aplicação via environment variables"""
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -28,6 +29,25 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str
     openai_model: str = "gpt-4o-mini"
+    # Temperature da geração. Opcional: deixe vazio (ou "none"/"default") pra NÃO
+    # enviar o parâmetro e usar o padrão do modelo — alguns modelos novos (de
+    # raciocínio) só aceitam o padrão e rejeitam um valor custom. Se um modelo
+    # rejeitar o valor configurado, o llm_client reenvia sem temperature sozinho.
+    openai_temperature: float | None = 0.7
+
+    @field_validator("openai_temperature", mode="before")
+    @classmethod
+    def _temperature_opcional(cls, v):
+        if isinstance(v, str) and v.strip().lower() in (
+            "",
+            "none",
+            "default",
+            "padrao",
+            "padrão",
+            "off",
+        ):
+            return None
+        return v
 
     # Valores de negócio (mudáveis no Render, sem mexer no código). São injetados
     # no que a Sofia fala via llm_client.carregar_system_prompt().
