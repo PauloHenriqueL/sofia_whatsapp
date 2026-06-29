@@ -1,6 +1,14 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
 # Sofia — Bot WhatsApp da Allos
 
 Automação de atendimento de pacientes novos via WhatsApp, integrando com Hamilton (sistema clínico existente em Django) e OpenAI.
+
+> **Idioma**: todo o projeto (código, comentários, docs, commits) é em **português brasileiro**. Mantenha esse padrão ao contribuir.
 
 ## 📋 Visão Geral
 
@@ -19,6 +27,50 @@ Automação de atendimento de pacientes novos via WhatsApp, integrando com Hamil
 - **Hosting**: Render
 
 **Integração externa crítica**: Hamilton API REST (não é mexido por Sofia, apenas consumido)
+
+---
+
+## 🛠️ Comandos de Desenvolvimento
+
+```bash
+# Setup (uma vez)
+python -m venv venv
+venv\Scripts\activate            # Windows  (Linux/Mac: source venv/bin/activate)
+pip install -r requirements.txt
+copy .env.example .env            # Windows  (Linux/Mac: cp) — ver gotcha abaixo
+
+# Banco (cria/atualiza o schema no DATABASE_URL — SQLite local ou Postgres/Neon)
+alembic upgrade head
+alembic revision --autogenerate -m "descrição"   # nova migration (render_as_batch p/ SQLite)
+
+# Rodar a app (http://localhost:8000 → redireciona pro /painel/; /docs só em dev)
+uvicorn app.main:app --reload
+
+# Testes
+pytest tests/ -v                                  # suite inteira
+pytest tests/test_webhook.py -v                   # um arquivo
+pytest tests/test_seguimento.py::TestRodarSeguimentos::test_envia_marca_e_nao_reenvia   # um teste
+pytest -k "seguimento and envia"                  # por nome
+pytest tests/ --cov=app --cov-report=html         # cobertura
+
+# Lint / format (config em pyproject.toml: line-length 100, profile black)
+black .
+isort .
+ruff check .
+mypy app
+```
+
+Skills do projeto: **`/test`** (suite) e **`/security-review`** (audit antes de PR).
+
+> ⚠️ **Gotcha — precisa de `.env` até pra rodar testes.** `app/config.py` faz
+> `settings = Settings()` **no import**, e `Settings` tem campos obrigatórios sem
+> default (`whatsapp_token`, `database_url`, `whatsapp_app_secret`, `openai_api_key`,
+> `painel_password`, etc.). `app/database.py` cria o `engine` no import a partir
+> de `settings.database_url`. Como quase tudo importa esses módulos (e `pytest`
+> importa `app.main`), **sem um `.env` preenchido — ou as env vars exportadas —
+> nada importa e nenhum teste coleta.** Não existe `conftest.py`: cada teste sobe
+> seu próprio SQLite in-memory e mocka as chamadas externas (OpenAI/WhatsApp/
+> Hamilton), então os valores do `.env` podem ser dummy; use `DATABASE_URL=sqlite:///sofia_dev.db`.
 
 ---
 
@@ -184,8 +236,9 @@ peça que eu te lembro onde fica cada uma.
    ├─ Persistência: Postgres (Neon)
    ├─ Escalada: marca modo humano + alerta template
    ├─ Hamilton: POST cadastro quando pronto
-   └─ Painel: Jinja2 + HTMX pra Thainá responder
-      ↕ (HTTP Basic Auth)
+   ├─ Painel: Jinja2 + HTMX pra Thainá responder (login por sessão/cookie assinado)
+   └─ Tasks: POST /tasks/seguimentos (cron externo → follow-up de lead parado)
+      ↕
 [Thainá: PC ou celular]
 ```
 
@@ -195,9 +248,14 @@ peça que eu te lembro onde fica cada uma.
 conversa
 ├─ id, numero_whatsapp (unique)
 ├─ paciente_hamilton_id, modo ('bot'/'humano')
-├─ estado ('novo'/'qualificando'/'coletando_dados'/'cadastrado'/'escalado')
+├─ estado ('novo'/'qualificando'/'coletando_dados'/'cadastrado'/'cadastro_pendente'/'escalado')
 ├─ dados_coletados (JSONB: nome, nascimento, telefone, apoio, endereço, horários...)
+├─ seguimento_enviado_em (NULL = ainda não; garante 1 follow-up por conversa)
 └─ criada_em, atualizada_em
+
+configuracao  (chave/valor — valores de negócio editáveis no painel)
+├─ id, chave (unique), valor (texto, convertido p/ int no uso)
+└─ atualizada_em
 
 mensagem
 ├─ id, conversa_id
@@ -209,12 +267,87 @@ mensagem
 
 escalada
 ├─ id, conversa_id
-├─ motivo ('pedido_humano'/'prefeitura'/'gratuidade'/'audio_recebido'/'outro')
+├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'audio_recebido'/'outro')
 ├─ contexto
 ├─ criada_em, resolvida_em
 ```
 
-Idempotência: índice único em `whatsapp_message_id` evita processar mesma msg 2x.
+Idempotência: índice único parcial em `whatsapp_message_id` evita processar mesma msg 2x.
+A coluna ORM `metadata` da `mensagem` é mapeada como atributo `extra` (`metadata` é reservado no SQLAlchemy).
+
+---
+
+## 🧠 Arquitetura atual (além do MVP) — módulos e comportamentos não óbvios
+
+O MVP (Passos 1–8) está pronto. Depois dele entraram 3 frentes; estes são os
+pontos que **exigem ler vários arquivos** pra entender:
+
+### Onde mora cada coisa (camadas)
+- **`app/routers/webhook.py`** — orquestra o turno do bot: chama o LLM com `tools.TOOLS`,
+  executa as tools (`_executar_tool`) e faz o **round-trip** (reenvia o resultado da tool
+  ao modelo pra ele gerar a fala final). Áudio escala **sem passar pelo LLM**.
+- **`app/services/`** — toda regra de negócio fica aqui, **nunca no router**:
+  `conversation` (persistência + idempotência + histórico), `llm_client` (abstração
+  `LLMClient` + `OpenAIClient`, singleton via `get_llm_client()`), `tools` (schemas de
+  function calling), `escalation`, `cadastro`, `hamilton_client`, `whatsapp_client`,
+  `config_negocio`, `seguimento`, `metricas`, `painel`.
+- **Singletons trocáveis/mockáveis**: `llm_client.get_llm_client()` e
+  `hamilton_client.get_hamilton_client()` são `@lru_cache` — ponto único de troca de
+  provedor e de mock nos testes.
+
+### Valores de negócio editáveis no painel (Frente 1 — `config_negocio.py`)
+- Preço da terapia, preço da neuro, parcelas máximas e horas até o follow-up ficam na
+  tabela `configuracao` (chave/valor) e são editados pela Thainá em **`/painel/config`** —
+  **não precisa mexer no código nem no Render**.
+- Há um **cache em memória** (`_cache`) populado no startup (`main.lifespan` →
+  `config_negocio.carregar_do_banco`) e atualizado a cada `salvar()`. Lê-se via
+  `config_negocio.valor(chave)` / `valores()`. Assume **1 instância** no Render free.
+- O default de cada campo vem das `settings` (env/código). Se a config não carregar no
+  startup (ex.: tabela ainda não migrada), o app sobe com os padrões.
+- **Injeção no prompt**: `llm_client.carregar_system_prompt()` substitui tokens
+  `{{PRECO_TERAPIA}}`, `{{PRECO_TERAPIA_SESSAO}}`, `{{PRECO_NEURO}}`, `{{PARCELAS_MAX}}`
+  em `app/prompts/sofia_v01.txt` com os valores do cache. O arquivo é cacheado; a
+  substituição é refeita a cada turno (de propósito — o valor muda em runtime).
+
+### Follow-up de lead parado (Frente 2 — `seguimento.py` + `routers/tasks.py`)
+- Um **cron externo** bate em `POST /tasks/seguimentos` (protegido por `TASKS_TOKEN`,
+  header `X-Tasks-Token` ou `?token=`; token vazio = endpoint **desligado**, 403).
+- `rodar_seguimentos()` acha leads que pararam de responder dentro da janela
+  `[followup_horas, 24h)` (ainda no bot, sem cadastro, sem follow-up prévio) e manda **uma**
+  mensagem de texto livre. Depois de 24h da última msg do paciente a Meta exige template,
+  por isso o follow-up tem que sair antes. `seguimento_enviado_em` garante 1 por conversa.
+
+### Dashboard de KPIs (Frente 3 — `metricas.py`, `/painel/metricas`)
+- Métricas (conversão, autonomia, escaladas por motivo, leads/dia, recuperados) são
+  **derivadas das tabelas existentes**. O agrupamento por dia é feito **em Python**
+  (não em SQL) pra ficar portável entre SQLite (dev) e Postgres (prod).
+
+### Painel: auth por sessão (não é mais HTTP Basic)
+- Login próprio em **`/login`** → cookie de sessão assinado (`SessionMiddleware`,
+  `secret_key`). `app/dependencies.py`: `requer_login_pagina` (HTML → 303 p/ `/login`),
+  `requer_login_api` (JSON → 401), `verificar_origem` (defesa CSRF por header `Origin`).
+  Credenciais comparadas em tempo constante (`secrets.compare_digest`).
+
+### Cadastro no Hamilton (`cadastro.py` + `hamilton_client.py`)
+- **Busca-antes-de-criar** por telefone; cria um **lead sem terapeuta** (a coordenação faz
+  o match depois). Falha do Hamilton → `estado = cadastro_pendente` (não propaga erro pro
+  paciente; a Thainá re-tenta pelo botão em `/painel/conversas/{id}/cadastrar`).
+- `cadastrar_paciente` exige só `nome_completo` + `data_nascimento` (ver `tools.py`); se o
+  telefone coletado for inválido/placeholder, cai pro número do WhatsApp da conversa
+  (`_garantir_telefone`). Isso foi o fix do bug do `"[SEU_NÚMERO]"` — **não volte a tornar
+  campos obrigatórios só pra satisfazer o schema.**
+- Auth do Hamilton é **JWT** (username/password → Bearer; re-autentica 1x no 401).
+
+### Portabilidade SQLite↔Postgres (`database.py`)
+- `_async_url()` converte `postgres://`/`postgresql://` → `postgresql+asyncpg://` e
+  **remove** params libpq que o asyncpg não aceita (`sslmode`, `channel_binding` que o Neon
+  adiciona); o TLS é ligado via `connect_args={"ssl": True}`. SQLite vira `sqlite+aiosqlite`.
+- Tipo JSON portável: `JSON().with_variant(JSONB(), "postgresql")`.
+
+### LGPD / logs
+- **Nunca logar conteúdo de mensagem** (dado de saúde sensível) — só metadados
+  (qtd, tipos, ids). Telefones em log passam por `utils.mascarar_telefone` (`***8888`).
+- `logging_config.py`: texto no dev, JSON na prod (`LOG_JSON=true`).
 
 ---
 
@@ -315,49 +448,56 @@ sofia/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py               # FastAPI app + rotas
-│   ├── config.py             # Settings (pydantic-settings)
-│   ├── database.py           # Engine async, session, Base SQLAlchemy
-│   ├── models.py             # SQLAlchemy models (Conversa, Mensagem, Escalada)
-│   ├── schemas.py            # Pydantic (WebhookPayload, etc)
-│   ├── dependencies.py       # Auth, db session
+│   ├── config.py             # Settings (pydantic-settings) — instanciado no import
+│   ├── database.py           # Engine async, session, Base; URL portável SQLite/Postgres
+│   ├── models.py             # Conversa, Mensagem, Configuracao, Escalada
+│   ├── dependencies.py       # Auth por sessão, CSRF (verificar_origem), get_db
+│   ├── logging_config.py     # Logging texto (dev) / JSON (prod)
+│   ├── utils.py              # mascarar_telefone (LGPD)
+│   │                         # (não há schemas.py — WebhookPayload é inline no webhook)
 │   │
 │   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── webhook.py        # GET/POST /webhook/whatsapp
-│   │   ├── api.py            # GET /api/conversas, POST /api/conversas/{id}/responder
-│   │   ├── painel.py         # GET /painel, /painel/conversas/{id}
+│   │   ├── webhook.py        # GET/POST /webhook/whatsapp (orquestra o turno do bot)
+│   │   ├── auth.py           # GET/POST /login, /logout (sessão)
+│   │   ├── api.py            # API JSON do painel
+│   │   ├── painel.py         # /painel, /painel/config, /painel/metricas, conversas
+│   │   ├── tasks.py          # POST /tasks/seguimentos (cron externo, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── conversation.py   # Orquestrador principal
+│   │   ├── conversation.py   # Persistência, idempotência, histórico p/ LLM
 │   │   ├── whatsapp_client.py # Wrapper Cloud API (enviar_texto, enviar_template)
-│   │   ├── llm_client.py     # Interface abstrata + impl OpenAI
-│   │   ├── hamilton_client.py # Wrapper API Hamilton
-│   │   └── escalation.py     # Lógica de escalada
+│   │   ├── llm_client.py     # LLMClient abstrato + OpenAI + injeção de valores no prompt
+│   │   ├── hamilton_client.py # Wrapper API Hamilton (JWT)
+│   │   ├── cadastro.py       # Cadastro no Hamilton (busca-antes-de-criar)
+│   │   ├── escalation.py     # Lógica de escalada + alerta à Thainá
+│   │   ├── config_negocio.py # Valores de negócio editáveis (cache + tabela configuracao)
+│   │   ├── seguimento.py     # Follow-up de lead parado (Frente 2)
+│   │   ├── metricas.py       # KPIs do painel (Frente 3)
+│   │   └── painel.py         # Queries/ações do painel da Thainá
 │   │
 │   ├── prompts/
 │   │   └── sofia_v01.txt     # System prompt versionado
 │   │
-│   ├── templates/            # Jinja2
-│   │   ├── base.html
-│   │   ├── painel_lista.html
-│   │   ├── painel_conversa.html
-│   │   └── login.html
+│   ├── templates/            # Jinja2 (HTMX via CDN)
+│   │   ├── base.html, _topbar.html, login.html
+│   │   ├── painel_lista.html, painel_conversa.html
+│   │   ├── painel_config.html, painel_metricas.html
+│   │   └── _conversas_fragment.html, _mensagens_fragment.html
 │   │
 │   └── static/
-│       ├── htmx.min.js
+│       ├── allos.css         # Allos Design System (paleta Hamilton)
 │       └── style.css
 │
 ├── alembic/
 │   ├── env.py
 │   └── versions/             # Migration files
 │
-├── tests/
-│   ├── __init__.py
-│   ├── test_webhook.py       # Validação payload
-│   ├── test_conversation.py  # Fluxo mensagem
-│   └── test_escalation.py    # Tool calling
+├── tests/                    # sem conftest.py; cada teste sobe SQLite in-memory e mocka externos
+│   ├── test_webhook.py, test_conversation.py, test_escalation.py
+│   ├── test_cadastro.py, test_hamilton.py, test_llm.py
+│   ├── test_painel.py, test_metricas.py, test_seguimento.py
+│   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)
 ```
@@ -405,7 +545,7 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 
 ### Passo 7: Painel web ✅
 - Jinja2 + HTMX (lista 15s, conversa 5s)
-- Endpoints `/api/conversas`, `/painel` + HTTP Basic Auth
+- Endpoints `/api/conversas`, `/painel` (auth por sessão/cookie a partir do Passo 8; antes Basic Auth)
 - Thainá assume/responde/devolve ao bot
 
 ### Passo 8: Polimento + produção ✅
@@ -414,6 +554,15 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - Handler global de erro 500 + degradação graciosa (OpenAI/Hamilton/Cloud API)
 - `render.yaml` (build com `alembic upgrade head`, health check `/health`)
 - Painel repaginado (design do Hamilton) + tela de login por sessão
+
+### Frentes pós-MVP ✅ (já no `main`)
+- **Frente 1 — Neuro + valores configuráveis**: fluxo de neuroavaliação (escala
+  `neuro_reuniao`; objeção de preço escala `preco`) e valores de negócio editáveis no
+  painel (`/painel/config`, tabela `configuracao`, injeção no prompt). Ver `config_negocio.py`.
+- **Frente 2 — Follow-up de lead parado**: `seguimento.py` + `POST /tasks/seguimentos`
+  (cron externo, `TASKS_TOKEN`). Uma mensagem dentro da janela de 24h da Meta.
+- **Frente 3 — Dashboard de KPIs**: `metricas.py` + `/painel/metricas` (conversão,
+  autonomia, escaladas por motivo, leads/dia, recuperados).
 
 ### Status de produção (go-live em andamento)
 - **No ar**: https://sofia-whatsapp.onrender.com (Render). Login painel: `thaina`.
@@ -440,21 +589,35 @@ ALERT_TEMPLATE_NAME=alerta_thaina  # Nome do template
 
 # OpenAI
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o-mini       # ex.: gpt-5.5 (precisa do SDK openai 2.x)
+OPENAI_TEMPERATURE=0.7         # vazio/none = não envia (usa padrão do modelo)
 
 # Banco
-DATABASE_URL=                      # postgres://... Neon
+DATABASE_URL=                      # postgres://... Neon (ou sqlite:///sofia_dev.db no dev)
 
-# Hamilton
+# Hamilton (auth JWT: username/password -> Bearer)
 HAMILTON_API_URL=                  # Ex: https://hamilton.allos.org.br
-HAMILTON_API_KEY=
+HAMILTON_USERNAME=                 # usuário sofia-bot
+HAMILTON_PASSWORD=
+HAMILTON_API_KEY=                  # legado/opcional
 
-# Painel
+# Valores de negócio (defaults; editáveis em runtime no /painel/config)
+PRECO_TERAPIA_MENSAL=200
+PRECO_NEURO=1200
+PARCELAS_MAX=5
+FOLLOWUP_HORAS=20                  # < 24 (janela da Meta)
+
+# Painel + sessão
 PAINEL_USER=thaina
 PAINEL_PASSWORD=                   # Random
+SECRET_KEY=                        # assina o cookie de sessão (trocar em prod)
+
+# Tarefas agendadas (cron externo dos follow-ups; vazio = endpoint desligado)
+TASKS_TOKEN=
 
 # Geral
 LOG_LEVEL=INFO
+LOG_JSON=false                     # true na produção (logs estruturados)
 ENVIRONMENT=production             # ou development
 ```
 
