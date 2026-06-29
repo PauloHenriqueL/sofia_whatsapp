@@ -48,11 +48,25 @@ TOOLS = [
                         "description": "Formato YYYY-MM-DD",
                     },
                     "telefone_contato": {"type": "string"},
-                    "telefone_apoio": {"type": "string"},
-                    "endereco": {"type": "string"},
+                    "telefone_apoio": {
+                        "type": "string",
+                        "description": "Contato de emergência (familiar/referência), opcional",
+                    },
+                    "endereco": {
+                        "type": "string",
+                        "description": "Bairro e cidade",
+                    },
+                    "cep": {"type": "string", "description": "CEP (opcional)"},
                     "horarios_disponiveis": {"type": "string"},
                     "preferencia_terapeuta": {"type": "string"},
                     "motivo_busca": {"type": "string"},
+                    "como_conheceu": {
+                        "type": "string",
+                        "description": (
+                            "Como a pessoa disse que conheceu a Allos, literal "
+                            "(ex.: 'Instagram', 'indicação de uma amiga', 'Google'). Opcional."
+                        ),
+                    },
                 },
                 # Mínimo pra registrar um lead. O resto a Thainá completa depois
                 # no Hamilton (botão "Completar" no painel). Mantido alinhado ao

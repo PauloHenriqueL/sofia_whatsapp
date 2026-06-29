@@ -135,6 +135,30 @@ class TestListaEDetalhe:
         assert "5531999998888" in resp.text
 
     @pytest.mark.asyncio
+    async def test_pagina_conversa_mostra_dados_coletados(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        async with maker() as s:
+            c = Conversa(
+                numero_whatsapp="5531900000000",
+                modo="bot",
+                estado="novo",
+                dados_coletados={
+                    "nome_completo": "Maria Silva",
+                    "endereco": "Barroca, BH",
+                    "como_conheceu": "Instagram",
+                },
+            )
+            s.add(c)
+            await s.commit()
+            cid = c.id
+        resp = await client.get(f"/painel/conversas/{cid}/")
+        assert resp.status_code == 200
+        assert "Dados coletados" in resp.text
+        assert "Como conheceu a Allos" in resp.text
+        assert "Instagram" in resp.text
+
+    @pytest.mark.asyncio
     async def test_pagina_metricas_renderiza(self, ambiente):
         client, maker = ambiente
         await _login(client)

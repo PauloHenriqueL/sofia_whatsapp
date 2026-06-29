@@ -25,9 +25,11 @@ class TestMapearDados:
             "data_nascimento": "1990-05-15",
             "telefone_apoio": "5531888887777",
             "endereco": "Rua das Flores, 123",
+            "cep": "30431-058",
             "motivo_busca": "ansiedade",
             "preferencia_terapeuta": "mulher",
             "horarios_disponiveis": "noites",
+            "como_conheceu": "Instagram",
         }
         payload = hamilton_client.mapear_dados(dados)
         assert payload["nome"] == "Maria Silva"
@@ -38,9 +40,30 @@ class TestMapearDados:
         assert "Motivo: ansiedade" in payload["observacao"]
         assert "Preferência: mulher" in payload["observacao"]
         assert "Horários: noites" in payload["observacao"]
+        # Campos novos surfados pra Thainá pela observação.
+        assert "CEP: 30431-058" in payload["observacao"]
+        assert "Origem: Instagram" in payload["observacao"]
+        # Terapia (motivo não-neuro): anota o valor configurado da mensalidade.
+        assert "Mensalidade" in payload["observacao"]
 
-    def test_campos_opcionais_ausentes(self):
+    def test_mensalidade_anotada_mesmo_sem_outros_dados(self):
+        # Sem motivo de neuro, a observação carrega ao menos a mensalidade.
         payload = hamilton_client.mapear_dados(
             {"nome_completo": "João", "telefone_contato": "31977776666"}
         )
-        assert payload == {"nome": "João", "telefone": "31977776666"}
+        assert payload["nome"] == "João"
+        assert payload["telefone"] == "31977776666"
+        assert "Mensalidade" in payload["observacao"]
+        # Nenhum outro campo opcional foi enviado.
+        assert set(payload) == {"nome", "telefone", "observacao"}
+
+    def test_neuro_nao_anota_mensalidade(self):
+        payload = hamilton_client.mapear_dados(
+            {
+                "nome_completo": "Ana",
+                "telefone_contato": "31966665555",
+                "motivo_busca": "neuroavaliação, suspeita de TDAH",
+            }
+        )
+        assert "Mensalidade" not in payload.get("observacao", "")
+        assert "Motivo: neuroavaliação, suspeita de TDAH" in payload["observacao"]

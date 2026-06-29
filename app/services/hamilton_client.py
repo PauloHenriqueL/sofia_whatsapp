@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services import config_negocio
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,16 @@ def normalizar_telefone(numero: str | None) -> str:
 
 
 def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
-    """Converte `dados_coletados` da Sofia no payload de intake do Hamilton."""
+    """Converte `dados_coletados` da Sofia no payload de intake do Hamilton.
+
+    Campos que o Hamilton ainda não tem como nativos (CEP, captação/origem e o
+    valor da mensalidade) vão pela `observacao` (texto livre que a Thainá lê e
+    usa pra completar o cadastro no Hamilton). O Hamilton seta um valor padrão
+    de mensalidade que não bate com o nosso, então anotamos o valor configurado.
+    """
+    motivo = (dados.get("motivo_busca") or "").lower()
+    eh_neuro = "neuro" in motivo
+
     observacao = []
     if dados.get("motivo_busca"):
         observacao.append(f"Motivo: {dados['motivo_busca']}")
@@ -42,6 +52,14 @@ def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
         observacao.append(f"Preferência: {dados['preferencia_terapeuta']}")
     if dados.get("horarios_disponiveis"):
         observacao.append(f"Horários: {dados['horarios_disponiveis']}")
+    if dados.get("cep"):
+        observacao.append(f"CEP: {dados['cep']}")
+    if dados.get("como_conheceu"):
+        observacao.append(f"Origem: {dados['como_conheceu']}")
+    # Mensalidade só faz sentido pra terapia (neuro é pagamento único/orçamento).
+    if not eh_neuro:
+        preco = config_negocio.valor("preco_terapia_mensal")
+        observacao.append(f"Mensalidade: R$ {preco:,}".replace(",", "."))
 
     payload: dict[str, Any] = {
         "nome": dados.get("nome_completo"),
