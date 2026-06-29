@@ -235,6 +235,25 @@ class TestAcoes:
         async with maker() as s:
             assert (await s.get(Conversa, cid)).modo == "bot"
 
+    @pytest.mark.asyncio
+    async def test_reiniciar_apaga_conversa_e_mensagens(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+
+        resp = await client.post(f"/painel/conversas/{cid}/reiniciar", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/painel/"
+
+        async with maker() as s:
+            assert await s.get(Conversa, cid) is None
+            msgs = (
+                (await s.execute(select(Mensagem).where(Mensagem.conversa_id == cid)))
+                .scalars()
+                .all()
+            )
+            assert msgs == []
+
 
 class TestCSRF:
     @pytest.mark.asyncio

@@ -6,11 +6,11 @@ duplicar a lógica de listar, responder, assumir e devolver ao bot.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import Conversa, Mensagem
+from app.models import Conversa, Escalada, Mensagem
 from app.services import conversation, whatsapp_client
 
 
@@ -102,4 +102,18 @@ async def assumir(db: AsyncSession, conversa: Conversa) -> None:
 async def devolver_ao_bot(db: AsyncSession, conversa: Conversa) -> None:
     """Encerra o atendimento humano e devolve a conversa ao bot."""
     conversa.modo = "bot"
+    await db.commit()
+
+
+async def excluir_conversa(db: AsyncSession, conversa: Conversa) -> None:
+    """Apaga a conversa e tudo ligado a ela (mensagens e escaladas).
+
+    Usada pelo botão "Reiniciar conversa" (teste): como o `numero_whatsapp` é
+    único, apagar a conversa libera o número pra começar do zero como paciente
+    novo. Apaga os filhos explicitamente (portável: não depende do ON DELETE
+    CASCADE do banco, que no SQLite do teste fica desligado por padrão).
+    """
+    await db.execute(delete(Mensagem).where(Mensagem.conversa_id == conversa.id))
+    await db.execute(delete(Escalada).where(Escalada.conversa_id == conversa.id))
+    await db.execute(delete(Conversa).where(Conversa.id == conversa.id))
     await db.commit()

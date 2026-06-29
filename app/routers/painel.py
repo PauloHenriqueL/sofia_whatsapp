@@ -186,3 +186,17 @@ async def cadastrar(conversa_id: int, db: AsyncSession = Depends(get_db)):
     await cadastro.cadastrar_paciente(db, conversa)
     await db.commit()
     return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/reiniciar")
+async def reiniciar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Apaga a conversa inteira (teste): libera o número pra recomeçar do zero.
+
+    Some com as mensagens e escaladas junto. Volta pra lista, já que a conversa
+    deixa de existir.
+    """
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await painel.excluir_conversa(db, conversa)
+    return RedirectResponse("/painel/", status_code=303)

@@ -35,6 +35,10 @@
           <button class="btn btn-primary" type="submit"><i class="bi bi-person-raised-hand"></i> Assumir conversa</button>
         </form>
       {% endif %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" style="margin:0"
+            onsubmit="return confirm('Apagar esta conversa e todos os dados dela? Isso libera o número pra recomeçar do zero e não dá pra desfazer.')">
+        <button class="btn btn-danger" type="submit"><i class="bi bi-trash"></i> Reiniciar conversa</button>
+      </form>
     </div>
   </div>
 
