@@ -11,6 +11,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from app.services import config_negocio
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sofia_v01.txt"
+# Base de conhecimento da Sofia (o que ela comunica e como). Fica em docs/ como
+# fonte única (mesmo arquivo que a equipe edita); é carregada em runtime, então
+# NÃO é só documentação — não mover/apagar. O contrato (docs/contrato-*.md) NÃO
+# é carregado de propósito: é só referência interna, nunca citado verbatim.
+KB_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "sofia-base-conhecimento.md"
 
 
 class LLMError(Exception):
@@ -51,7 +57,13 @@ def _formatar_reais(valor: int) -> str:
 
 
 def _valores_prompt() -> dict[str, str]:
-    """Valores de negócio injetados no prompt (editáveis no painel da Thainá)."""
+    """Valores injetados no prompt (preços editáveis no painel + data de hoje).
+
+    `{{DATA_HOJE}}` ajuda o modelo a calcular a idade a partir do nascimento (a
+    verificação de idade é uma branch de segurança: <12 escala, 12-17 termo).
+    Os tokens de neuro (`{{PRECO_NEURO}}`/`{{PARCELAS_MAX}}`) seguem definidos por
+    compatibilidade, mas o prompt v2 não os usa (neuro vai direto pra Thainá).
+    """
     v = config_negocio.valores()
     preco_terapia = v["preco_terapia_mensal"]
     return {
@@ -59,6 +71,7 @@ def _valores_prompt() -> dict[str, str]:
         "{{PRECO_TERAPIA_SESSAO}}": _formatar_reais(round(preco_terapia / 4)),
         "{{PRECO_NEURO}}": _formatar_reais(v["preco_neuro"]),
         "{{PARCELAS_MAX}}": str(v["parcelas_max"]),
+        "{{DATA_HOJE}}": datetime.now().strftime("%d/%m/%Y"),
     }
 
 
@@ -68,13 +81,37 @@ def _ler_template() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
+@lru_cache(maxsize=1)
+def _ler_base_conhecimento() -> str:
+    """Lê a base de conhecimento da Sofia (cacheada; conteúdo estático em runtime).
+
+    Falha de leitura não derruba a Sofia: ela segue só com o prompt de fluxo (a
+    KB é pra responder dúvidas; o fluxo principal não depende dela).
+    """
+    try:
+        return KB_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.exception("Não consegui ler a base de conhecimento (%s)", KB_PATH)
+        return ""
+
+
 def carregar_system_prompt() -> str:
-    """System prompt com os valores de negócio atuais injetados.
+    """System prompt: prompt de fluxo + base de conhecimento, com tokens injetados.
 
     Não é cacheado no nível final de propósito: os valores podem mudar em runtime
-    (painel) e a substituição é barata. O arquivo em si fica cacheado.
+    (painel/data) e a substituição é barata. Os arquivos em si ficam cacheados.
     """
     texto = _ler_template()
+    kb = _ler_base_conhecimento()
+    if kb:
+        texto = (
+            f"{texto}\n\n---\n\n"
+            "# Base de conhecimento (pra responder dúvidas em linguagem simples)\n\n"
+            "Use o conteúdo abaixo pra responder dúvidas (valores, faltas, sigilo, online, "
+            "equipe, etc.). Adapte ao contexto, não leia verbatim. Se não houver resposta "
+            "aqui, diz que confirma com a Thainá e escala.\n\n"
+            f"{kb}"
+        )
     for token, valor in _valores_prompt().items():
         texto = texto.replace(token, valor)
     return texto

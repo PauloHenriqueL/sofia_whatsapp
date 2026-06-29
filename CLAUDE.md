@@ -267,7 +267,7 @@ mensagem
 
 escalada
 ├─ id, conversa_id
-├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'audio_recebido'/'outro')
+├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'presencial'/'menor_12'/'crise'/'audio_recebido'/'outro')
 ├─ contexto
 ├─ criada_em, resolvida_em
 ```
@@ -305,9 +305,14 @@ pontos que **exigem ler vários arquivos** pra entender:
 - O default de cada campo vem das `settings` (env/código). Se a config não carregar no
   startup (ex.: tabela ainda não migrada), o app sobe com os padrões.
 - **Injeção no prompt**: `llm_client.carregar_system_prompt()` substitui tokens
-  `{{PRECO_TERAPIA}}`, `{{PRECO_TERAPIA_SESSAO}}`, `{{PRECO_NEURO}}`, `{{PARCELAS_MAX}}`
-  em `app/prompts/sofia_v01.txt` com os valores do cache. O arquivo é cacheado; a
-  substituição é refeita a cada turno (de propósito — o valor muda em runtime).
+  `{{PRECO_TERAPIA}}`, `{{PRECO_TERAPIA_SESSAO}}` e `{{DATA_HOJE}}` (data do dia, pra Sofia
+  calcular idade na verificação <12/12-17/18+) em `app/prompts/sofia_v01.txt` com os valores do
+  cache. `{{PRECO_NEURO}}`/`{{PARCELAS_MAX}}` ainda são injetados, mas o prompt v2 não os usa
+  (neuro vai direto pra Thainá). O arquivo é cacheado; a substituição é refeita a cada turno.
+- **Base de conhecimento (prompt v2)**: `carregar_system_prompt()` anexa
+  `docs/sofia-base-conhecimento.md` ao system prompt (cacheada). **Esse arquivo é load-bearing
+  em runtime, não é só doc — não mover/apagar.** O `docs/contrato-terapeutico-allos.md` **não** é
+  carregado de propósito (só referência interna; a Sofia nunca cita verbatim).
 
 ### Follow-up de lead parado (Frente 2 — `seguimento.py` + `routers/tasks.py`)
 - Um **cron externo** bate em `POST /tasks/seguimentos` (protegido por `TASKS_TOKEN`,

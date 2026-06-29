@@ -30,12 +30,19 @@ class TestCarregarSystemPrompt:
         assert "Allos" in prompt
 
     def test_injeta_valores_de_negocio(self):
-        # Os valores configuráveis (preço terapia/neuro, parcelas) entram no
-        # prompt; nenhum placeholder {{...}} pode sobrar sem substituir.
+        # O preço da terapia entra no prompt; nenhum placeholder {{...}} pode
+        # sobrar sem substituir (data e preços são injetados em runtime).
+        # Obs.: o preço da neuro saiu do prompt na v2 (neuro vai direto pra Thainá).
         prompt = llm_client.carregar_system_prompt()
         assert "{{" not in prompt
-        assert llm_client._formatar_reais(settings.preco_neuro) in prompt
         assert llm_client._formatar_reais(settings.preco_terapia_mensal) in prompt
+
+    def test_carrega_base_de_conhecimento(self):
+        # A base de conhecimento (docs/sofia-base-conhecimento.md) é anexada ao
+        # system prompt. "quinta semana" só aparece na base, não no fluxo.
+        prompt = llm_client.carregar_system_prompt()
+        assert "Base de conhecimento" in prompt
+        assert "quinta semana" in prompt
 
 
 class TestOpenAIClient:

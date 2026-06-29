@@ -15,6 +15,9 @@ MOTIVOS_ESCALADA = [
     "preco",
     "prefeitura",
     "gratuidade",
+    "presencial",
+    "menor_12",
+    "crise",
     "outro",
 ]
 
@@ -22,10 +25,13 @@ MOTIVOS_ESCALADA = [
 # Inclui 'audio_recebido', que é detectado em código (não escolhido pelo modelo).
 MOTIVO_LABELS = {
     "pedido_humano": "pediu pra falar com uma pessoa",
-    "neuro_reuniao": "neuroavaliação (quer reunião com a diretora)",
+    "neuro_reuniao": "avaliação neuropsicológica",
     "preco": "dúvida ou objeção sobre o preço",
     "prefeitura": "mencionou prefeitura / convênio municipal",
     "gratuidade": "não tem como pagar (gratuidade)",
+    "presencial": "quer atendimento presencial",
+    "menor_12": "paciente menor de 12 anos (online inviável)",
+    "crise": "CRISE / risco — prioridade máxima",
     "audio_recebido": "mandou um áudio (a Sofia não transcreve)",
     "outro": "outro (ver contexto)",
 }

@@ -56,6 +56,8 @@ class TestConfigNegocio:
 
     @pytest.mark.asyncio
     async def test_valor_novo_reflete_no_prompt(self, session):
-        await config_negocio.salvar(session, {"preco_neuro": 1999})
+        # Valida a injeção pelo preço da terapia (token usado no prompt v2).
+        # O preço da neuro não entra mais no prompt (neuro vai direto pra Thainá).
+        await config_negocio.salvar(session, {"preco_terapia_mensal": 1999})
         prompt = llm_client.carregar_system_prompt()
         assert "1.999" in prompt  # formatado em reais e injetado
