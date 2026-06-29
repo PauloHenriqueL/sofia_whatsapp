@@ -56,6 +56,8 @@ def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
         observacao.append(f"CEP: {dados['cep']}")
     if dados.get("como_conheceu"):
         observacao.append(f"Origem: {dados['como_conheceu']}")
+    if dados.get("observacoes"):
+        observacao.append(f"Obs: {dados['observacoes']}")
     # Mensalidade só faz sentido pra terapia (neuro é pagamento único/orçamento).
     if not eh_neuro:
         preco = config_negocio.valor("preco_terapia_mensal")

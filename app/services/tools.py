@@ -67,6 +67,16 @@ TOOLS = [
                             "(ex.: 'Instagram', 'indicação de uma amiga', 'Google'). Opcional."
                         ),
                     },
+                    "observacoes": {
+                        "type": "string",
+                        "description": (
+                            "Observações livres: qualquer info relevante que a pessoa "
+                            "mencionar e que ajude a Thainá/o terapeuta (preferências mais "
+                            "detalhadas sobre o terapeuta, contexto do que busca, questões "
+                            "ou sensibilidades específicas). Resumo curto e factual, sem "
+                            "interpretar clinicamente. Opcional."
+                        ),
+                    },
                 },
                 # Mínimo pra registrar um lead. O resto a Thainá completa depois
                 # no Hamilton (botão "Completar" no painel). Mantido alinhado ao

@@ -151,4 +151,5 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .data-row:last-child { border-bottom:none; }
 .data-row dt { width:172px; flex-shrink:0; color:var(--text-tertiary); font-weight:600; }
 .data-row dd { margin:0; color:var(--text-primary); white-space:pre-wrap; }
+.data-row dd.vazio { color:var(--text-tertiary); font-style:italic; }
 @media (max-width:640px) { .data-row { flex-direction:column; gap:2px; } .data-row dt { width:auto; } }

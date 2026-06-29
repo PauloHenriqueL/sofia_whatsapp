@@ -146,7 +146,9 @@ class TestListaEDetalhe:
                 dados_coletados={
                     "nome_completo": "Maria Silva",
                     "endereco": "Barroca, BH",
+                    "horarios_disponiveis": "manhãs",
                     "como_conheceu": "Instagram",
+                    "observacoes": "prefere atendimento online",
                 },
             )
             s.add(c)
@@ -157,6 +159,13 @@ class TestListaEDetalhe:
         assert "Dados coletados" in resp.text
         assert "Como conheceu a Allos" in resp.text
         assert "Instagram" in resp.text
+        # Horários e Observações aparecem (checklist completo)
+        assert "Horários disponíveis" in resp.text
+        assert "manhãs" in resp.text
+        assert "Observações" in resp.text
+        assert "prefere atendimento online" in resp.text
+        # Campos não coletados aparecem como "não informado"
+        assert "não informado" in resp.text
 
     @pytest.mark.asyncio
     async def test_pagina_metricas_renderiza(self, ambiente):

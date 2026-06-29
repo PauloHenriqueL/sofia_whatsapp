@@ -43,35 +43,33 @@
   </div>
 
   {% set d = conversa.dados_coletados or {} %}
+  {# Nome e telefone já aparecem no cabeçalho; aqui é o checklist de intake. #}
   {% set campos = [
-    ('nome_completo', 'Nome'),
     ('data_nascimento', 'Nascimento'),
     ('endereco', 'Bairro/cidade'),
-    ('cep', 'CEP'),
-    ('telefone_contato', 'Telefone'),
+    ('cep', 'CEP (opcional)'),
+    ('horarios_disponiveis', 'Horários disponíveis'),
     ('telefone_apoio', 'Contato de apoio'),
-    ('horarios_disponiveis', 'Horários'),
     ('preferencia_terapeuta', 'Preferência de terapeuta'),
-    ('motivo_busca', 'Motivo'),
+    ('motivo_busca', 'Motivo da busca'),
     ('como_conheceu', 'Como conheceu a Allos'),
+    ('observacoes', 'Observações'),
   ] %}
-  {% set ns = namespace(tem=false) %}
-  {% for chave, rotulo in campos %}{% if d.get(chave) %}{% set ns.tem = true %}{% endif %}{% endfor %}
-  {% if ns.tem %}
   <div class="card datas-card" style="margin:14px 0; padding:16px 18px">
     <h2 style="font-size:16px; margin:0 0 10px">Dados coletados</h2>
     <dl class="datas">
       {% for chave, rotulo in campos %}
+      <div class="data-row">
+        <dt>{{ rotulo }}</dt>
         {% if d.get(chave) %}
-        <div class="data-row">
-          <dt>{{ rotulo }}</dt>
-          <dd>{{ d.get(chave) }}</dd>
-        </div>
+        <dd>{{ d.get(chave) }}</dd>
+        {% else %}
+        <dd class="vazio">não informado</dd>
         {% endif %}
+      </div>
       {% endfor %}
     </dl>
   </div>
-  {% endif %}
 
   <div class="card">
     <div id="mensagens" class="chat"

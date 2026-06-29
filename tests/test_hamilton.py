@@ -30,6 +30,7 @@ class TestMapearDados:
             "preferencia_terapeuta": "mulher",
             "horarios_disponiveis": "noites",
             "como_conheceu": "Instagram",
+            "observacoes": "queria alguém com experiência em luto",
         }
         payload = hamilton_client.mapear_dados(dados)
         assert payload["nome"] == "Maria Silva"
@@ -43,6 +44,7 @@ class TestMapearDados:
         # Campos novos surfados pra Thainá pela observação.
         assert "CEP: 30431-058" in payload["observacao"]
         assert "Origem: Instagram" in payload["observacao"]
+        assert "Obs: queria alguém com experiência em luto" in payload["observacao"]
         # Terapia (motivo não-neuro): anota o valor configurado da mensalidade.
         assert "Mensalidade" in payload["observacao"]
 
