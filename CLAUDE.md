@@ -21,7 +21,7 @@ Automação de atendimento de pacientes novos via WhatsApp, integrando com Hamil
 **Stack decidida**:
 - **Backend**: FastAPI (async, webhook rápido)
 - **Banco**: Postgres no Neon
-- **LLM**: OpenAI (gpt-4o-mini)
+- **LLM**: OpenAI (modelo configurável via `OPENAI_MODEL`; produção usa gpt-5.x)
 - **Canal**: Meta WhatsApp Cloud API
 - **Painel**: Jinja2 + HTMX (server-rendered)
 - **Hosting**: Render
@@ -372,8 +372,8 @@ pontos que **exigem ler vários arquivos** pra entender:
    - Processa tool calls:
      - `escalar_para_thaina(motivo)`: marca humano, registra escalada, envia template
      - `cadastrar_paciente(dados)`: POST Hamilton, atualiza `paciente_hamilton_id`
-   - Envia resposta via Cloud API
-   - Persiste mensagem enviada
+   - Quebra a resposta em **bolhas** (parágrafos separados por linha em branco) e envia em ordem via Cloud API, persistindo cada uma
+   - Com `SIMULAR_DIGITACAO=true`: marca a mensagem como lida, mostra "digitando…" e espaça as bolhas no tempo (ritmo humano)
 
 ### Fluxo de Resposta Thainá (Painel)
 
@@ -471,7 +471,7 @@ sofia/
 │   │
 │   ├── services/
 │   │   ├── conversation.py   # Persistência, idempotência, histórico p/ LLM
-│   │   ├── whatsapp_client.py # Wrapper Cloud API (enviar_texto, enviar_template)
+│   │   ├── whatsapp_client.py # Wrapper Cloud API (enviar_texto, enviar_template, dividir_em_bolhas, marcar_como_lida)
 │   │   ├── llm_client.py     # LLMClient abstrato + OpenAI + injeção de valores no prompt
 │   │   ├── hamilton_client.py # Wrapper API Hamilton (JWT)
 │   │   ├── cadastro.py       # Cadastro no Hamilton (busca-antes-de-criar)
@@ -624,6 +624,7 @@ TASKS_TOKEN=
 LOG_LEVEL=INFO
 LOG_JSON=false                     # true na produção (logs estruturados)
 ENVIRONMENT=production             # ou development
+SIMULAR_DIGITACAO=false            # true na produção: marca como lida + "digitando…" + ritmo entre bolhas
 ```
 
 ---
