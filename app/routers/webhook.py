@@ -1,5 +1,6 @@
 """Webhook do WhatsApp - Passo 5: LLM com tool calling (escalada / cadastro)"""
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -273,6 +274,13 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
                 whatsapp_message_id=wamid,
             )
 
+        # Presença humana (UX): marca como lida e, se o bot vai responder, mostra
+        # "digitando…". Best-effort, controlado por flag (desligado em dev/testes).
+        if settings.simular_digitacao:
+            await whatsapp_client.marcar_como_lida(
+                wamid, com_digitacao=(conversa.modo != "humano")
+            )
+
         # Modo humano: só persiste; a Thainá responde pelo painel.
         if conversa.modo == "humano":
             await session.commit()
@@ -294,16 +302,19 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
         if resposta is None:
             return
 
-        enviado = False
-        try:
-            await whatsapp_client.enviar_texto(numero, resposta)
-            enviado = True
-        except whatsapp_client.WhatsAppError:
-            # Já logado no cliente; persistência da entrada não é perdida.
-            logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
-
-        if enviado:
-            await conversation.registrar_mensagem_enviada(session, conversa, texto=resposta)
+        # Quebra em bolhas curtas e envia em ordem, persistindo cada uma. Se uma
+        # falhar, pára (não adianta mandar o resto fora de ordem).
+        for bolha in whatsapp_client.dividir_em_bolhas(resposta):
+            # Ritmo: espaça as bolhas no tempo pra não chegarem instantâneas.
+            if settings.simular_digitacao:
+                await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
+            try:
+                await whatsapp_client.enviar_texto(numero, bolha)
+            except whatsapp_client.WhatsAppError:
+                # Já logado no cliente; persistência da entrada não é perdida.
+                logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
+                break
+            await conversation.registrar_mensagem_enviada(session, conversa, texto=bolha)
             await session.commit()
 
 

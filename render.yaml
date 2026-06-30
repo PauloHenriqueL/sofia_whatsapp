@@ -15,6 +15,9 @@ services:
         value: INFO
       - key: LOG_JSON
         value: "true"
+      # Marca como lida + "digitando…" + espaça as bolhas no tempo (UX).
+      - key: SIMULAR_DIGITACAO
+        value: "true"
 
       # WhatsApp Cloud API
       - key: WHATSAPP_TOKEN

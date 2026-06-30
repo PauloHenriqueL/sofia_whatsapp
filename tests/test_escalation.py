@@ -15,7 +15,7 @@ def test_todo_motivo_da_escalada_tem_rotulo():
 
 def test_motivos_novos_disponiveis_pro_modelo():
     # Motivos que o LLM pode escolher (inclui os roteamentos da v2).
-    for motivo in ("neuro_reuniao", "preco", "presencial", "menor_12", "crise"):
+    for motivo in ("neuro_reuniao", "preco", "presencial", "menor_11", "crise"):
         assert motivo in tools.MOTIVOS_ESCALADA
 
 

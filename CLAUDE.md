@@ -267,7 +267,7 @@ mensagem
 
 escalada
 ├─ id, conversa_id
-├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'presencial'/'menor_12'/'crise'/'audio_recebido'/'outro')
+├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'presencial'/'menor_11'/'crise'/'audio_recebido'/'outro')
 ├─ contexto
 ├─ criada_em, resolvida_em
 ```

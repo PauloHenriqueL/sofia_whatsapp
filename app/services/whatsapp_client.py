@@ -6,6 +6,7 @@ Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -18,9 +19,66 @@ logger = logging.getLogger(__name__)
 GRAPH_API_VERSION = "v18.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
+# Máximo de bolhas (mensagens) por turno, pra não floodar o paciente. Parágrafos
+# além disso são reagrupados na última bolha.
+MAX_BOLHAS = 5
+
+# Ritmo das bolhas: simula ~25 caracteres "digitados" por segundo, entre 0,8s e
+# 4s por bolha, pra a conversa não chegar instantânea (parecer um humano digitando).
+CHARS_POR_SEGUNDO = 25
+PAUSA_MIN_S = 0.8
+PAUSA_MAX_S = 4.0
+
 
 class WhatsAppError(Exception):
     """Erro ao chamar a Cloud API da Meta."""
+
+
+def dividir_em_bolhas(texto: str | None, max_bolhas: int = MAX_BOLHAS) -> list[str]:
+    """Quebra a resposta da Sofia em bolhas (mensagens) do WhatsApp.
+
+    A Sofia separa ideias com linha em branco; cada bloco vira uma mensagem, pra
+    a conversa parecer um papo e não um textão. Resposta curta (um bloco só) sai
+    como bolha única, sem fragmentar à toa. Acima de `max_bolhas`, o excedente é
+    reagrupado na última bolha.
+    """
+    if not texto:
+        return []
+    blocos = [b.strip() for b in re.split(r"\n\s*\n", texto.strip()) if b.strip()]
+    if len(blocos) > max_bolhas:
+        cabeca = blocos[: max_bolhas - 1]
+        resto = "\n\n".join(blocos[max_bolhas - 1 :])
+        blocos = cabeca + [resto]
+    return blocos
+
+
+def intervalo_digitacao(texto: str | None) -> float:
+    """Segundos pra 'digitar' uma bolha, simulando ritmo humano (entre min e max)."""
+    segundos = len(texto or "") / CHARS_POR_SEGUNDO
+    return max(PAUSA_MIN_S, min(segundos, PAUSA_MAX_S))
+
+
+async def marcar_como_lida(message_id: str | None, com_digitacao: bool = False) -> None:
+    """Marca a mensagem recebida como lida (tique azul) e, se pedido, mostra
+    'digitando…' pro paciente.
+
+    Best-effort: é só UX, então falha aqui (rede, versão da API sem suporte a
+    typing) nunca derruba a resposta. O indicador de digitação vai junto do read
+    receipt; se a API rejeitar, cai pra um read receipt simples.
+    """
+    if not message_id:
+        return
+    base = {"messaging_product": "whatsapp", "status": "read", "message_id": message_id}
+    try:
+        payload = {**base, "typing_indicator": {"type": "text"}} if com_digitacao else base
+        await _enviar(payload, descricao=f"read receipt {message_id}")
+    except WhatsAppError:
+        if not com_digitacao:
+            return
+        try:  # typing pode não ser suportado na versão da API; tenta só o read
+            await _enviar(base, descricao=f"read receipt {message_id}")
+        except WhatsAppError:
+            pass
 
 
 async def enviar_texto(numero: str, texto: str) -> dict[str, Any]:

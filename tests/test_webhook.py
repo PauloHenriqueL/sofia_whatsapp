@@ -204,6 +204,65 @@ class TestProcessarPayload:
         assert fake.historicos[0][-1] == {"role": "user", "content": "oi"}
 
     @pytest.mark.asyncio
+    async def test_resposta_longa_vai_em_bolhas(self, db_em_memoria):
+        """Resposta com parágrafos separados por linha em branco vira N bolhas,
+        enviadas e persistidas em ordem."""
+        fake = _FakeLLM(resposta="Primeira ideia.\n\nSegunda ideia.\n\nTerceira.")
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await processar_payload(
+                _payload_texto(numero="5531900001111", texto="me explica", msg_id="wamid.bolhas")
+            )
+
+        enviados = [c.args[1] for c in mock_enviar.await_args_list]
+        assert enviados == ["Primeira ideia.", "Segunda ideia.", "Terceira."]
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531900001111")
+            historico = await conversation.carregar_historico(s, conversa)
+            enviadas = [m for m in historico if m["role"] == "assistant"]
+            assert len(enviadas) == 3
+
+    @pytest.mark.asyncio
+    async def test_presenca_humana_desligada_por_padrao(self, db_em_memoria):
+        """Com simular_digitacao=False (padrão), não marca lida nem dá pausa."""
+        fake = _FakeLLM(resposta="Bloco um.\n\nBloco dois.")
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch(
+            "app.routers.webhook.whatsapp_client.marcar_como_lida", new_callable=AsyncMock
+        ) as mock_lida, patch(
+            "app.routers.webhook.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep, patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=fake
+        ):
+            await processar_payload(_payload_texto(msg_id="wamid.semdig"))
+
+        mock_lida.assert_not_awaited()
+        mock_sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_presenca_humana_ligada_marca_lida_e_pausa(self, db_em_memoria):
+        """Com simular_digitacao=True: marca lida com digitação e pausa por bolha."""
+        fake = _FakeLLM(resposta="Bloco um.\n\nBloco dois.\n\nBloco três.")
+        with patch.object(webhook_module.settings, "simular_digitacao", True), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch(
+            "app.routers.webhook.whatsapp_client.marcar_como_lida", new_callable=AsyncMock
+        ) as mock_lida, patch(
+            "app.routers.webhook.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep, patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=fake
+        ):
+            await processar_payload(_payload_texto(msg_id="wamid.comdig"))
+
+        mock_lida.assert_awaited_once()
+        assert mock_lida.await_args.kwargs.get("com_digitacao") is True
+        assert mock_sleep.await_count == 3  # uma pausa por bolha
+
+    @pytest.mark.asyncio
     async def test_escala_para_thaina(self, db_em_memoria):
         """Tool escalar_para_thaina: marca humano, alerta a Thainá, responde."""
         fake = _FakeLLMComTool()

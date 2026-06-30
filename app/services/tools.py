@@ -16,7 +16,7 @@ MOTIVOS_ESCALADA = [
     "prefeitura",
     "gratuidade",
     "presencial",
-    "menor_12",
+    "menor_11",
     "crise",
     "outro",
 ]
@@ -30,7 +30,7 @@ MOTIVO_LABELS = {
     "prefeitura": "mencionou prefeitura / convênio municipal",
     "gratuidade": "não tem como pagar (gratuidade)",
     "presencial": "quer atendimento presencial",
-    "menor_12": "paciente menor de 12 anos (online inviável)",
+    "menor_11": "paciente menor de 11 anos (online inviável)",
     "crise": "CRISE / risco — prioridade máxima",
     "audio_recebido": "mandou um áudio (a Sofia não transcreve)",
     "outro": "outro (ver contexto)",

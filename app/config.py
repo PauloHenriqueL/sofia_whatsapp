@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # Token do endpoint de tarefas (cron externo dispara os follow-ups).
     # Vazio = endpoint desligado (responde 403). Defina no Render pra ativar.
     tasks_token: str = ""
+    # Presença humana: marca mensagens como lidas (tique azul), mostra "digitando…"
+    # e espaça as bolhas no tempo. Ligado na produção (env); desligado por padrão
+    # pra não atrasar testes/dev nem fazer chamadas de rede fora de hora.
+    simular_digitacao: bool = False
 
     # WhatsApp
     whatsapp_token: str
