@@ -20,18 +20,27 @@
 
   <form class="card" method="post" action="/painel/config">
     {% for chave, campo in campos.items() %}
-    <div class="login-field" style="margin-bottom:16px">
-      <label for="{{ chave }}">{{ campo[0] }}</label>
-      <input class="input" type="number" min="1" id="{{ chave }}" name="{{ chave }}"
-             value="{{ valores[chave] }}" required>
-    </div>
+      {% if campo[2] == 'bool' %}
+      <div class="login-field" style="margin-bottom:16px; display:flex; align-items:center; gap:10px">
+        <input type="checkbox" id="{{ chave }}" name="{{ chave }}"
+               {% if valores[chave] %}checked{% endif %} style="width:auto; margin:0">
+        <label for="{{ chave }}" style="margin:0">{{ campo[0] }}</label>
+      </div>
+      {% else %}
+      <div class="login-field" style="margin-bottom:16px">
+        <label for="{{ chave }}">{{ campo[0] }}</label>
+        <input class="input" type="number" min="1" id="{{ chave }}" name="{{ chave }}"
+               value="{{ valores[chave] }}" required>
+      </div>
+      {% endif %}
     {% endfor %}
     <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
   </form>
 
   <div class="subtitle" style="margin-top:14px">
-    O preço da neuroavaliação só é informado pra quem recusa a reunião com a
-    diretora. O follow-up precisa ser menos de 24 horas (limite do WhatsApp).
+    "Mostrar digitando/visto" liga os indicadores de presença no WhatsApp. O
+    follow-up precisa ser menos de 24 horas (limite do WhatsApp). O preço da
+    neuroavaliação só é informado pra quem recusa a reunião com a diretora.
   </div>
 </div>
 {% endblock %}

@@ -73,8 +73,11 @@ async def pagina_config(request: Request, salvo: int = 0):
 @router.post("/config")
 async def salvar_config(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
-    novos: dict[str, int] = {}
-    for chave in config_negocio.CAMPOS:
+    novos: dict[str, object] = {}
+    for chave, campo in config_negocio.CAMPOS.items():
+        if campo[2] == "bool":
+            novos[chave] = chave in form  # checkbox marcado = presente no form
+            continue
         try:
             n = int(form.get(chave))
         except (TypeError, ValueError):
@@ -83,7 +86,7 @@ async def salvar_config(request: Request, db: AsyncSession = Depends(get_db)):
             novos[chave] = n
     # Follow-up tem que caber na janela de 24h da Meta.
     if "followup_horas" in novos:
-        novos["followup_horas"] = min(novos["followup_horas"], 23)
+        novos["followup_horas"] = min(int(novos["followup_horas"]), 23)
     await config_negocio.salvar(db, novos)
     return RedirectResponse("/painel/config?salvo=1", status_code=303)
 

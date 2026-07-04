@@ -16,7 +16,7 @@ from app.main import app
 from app.models import Conversa
 from app.routers import webhook as webhook_module
 from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
-from app.services import conversation, llm_client, serializacao
+from app.services import config_negocio, conversation, llm_client, serializacao
 
 
 class TestWebhookVerification:
@@ -158,11 +158,17 @@ async def db_em_memoria():
 
 @pytest.fixture(autouse=True)
 def _debounce_rapido_e_isolado():
-    """Janela de debounce curta (testes rápidos) e limpeza dos timers/locks."""
-    original = webhook_module.settings.debounce_segundos
-    webhook_module.settings.debounce_segundos = 0.05
+    """Janela de debounce curta (testes rápidos), presença desligada e limpeza.
+
+    debounce/simular_digitacao agora vêm do config_negocio (editáveis no painel),
+    então os testes ajustam o cache em memória em vez das settings.
+    """
+    orig = dict(config_negocio._cache)
+    config_negocio._cache["debounce_segundos"] = 0.05
+    config_negocio._cache["simular_digitacao"] = False
     yield
-    webhook_module.settings.debounce_segundos = original
+    config_negocio._cache.clear()
+    config_negocio._cache.update(orig)
     serializacao.limpar()
 
 
@@ -265,8 +271,9 @@ class TestProcessarPayload:
     @pytest.mark.asyncio
     async def test_presenca_humana_ligada_marca_lida_e_pausa(self, db_em_memoria):
         """Com simular_digitacao=True: marca lida com digitação e pausa por bolha."""
+        config_negocio._cache["simular_digitacao"] = True  # editável no painel agora
         fake = _FakeLLM(resposta="Bloco um.\n\nBloco dois.\n\nBloco três.")
-        with patch.object(webhook_module.settings, "simular_digitacao", True), patch(
+        with patch(
             "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
         ), patch(
             "app.routers.webhook.whatsapp_client.marcar_como_lida", new_callable=AsyncMock

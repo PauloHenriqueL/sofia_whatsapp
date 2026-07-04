@@ -61,3 +61,20 @@ class TestConfigNegocio:
         await config_negocio.salvar(session, {"preco_terapia_mensal": 1999})
         prompt = llm_client.carregar_system_prompt()
         assert "1.999" in prompt  # formatado em reais e injetado
+
+    @pytest.mark.asyncio
+    async def test_campo_bool_salva_e_recarrega(self, session):
+        # Campo booleano (simular_digitacao) é persistido como texto e volta bool.
+        await config_negocio.salvar(session, {"simular_digitacao": True})
+        assert config_negocio.valor("simular_digitacao") is True
+        guardado = (
+            await session.execute(
+                Configuracao.__table__.select().where(Configuracao.chave == "simular_digitacao")
+            )
+        ).first()
+        assert guardado.valor == "true"
+
+        # Recarrega do banco pra garantir que "true"/"false" viram bool.
+        config_negocio._cache["simular_digitacao"] = False
+        await config_negocio.carregar_do_banco(session)
+        assert config_negocio.valor("simular_digitacao") is True

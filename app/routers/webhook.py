@@ -15,6 +15,7 @@ from app.config import settings
 from app.database import async_session
 from app.services import (
     cadastro,
+    config_negocio,
     conversation,
     escalation,
     llm_client,
@@ -289,7 +290,7 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             texto = await _persistir_recebida(session, conversa, tipo, wamid, mensagem)
 
             # Presença humana (UX): marca lida e, se o bot responde, "digitando…".
-            if settings.simular_digitacao:
+            if config_negocio.valor("simular_digitacao"):
                 await whatsapp_client.marcar_como_lida(
                     wamid, com_digitacao=(conversa.modo != "humano")
                 )
@@ -318,7 +319,7 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
 
     # Texto normal: (re)agenda o turno pra depois da janela; a rajada reseta o
     # timer, então só a última mensagem dispara uma única resposta.
-    serializacao.agendar(numero, settings.debounce_segundos, _turno_agendado)
+    serializacao.agendar(numero, config_negocio.valor("debounce_segundos"), _turno_agendado)
 
 
 async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str | None:
@@ -366,7 +367,7 @@ async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> No
     Se uma bolha falhar, pára (não adianta mandar o resto fora de ordem).
     """
     for bolha in whatsapp_client.dividir_em_bolhas(resposta):
-        if settings.simular_digitacao:
+        if config_negocio.valor("simular_digitacao"):
             await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
         try:
             await whatsapp_client.enviar_texto(numero, bolha)
