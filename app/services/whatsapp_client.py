@@ -16,7 +16,9 @@ from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
 
-GRAPH_API_VERSION = "v18.0"
+# v23.0+: versão em que o indicador de "digitando…" (typing_indicator) é
+# suportado pela Cloud API. Em versões antigas (v18) o campo era ignorado.
+GRAPH_API_VERSION = "v23.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
 # Máximo de bolhas (mensagens) por turno, pra não floodar o paciente. Parágrafos
