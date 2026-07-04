@@ -290,7 +290,25 @@ pontos que **exigem ler vários arquivos** pra entender:
   `conversation` (persistência + idempotência + histórico), `llm_client` (abstração
   `LLMClient` + `OpenAIClient`, singleton via `get_llm_client()`), `tools` (schemas de
   function calling), `escalation`, `cadastro`, `hamilton_client`, `whatsapp_client`,
-  `config_negocio`, `seguimento`, `metricas`, `painel`.
+  `config_negocio`, `seguimento`, `metricas`, `painel`, `serializacao`.
+
+### Serialização + debounce por conversa (Demanda 2 — `serializacao.py`)
+Ponto **não óbvio** que exige ler webhook + serializacao juntos:
+- O webhook **não responde por mensagem**. `ingerir_mensagem` persiste sob um **lock por
+  número** (`serializacao.lock_da_conversa`) — isso serializa a conversa (sem chamadas
+  concorrentes ao LLM) e mata a corrida de criar 2x a conversa na primeira mensagem.
+- Texto normal **não é respondido na hora**: `serializacao.agendar` (re)agenda um timer de
+  `settings.debounce_segundos` (`DEBOUNCE_SEGUNDOS`, prod=6). Cada mensagem nova **reseta o
+  timer**, então uma rajada vira **uma** chamada ao LLM e **uma** resposta (o histórico já
+  inclui todas as mensagens da rajada). `_turno_agendado` roda depois da janela, sob o lock.
+- **Não espera a janela**: áudio (escala na hora), tipos sem texto (pede texto) e **texto de
+  crise** (`_contem_sinal_de_crise` — heurística de palavras; o acolhimento/escalada em si
+  continua no LLM). Idempotência por `whatsapp_message_id` **continua** como defesa contra
+  reentrega — o lock/debounce é camada adicional, não substituto.
+- **Premissa: 1 instância** (Render free). Locks/timers são em memória; múltiplas instâncias
+  exigiriam lock distribuído. Nos testes: `serializacao.aguardar_pendentes()` espera os
+  timers e `limpar()` isola o estado global; o `_dormir` do debounce é ligado à função real
+  pra não ser afetado por mocks de `asyncio.sleep`.
 - **Singletons trocáveis/mockáveis**: `llm_client.get_llm_client()` e
   `hamilton_client.get_hamilton_client()` são `@lru_cache` — ponto único de troca de
   provedor e de mock nos testes.

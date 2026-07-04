@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # e espaça as bolhas no tempo. Ligado na produção (env); desligado por padrão
     # pra não atrasar testes/dev nem fazer chamadas de rede fora de hora.
     simular_digitacao: bool = False
+    # Janela de agrupamento (debounce) por conversa: a Sofia espera N segundos de
+    # silêncio antes de responder, pra juntar rajadas de mensagens numa resposta
+    # só. Configurável no Render sem mexer no código (sugestão 4 a 8). Crise não
+    # espera essa janela.
+    debounce_segundos: float = 5.0
 
     # WhatsApp
     whatsapp_token: str

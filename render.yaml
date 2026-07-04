@@ -18,6 +18,10 @@ services:
       # Marca como lida + "digitando…" + espaça as bolhas no tempo (UX).
       - key: SIMULAR_DIGITACAO
         value: "true"
+      # Janela de agrupamento por conversa: junta rajadas de mensagens numa
+      # resposta só (Demanda 2). Sugestão 4 a 8 segundos.
+      - key: DEBOUNCE_SEGUNDOS
+        value: "6"
 
       # WhatsApp Cloud API
       - key: WHATSAPP_TOKEN

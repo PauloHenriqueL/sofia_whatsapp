@@ -13,7 +13,15 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.database import async_session
-from app.services import cadastro, conversation, escalation, llm_client, tools, whatsapp_client
+from app.services import (
+    cadastro,
+    conversation,
+    escalation,
+    llm_client,
+    serializacao,
+    tools,
+    whatsapp_client,
+)
 from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
@@ -31,6 +39,31 @@ AUDIO_RECEBIDO = "Recebi seu áudio. Vou chamar a Thainá pra te responder direi
 
 # Resposta fixa para tipos sem texto que não são áudio (imagem, vídeo, sticker...).
 PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
+
+# Sinais de crise que NÃO devem esperar a janela de agrupamento (Demanda 2 NFR):
+# ao detectá-los, processa a mensagem na hora. Isto é só um gatilho de urgência;
+# o acolhimento e a escalada de fato continuam sendo decididos pelo LLM (prompt).
+SINAIS_CRISE = (
+    "suicíd",
+    "suicid",
+    "me matar",
+    "vou me matar",
+    "quero morrer",
+    "não quero mais viver",
+    "nao quero mais viver",
+    "tirar minha vida",
+    "acabar com tudo",
+    "me cortar",
+    "me cortei",
+    "automutil",
+    "me machucar",
+    "sumir do mundo",
+)
+
+
+def _contem_sinal_de_crise(texto: str | None) -> bool:
+    t = (texto or "").lower()
+    return any(sinal in t for sinal in SINAIS_CRISE)
 
 
 class WebhookPayload(BaseModel):
@@ -212,14 +245,15 @@ async def _finalizar_apos_tools(historico, resp, resultados) -> str | None:
 
 
 async def processar_payload(payload: dict[str, Any]) -> None:
-    """Processa o payload do webhook em background.
+    """Ingere cada mensagem do payload do webhook (em background).
 
-    Cada mensagem é processada isoladamente: um erro inesperado em uma não
-    derruba o background task nem impede as demais (apenas é logado).
+    Um erro inesperado em uma mensagem não derruba as demais (apenas é logado).
+    A resposta em si pode sair aqui (áudio/crise/tipo sem texto) ou depois da
+    janela de agrupamento (texto normal) — ver `ingerir_mensagem`.
     """
     for mensagem in extrair_mensagens(payload):
         try:
-            await _processar_mensagem(mensagem)
+            await ingerir_mensagem(mensagem)
         except Exception:  # resiliência: nenhuma mensagem pode matar o worker
             logger.exception(
                 f"Erro processando mensagem {mensagem.get('id')} "
@@ -227,13 +261,16 @@ async def processar_payload(payload: dict[str, Any]) -> None:
             )
 
 
-async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
-    """Persiste e responde uma única mensagem recebida.
+async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
+    """Persiste a mensagem e decide como responder, serializando por conversa.
 
-    Persiste conversa e mensagem (com idempotência) e, quando a conversa está
-    em modo bot, gera a resposta via LLM (que pode disparar tools: escalada ou
-    cadastro). Em modo humano apenas persiste (o painel da Thainá cuida da
-    resposta). Tipos sem texto recebem uma mensagem fixa pedindo texto.
+    Sob o lock do número (Demanda 2): checa idempotência, cria/obtém a conversa
+    (sem corrida) e persiste. Depois:
+      - modo humano -> só persiste (a Thainá responde);
+      - áudio -> escala na hora; tipo sem texto -> pede texto na hora;
+      - texto de crise -> responde na hora (não espera a janela);
+      - texto normal -> agenda o turno pra depois da janela de agrupamento,
+        juntando a rajada numa resposta só.
     """
     numero = mensagem.get("from")
     tipo = mensagem.get("type")
@@ -241,81 +278,103 @@ async def _processar_mensagem(mensagem: dict[str, Any]) -> None:
     if not numero:
         return
 
-    async with async_session() as session:
-        if await conversation.mensagem_ja_processada(session, wamid):
-            logger.info(f"Mensagem {wamid} já processada, ignorando")
-            return
+    async with serializacao.lock_da_conversa(numero):
+        async with async_session() as session:
+            if await conversation.mensagem_ja_processada(session, wamid):
+                # Demanda 1: reentrega/duplicata é descartada e registrada.
+                logger.info("Mensagem %s já processada, duplicata descartada", wamid)
+                return
 
-        conversa = await conversation.obter_ou_criar_conversa(session, numero)
+            conversa = await conversation.obter_ou_criar_conversa(session, numero)
+            texto = await _persistir_recebida(session, conversa, tipo, wamid, mensagem)
 
-        if tipo == "text":
-            texto = mensagem.get("text", {}).get("body", "")
-            await conversation.registrar_mensagem_recebida(
-                session,
-                conversa,
-                tipo="texto",
-                texto=texto,
-                whatsapp_message_id=wamid,
-            )
-        elif tipo == "audio":
-            await conversation.registrar_mensagem_recebida(
-                session,
-                conversa,
-                tipo="audio",
-                texto="[áudio recebido]",
-                whatsapp_message_id=wamid,
-            )
-        else:
-            await conversation.registrar_mensagem_recebida(
-                session,
-                conversa,
-                tipo=tipo,
-                texto=None,
-                whatsapp_message_id=wamid,
-            )
-
-        # Presença humana (UX): marca como lida e, se o bot vai responder, mostra
-        # "digitando…". Best-effort, controlado por flag (desligado em dev/testes).
-        if settings.simular_digitacao:
-            await whatsapp_client.marcar_como_lida(
-                wamid, com_digitacao=(conversa.modo != "humano")
-            )
-
-        # Modo humano: só persiste; a Thainá responde pelo painel.
-        if conversa.modo == "humano":
-            await session.commit()
-            return
-
-        if tipo == "audio":
-            # Áudio escala direto pra Thainá, sem passar pelo LLM.
-            await escalation.registrar_escalada(session, conversa, "audio_recebido")
-            await escalation.alertar_thaina(conversa, "audio_recebido")
-            resposta = AUDIO_RECEBIDO
-        elif tipo == "text":
-            resposta = await processar_turno_bot(session, conversa)
-        else:
-            resposta = PEDIR_TEXTO
-
-        await session.commit()
-
-        # Pode não haver texto a enviar (ex.: round-trip sem fala final).
-        if resposta is None:
-            return
-
-        # Quebra em bolhas curtas e envia em ordem, persistindo cada uma. Se uma
-        # falhar, pára (não adianta mandar o resto fora de ordem).
-        for bolha in whatsapp_client.dividir_em_bolhas(resposta):
-            # Ritmo: espaça as bolhas no tempo pra não chegarem instantâneas.
+            # Presença humana (UX): marca lida e, se o bot responde, "digitando…".
             if settings.simular_digitacao:
-                await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
-            try:
-                await whatsapp_client.enviar_texto(numero, bolha)
-            except whatsapp_client.WhatsAppError:
-                # Já logado no cliente; persistência da entrada não é perdida.
-                logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
-                break
-            await conversation.registrar_mensagem_enviada(session, conversa, texto=bolha)
+                await whatsapp_client.marcar_como_lida(
+                    wamid, com_digitacao=(conversa.modo != "humano")
+                )
             await session.commit()
+
+            # Modo humano: só persiste; a Thainá responde pelo painel.
+            if conversa.modo == "humano":
+                return
+
+            if tipo == "audio":
+                # Áudio escala direto pra Thainá, sem passar pelo LLM nem esperar.
+                await escalation.registrar_escalada(session, conversa, "audio_recebido")
+                await escalation.alertar_thaina(conversa, "audio_recebido")
+                await session.commit()
+                await _enviar_em_bolhas(session, conversa, numero, AUDIO_RECEBIDO)
+                return
+
+            if tipo != "text":
+                await _enviar_em_bolhas(session, conversa, numero, PEDIR_TEXTO)
+                return
+
+            # Crise não espera a janela de agrupamento: responde na hora.
+            if _contem_sinal_de_crise(texto):
+                await _responder_turno(session, conversa, numero)
+                return
+
+    # Texto normal: (re)agenda o turno pra depois da janela; a rajada reseta o
+    # timer, então só a última mensagem dispara uma única resposta.
+    serializacao.agendar(numero, settings.debounce_segundos, _turno_agendado)
+
+
+async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str | None:
+    """Persiste a mensagem recebida e devolve o texto (só faz sentido p/ texto)."""
+    if tipo == "text":
+        texto = mensagem.get("text", {}).get("body", "")
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="texto", texto=texto, whatsapp_message_id=wamid
+        )
+        return texto
+    if tipo == "audio":
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="audio", texto="[áudio recebido]", whatsapp_message_id=wamid
+        )
+        return None
+    await conversation.registrar_mensagem_recebida(
+        session, conversa, tipo=tipo, texto=None, whatsapp_message_id=wamid
+    )
+    return None
+
+
+async def _turno_agendado(numero: str) -> None:
+    """Processa o turno da conversa após a janela de agrupamento (sob o lock)."""
+    async with serializacao.lock_da_conversa(numero):
+        async with async_session() as session:
+            conversa = await conversation.obter_conversa_por_numero(session, numero)
+            # Pode ter virado modo humano (ex.: áudio no meio da rajada): não responde.
+            if conversa is None or conversa.modo == "humano":
+                return
+            await _responder_turno(session, conversa, numero)
+
+
+async def _responder_turno(session, conversa, numero: str) -> None:
+    """Gera a resposta do bot (uma chamada ao LLM) e envia em bolhas."""
+    resposta = await processar_turno_bot(session, conversa)
+    await session.commit()
+    if resposta is None:  # ex.: round-trip pós-tool sem fala final
+        return
+    await _enviar_em_bolhas(session, conversa, numero, resposta)
+
+
+async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> None:
+    """Quebra a resposta em bolhas curtas e envia em ordem, persistindo cada uma.
+
+    Se uma bolha falhar, pára (não adianta mandar o resto fora de ordem).
+    """
+    for bolha in whatsapp_client.dividir_em_bolhas(resposta):
+        if settings.simular_digitacao:
+            await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
+        try:
+            await whatsapp_client.enviar_texto(numero, bolha)
+        except whatsapp_client.WhatsAppError:
+            logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
+            break
+        await conversation.registrar_mensagem_enviada(session, conversa, texto=bolha)
+        await session.commit()
 
 
 def verify_signature(body: bytes, x_hub_signature: str) -> bool:

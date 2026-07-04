@@ -1,5 +1,6 @@
 """Testes para webhook do WhatsApp"""
 
+import asyncio
 import hashlib
 import hmac
 from unittest.mock import AsyncMock, patch
@@ -7,13 +8,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.main import app
+from app.models import Conversa
 from app.routers import webhook as webhook_module
 from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
-from app.services import conversation, llm_client
+from app.services import conversation, llm_client, serializacao
 
 
 class TestWebhookVerification:
@@ -153,6 +156,22 @@ async def db_em_memoria():
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _debounce_rapido_e_isolado():
+    """Janela de debounce curta (testes rápidos) e limpeza dos timers/locks."""
+    original = webhook_module.settings.debounce_segundos
+    webhook_module.settings.debounce_segundos = 0.05
+    yield
+    webhook_module.settings.debounce_segundos = original
+    serializacao.limpar()
+
+
+async def _rodar(payload):
+    """Ingere o payload e aguarda a janela de debounce fechar (só nos testes)."""
+    await processar_payload(payload)
+    await serializacao.aguardar_pendentes()
+
+
 class _FakeLLM:
     """LLM falso para os testes: registra o histórico e devolve texto fixo."""
 
@@ -197,7 +216,7 @@ class TestProcessarPayload:
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
         ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
-            await processar_payload(_payload_texto(numero="5531911112222", texto="oi"))
+            await _rodar(_payload_texto(numero="5531911112222", texto="oi"))
 
         mock_enviar.assert_awaited_once_with("5531911112222", "Oi! Como posso te ajudar?")
         # O histórico enviado ao LLM termina com a mensagem do paciente.
@@ -212,7 +231,7 @@ class TestProcessarPayload:
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
         ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
-            await processar_payload(
+            await _rodar(
                 _payload_texto(numero="5531900001111", texto="me explica", msg_id="wamid.bolhas")
             )
 
@@ -238,7 +257,7 @@ class TestProcessarPayload:
         ) as mock_sleep, patch(
             "app.routers.webhook.llm_client.get_llm_client", return_value=fake
         ):
-            await processar_payload(_payload_texto(msg_id="wamid.semdig"))
+            await _rodar(_payload_texto(msg_id="wamid.semdig"))
 
         mock_lida.assert_not_awaited()
         mock_sleep.assert_not_awaited()
@@ -256,7 +275,7 @@ class TestProcessarPayload:
         ) as mock_sleep, patch(
             "app.routers.webhook.llm_client.get_llm_client", return_value=fake
         ):
-            await processar_payload(_payload_texto(msg_id="wamid.comdig"))
+            await _rodar(_payload_texto(msg_id="wamid.comdig"))
 
         mock_lida.assert_awaited_once()
         assert mock_lida.await_args.kwargs.get("com_digitacao") is True
@@ -275,7 +294,7 @@ class TestProcessarPayload:
         ) as mock_template, patch(
             "app.routers.webhook.llm_client.get_llm_client", return_value=fake
         ):
-            await processar_payload(
+            await _rodar(
                 _payload_texto(
                     numero="5531977776666",
                     texto="quero falar com uma pessoa",
@@ -306,7 +325,7 @@ class TestProcessarPayload:
             "app.routers.webhook.llm_client.get_llm_client",
             return_value=_LLMQuebra(),
         ):
-            await processar_payload(_payload_texto(texto="oi"))
+            await _rodar(_payload_texto(texto="oi"))
 
         _, texto = mock_enviar.await_args.args
         assert texto == webhook_module.FALLBACK_RESPOSTA
@@ -324,9 +343,7 @@ class TestProcessarPayload:
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
         ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
-            await processar_payload(
-                _payload_texto(numero="5531911112222", texto="oi", msg_id="wamid.h")
-            )
+            await _rodar(_payload_texto(numero="5531911112222", texto="oi", msg_id="wamid.h"))
 
         mock_enviar.assert_not_awaited()
 
@@ -339,8 +356,8 @@ class TestProcessarPayload:
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
         ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
-            await processar_payload(payload)
-            await processar_payload(payload)
+            await _rodar(payload)
+            await _rodar(payload)
 
         mock_enviar.assert_awaited_once()
 
@@ -365,9 +382,7 @@ class TestProcessarPayload:
             "app.services.escalation.whatsapp_client.enviar_template",
             new_callable=AsyncMock,
         ) as mock_template:
-            await processar_payload(
-                self._payload_tipo("audio", numero="5531944443333", msg_id="wamid.a")
-            )
+            await _rodar(self._payload_tipo("audio", numero="5531944443333", msg_id="wamid.a"))
 
         mock_template.assert_awaited_once()
         _, texto = mock_texto.await_args.args
@@ -384,15 +399,74 @@ class TestProcessarPayload:
         with patch(
             "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
         ) as mock_texto:
-            await processar_payload(
-                self._payload_tipo("image", numero="5531955554444", msg_id="wamid.i")
-            )
+            await _rodar(self._payload_tipo("image", numero="5531955554444", msg_id="wamid.i"))
 
         _, texto = mock_texto.await_args.args
         assert "texto" in texto.lower()
         async with db_em_memoria() as s:
             conversa = await conversation.obter_ou_criar_conversa(s, "5531955554444")
             assert conversa.modo == "bot"
+
+
+class TestSerializacaoDebounce:
+    """Demanda 2: agrupamento por rajada, serialização por conversa e crise."""
+
+    @pytest.mark.asyncio
+    async def test_rajada_vira_uma_unica_resposta(self, db_em_memoria):
+        """Várias mensagens em rajada -> uma chamada ao LLM e uma resposta."""
+        fake = _FakeLLM(resposta="Resposta única.")
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            n = "5531900007777"
+            await processar_payload(_payload_texto(numero=n, texto="oi", msg_id="w.b1"))
+            await processar_payload(_payload_texto(numero=n, texto="tudo bem?", msg_id="w.b2"))
+            await processar_payload(_payload_texto(numero=n, texto="queria marcar", msg_id="w.b3"))
+            await serializacao.aguardar_pendentes()
+
+        # Um único turno do modelo e uma única resposta pro paciente.
+        assert len(fake.historicos) == 1
+        mock_enviar.assert_awaited_once()
+        # As três mensagens da rajada foram ao modelo, em ordem.
+        usuarios = [m["content"] for m in fake.historicos[0] if m["role"] == "user"]
+        assert usuarios == ["oi", "tudo bem?", "queria marcar"]
+
+    @pytest.mark.asyncio
+    async def test_primeira_mensagem_sem_corrida_cria_uma_conversa(self, db_em_memoria):
+        """Duas mensagens simultâneas de um número novo -> uma só conversa."""
+        fake = _FakeLLM()
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            n = "5531900008888"
+            await asyncio.gather(
+                processar_payload(_payload_texto(numero=n, texto="oi", msg_id="w.r1")),
+                processar_payload(_payload_texto(numero=n, texto="tem vaga?", msg_id="w.r2")),
+            )
+            await serializacao.aguardar_pendentes()
+
+        async with db_em_memoria() as s:
+            total = await s.scalar(
+                select(func.count(Conversa.id)).where(Conversa.numero_whatsapp == n)
+            )
+        assert total == 1
+
+    @pytest.mark.asyncio
+    async def test_crise_responde_sem_esperar_a_janela(self, db_em_memoria):
+        """Mensagem de crise é processada na hora, mesmo com a janela enorme."""
+        fake = _FakeLLM(resposta="Tô aqui com você. Já estou avisando a Thainá.")
+        with patch.object(webhook_module.settings, "debounce_segundos", 999), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            # Sem aguardar_pendentes: se dependesse do debounce (999s), não responderia agora.
+            await processar_payload(
+                _payload_texto(
+                    numero="5531900009999", texto="não quero mais viver", msg_id="w.crise"
+                )
+            )
+
+        mock_enviar.assert_awaited_once()
+        assert len(fake.historicos) == 1
 
 
 class TestResumoPayload:

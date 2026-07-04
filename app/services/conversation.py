@@ -54,6 +54,12 @@ async def obter_ou_criar_conversa(session: AsyncSession, numero: str) -> Convers
     return conversa
 
 
+async def obter_conversa_por_numero(session: AsyncSession, numero: str) -> Conversa | None:
+    """Retorna a conversa do número, ou None se ainda não existir (não cria)."""
+    result = await session.execute(select(Conversa).where(Conversa.numero_whatsapp == numero))
+    return result.scalar_one_or_none()
+
+
 async def mensagem_ja_processada(session: AsyncSession, whatsapp_message_id: str | None) -> bool:
     """Idempotência: True se a mensagem da Meta já foi persistida antes."""
     if not whatsapp_message_id:
