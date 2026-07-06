@@ -127,6 +127,30 @@ def _payload_texto(numero="5531999998888", texto="olá", msg_id="wamid.abc"):
     }
 
 
+def _payload_audio(numero="5531944443333", msg_id="wamid.a", media_id="MID"):
+    """Monta um payload de webhook com uma mensagem de áudio (com media id)."""
+    return {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": numero,
+                                    "id": msg_id,
+                                    "type": "audio",
+                                    "audio": {"id": media_id, "mime_type": "audio/ogg"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+
 class TestExtrairMensagens:
     """Testes para o parser do payload do webhook"""
 
@@ -474,6 +498,54 @@ class TestSerializacaoDebounce:
 
         mock_enviar.assert_awaited_once()
         assert len(fake.historicos) == 1
+
+
+class TestAudioTranscricao:
+    """Áudio com transcrição ligada: ouve (transcreve) e responde em texto."""
+
+    @pytest.mark.asyncio
+    async def test_audio_transcreve_e_responde_em_texto(self, db_em_memoria):
+        config_negocio._cache["transcrever_audio"] = True
+        fake = _FakeLLM(resposta="Entendi, vamos marcar.")
+        with patch(
+            "app.routers.webhook.whatsapp_client.baixar_midia",
+            new_callable=AsyncMock,
+            return_value=(b"OGG", "audio/ogg"),
+        ), patch(
+            "app.routers.webhook.transcricao.transcrever_audio",
+            new_callable=AsyncMock,
+            return_value="quero marcar uma consulta",
+        ), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_env, patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=fake
+        ):
+            await _rodar(_payload_audio(numero="5531900012345", msg_id="wamid.aud1"))
+
+        mock_env.assert_awaited_once()  # respondeu em texto (não escalou)
+        # A transcrição entrou no histórico como fala do paciente.
+        assert fake.historicos[0][-1] == {"role": "user", "content": "quero marcar uma consulta"}
+
+    @pytest.mark.asyncio
+    async def test_audio_falha_na_transcricao_escala(self, db_em_memoria):
+        config_negocio._cache["transcrever_audio"] = True
+        with patch(
+            "app.routers.webhook.whatsapp_client.baixar_midia",
+            new_callable=AsyncMock,
+            side_effect=webhook_module.whatsapp_client.WhatsAppError("offline"),
+        ), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_env, patch(
+            "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ) as mock_tpl:
+            await _rodar(_payload_audio(numero="5531900067890", msg_id="wamid.aud2"))
+
+        mock_tpl.assert_awaited_once()  # caiu no fallback: escalou pra Thainá
+        _, texto = mock_env.await_args.args
+        assert "áudio" in texto.lower()  # mensagem AUDIO_RECEBIDO
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531900067890")
+            assert conversa.modo == "humano"
 
 
 class TestResumoPayload:

@@ -155,6 +155,37 @@ async def enviar_template(
     )
 
 
+async def baixar_midia(media_id: str) -> tuple[bytes, str]:
+    """Baixa uma mídia recebida (ex.: áudio) da Cloud API.
+
+    São dois passos: GET /{media_id} devolve uma URL temporária; um GET nessa URL
+    (com o mesmo Bearer) traz os bytes. Retorna (conteúdo, mime_type).
+
+    Raises:
+        WhatsAppError: se qualquer passo falhar.
+    """
+    headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            info_resp = await client.get(f"{GRAPH_API_BASE}/{media_id}", headers=headers)
+            if info_resp.status_code >= 400:
+                raise WhatsAppError(
+                    f"erro {info_resp.status_code} ao obter URL da mídia {media_id}"
+                )
+            info = info_resp.json()
+            url = info.get("url")
+            mime = info.get("mime_type", "audio/ogg")
+            if not url:
+                raise WhatsAppError(f"mídia {media_id} veio sem URL")
+            bin_resp = await client.get(url, headers=headers)
+            if bin_resp.status_code >= 400:
+                raise WhatsAppError(f"erro {bin_resp.status_code} ao baixar a mídia {media_id}")
+            return bin_resp.content, mime
+    except httpx.HTTPError as exc:
+        logger.error(f"Falha de rede ao baixar mídia {media_id}: {exc}")
+        raise WhatsAppError(f"falha de rede ao baixar mídia {media_id}") from exc
+
+
 async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:
     """Faz o POST para o endpoint de mensagens da Cloud API."""
     url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/messages"

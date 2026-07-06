@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # só. Configurável no Render sem mexer no código (sugestão 4 a 8). Crise não
     # espera essa janela.
     debounce_segundos: float = 5.0
+    # Transcrever áudio do paciente (Whisper) e responder em texto, em vez de
+    # escalar. Desligado por padrão (custo); editável no painel (Configurações).
+    transcrever_audio: bool = False
 
     # WhatsApp
     whatsapp_token: str
@@ -38,6 +41,9 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str
     openai_model: str = "gpt-4o-mini"
+    # Modelo de transcrição de áudio (STT). whisper-1 é robusto e barato;
+    # gpt-4o-mini-transcribe é uma alternativa mais nova.
+    openai_audio_model: str = "whisper-1"
     # Temperature da geração. Opcional: deixe vazio (ou "none"/"default") pra NÃO
     # enviar o parâmetro e usar o padrão do modelo — alguns modelos novos (de
     # raciocínio) só aceitam o padrão e rejeitam um valor custom. Se um modelo

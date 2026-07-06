@@ -21,6 +21,7 @@ from app.services import (
     llm_client,
     serializacao,
     tools,
+    transcricao,
     whatsapp_client,
 )
 from app.utils import mascarar_telefone
@@ -287,7 +288,26 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 return
 
             conversa = await conversation.obter_ou_criar_conversa(session, numero)
-            texto = await _persistir_recebida(session, conversa, tipo, wamid, mensagem)
+
+            # Áudio com transcrição ligada: baixa e transcreve; o áudio passa a
+            # valer como uma mensagem de texto (a transcrição). Se falhar (ou
+            # estiver desligada), mantém o comportamento de áudio (escala).
+            texto_transcrito = None
+            if tipo == "audio" and config_negocio.valor("transcrever_audio"):
+                texto_transcrito = await _transcrever_audio_msg(mensagem)
+
+            if texto_transcrito:
+                await conversation.registrar_mensagem_recebida(
+                    session,
+                    conversa,
+                    tipo="audio",
+                    texto=texto_transcrito,
+                    whatsapp_message_id=wamid,
+                )
+                texto, tipo_efetivo = texto_transcrito, "text"
+            else:
+                texto = await _persistir_recebida(session, conversa, tipo, wamid, mensagem)
+                tipo_efetivo = tipo
 
             # Presença humana (UX): marca lida e, se o bot responde, "digitando…".
             if config_negocio.valor("simular_digitacao"):
@@ -300,15 +320,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             if conversa.modo == "humano":
                 return
 
-            if tipo == "audio":
-                # Áudio escala direto pra Thainá, sem passar pelo LLM nem esperar.
+            if tipo_efetivo == "audio":
+                # Áudio sem transcrição (desligada ou falhou): escala pra Thainá.
                 await escalation.registrar_escalada(session, conversa, "audio_recebido")
                 await escalation.alertar_thaina(conversa, "audio_recebido")
                 await session.commit()
                 await _enviar_em_bolhas(session, conversa, numero, AUDIO_RECEBIDO)
                 return
 
-            if tipo != "text":
+            if tipo_efetivo != "text":
                 await _enviar_em_bolhas(session, conversa, numero, PEDIR_TEXTO)
                 return
 
@@ -320,6 +340,24 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # Texto normal: (re)agenda o turno pra depois da janela; a rajada reseta o
     # timer, então só a última mensagem dispara uma única resposta.
     serializacao.agendar(numero, config_negocio.valor("debounce_segundos"), _turno_agendado)
+
+
+async def _transcrever_audio_msg(mensagem: dict[str, Any]) -> str | None:
+    """Baixa e transcreve o áudio da mensagem. None se não der (aí o fluxo escala).
+
+    Não loga o conteúdo transcrito (LGPD) — só o serviço de transcrição registra
+    o tamanho.
+    """
+    media_id = (mensagem.get("audio") or {}).get("id")
+    if not media_id:
+        return None
+    try:
+        conteudo, mime = await whatsapp_client.baixar_midia(media_id)
+        texto = await transcricao.transcrever_audio(conteudo, mime)
+    except (whatsapp_client.WhatsAppError, transcricao.TranscricaoError):
+        logger.error("Falha ao baixar/transcrever áudio %s; vai escalar pra Thainá", media_id)
+        return None
+    return texto or None
 
 
 async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str | None:

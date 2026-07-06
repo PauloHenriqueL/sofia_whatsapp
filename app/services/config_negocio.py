@@ -37,6 +37,11 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
         settings.simular_digitacao,
         "bool",
     ),
+    "transcrever_audio": (
+        "Ouvir e entender áudios do paciente (transcrever e responder em texto)",
+        settings.transcrever_audio,
+        "bool",
+    ),
 }
 
 _cache: dict[str, object] = {chave: padrao for chave, (_, padrao, _t) in CAMPOS.items()}
