@@ -250,11 +250,12 @@ conversa
 ├─ paciente_hamilton_id, modo ('bot'/'humano')
 ├─ estado ('novo'/'qualificando'/'coletando_dados'/'cadastrado'/'cadastro_pendente'/'escalado')
 ├─ dados_coletados (JSONB: nome, nascimento, telefone, apoio, endereço, horários...)
-├─ seguimento_enviado_em (NULL = ainda não; garante 1 follow-up por conversa)
+├─ seguimento_enviado_em (NULL = ainda não; garante 1 follow-up por conversa — Frente 2)
+├─ cobranca_resolvida_em (NULL = pendente; "Marcar resolvido" tira da cobrança — Demanda 4)
 └─ criada_em, atualizada_em
 
-configuracao  (chave/valor — valores de negócio editáveis no painel)
-├─ id, chave (unique), valor (texto, convertido p/ int no uso)
+configuracao  (chave/valor — valores editáveis no painel /painel/config)
+├─ id, chave (unique), valor (texto; int OU "true"/"false" conforme o tipo do campo)
 └─ atualizada_em
 
 mensagem
@@ -285,12 +286,14 @@ pontos que **exigem ler vários arquivos** pra entender:
 ### Onde mora cada coisa (camadas)
 - **`app/routers/webhook.py`** — orquestra o turno do bot: chama o LLM com `tools.TOOLS`,
   executa as tools (`_executar_tool`) e faz o **round-trip** (reenvia o resultado da tool
-  ao modelo pra ele gerar a fala final). Áudio escala **sem passar pelo LLM**.
+  ao modelo pra ele gerar a fala final). Áudio: com transcrição ligada, vira texto e passa
+  pelo LLM; senão (ou se falhar), escala **sem passar pelo LLM**.
 - **`app/services/`** — toda regra de negócio fica aqui, **nunca no router**:
   `conversation` (persistência + idempotência + histórico), `llm_client` (abstração
   `LLMClient` + `OpenAIClient`, singleton via `get_llm_client()`), `tools` (schemas de
   function calling), `escalation`, `cadastro`, `hamilton_client`, `whatsapp_client`,
-  `config_negocio`, `seguimento`, `metricas`, `painel`, `serializacao`.
+  `config_negocio`, `seguimento`, `metricas`, `painel`, `serializacao`, `transcricao`
+  (áudio→texto), `acompanhamento` (Demandas 3/4).
 
 ### Serialização + debounce por conversa (Demanda 2 — `serializacao.py`)
 Ponto **não óbvio** que exige ler webhook + serializacao juntos:
@@ -313,15 +316,20 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   `hamilton_client.get_hamilton_client()` são `@lru_cache` — ponto único de troca de
   provedor e de mock nos testes.
 
-### Valores de negócio editáveis no painel (Frente 1 — `config_negocio.py`)
-- Preço da terapia, preço da neuro, parcelas máximas e horas até o follow-up ficam na
-  tabela `configuracao` (chave/valor) e são editados pela Thainá em **`/painel/config`** —
-  **não precisa mexer no código nem no Render**.
+### Valores editáveis no painel (`config_negocio.py` — `/painel/config`)
+- Editáveis pela Thainá em **`/painel/config`**, **sem mexer no código nem no Render**:
+  preço terapia, preço neuro, parcelas, horas do follow-up (`followup_horas`), **segundos de
+  debounce** (`debounce_segundos`), **"digitando…/visto"** (`simular_digitacao`, bool) e
+  **ouvir áudio** (`transcrever_audio`, bool).
+- `CAMPOS` é **tipado**: `(rótulo, padrão, "int"|"bool")`. Campo bool vira checkbox no painel
+  e é guardado como `"true"/"false"`. O `webhook` lê `simular_digitacao`/`debounce_segundos`
+  via `config_negocio.valor(...)` (não mais `settings.*`).
 - Há um **cache em memória** (`_cache`) populado no startup (`main.lifespan` →
   `config_negocio.carregar_do_banco`) e atualizado a cada `salvar()`. Lê-se via
   `config_negocio.valor(chave)` / `valores()`. Assume **1 instância** no Render free.
-- O default de cada campo vem das `settings` (env/código). Se a config não carregar no
-  startup (ex.: tabela ainda não migrada), o app sobe com os padrões.
+- O default de cada campo vem das `settings` (env/código) e o valor salvo no painel (banco)
+  **tem prioridade**. Se a config não carregar no startup (ex.: tabela ainda não migrada), o
+  app sobe com os padrões.
 - **Injeção no prompt**: `llm_client.carregar_system_prompt()` substitui tokens
   `{{PRECO_TERAPIA}}`, `{{PRECO_TERAPIA_SESSAO}}` e `{{DATA_HOJE}}` (data do dia, pra Sofia
   calcular idade na verificação <12/12-17/18+) em `app/prompts/sofia_v01.txt` com os valores do
@@ -344,6 +352,29 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 - Métricas (conversão, autonomia, escaladas por motivo, leads/dia, recuperados) são
   **derivadas das tabelas existentes**. O agrupamento por dia é feito **em Python**
   (não em SQL) pra ficar portável entre SQLite (dev) e Postgres (prod).
+
+### Áudio: a Sofia ouve e responde em texto (`transcricao.py` + webhook)
+- Ligado pela flag `transcrever_audio` (painel). Quando ligada, `ingerir_mensagem` baixa a
+  mídia (`whatsapp_client.baixar_midia` — GET `/{media_id}` → URL → bytes, mesmo token JWT do
+  WhatsApp) e transcreve (`transcricao.transcrever_audio`, OpenAI Whisper, `OPENAI_AUDIO_MODEL`).
+- A transcrição vira o **texto** da mensagem (tipo continua `audio`) e o áudio passa a valer
+  como texto: entra no histórico, respeita debounce/serialização/crise, e a **resposta sai em
+  texto** (a Sofia **nunca manda áudio de volta**). A transcrição também **aparece no painel**
+  pra Thainá ler.
+- **Fallback**: se baixar/transcrever falhar (ou a flag estiver off), mantém o comportamento
+  antigo — escala pra Thainá (`audio_recebido`). **LGPD**: o conteúdo transcrito **não é
+  logado**, só o tamanho.
+
+### Acompanhamento pós-cadastro (Demandas 3/4 — `acompanhamento.py`, `/painel/acompanhamento`)
+- Cruza as conversas cadastradas pela Sofia (com `paciente_hamilton_id`) com o status da 1ª
+  consulta no Hamilton (endpoint novo `GET /api/v1/pacientes/status-primeira-consulta/?ids=`,
+  consumido por `hamilton_client.status_primeira_consulta`).
+- **Demanda 3 — espera pela 1ª consulta**: quem ainda não teve a 1ª consulta realizada
+  (`is_primeira_consulta` + `is_realizado` no Hamilton), com dias desde o cadastro, ordenado
+  do mais urgente, destaque em vermelho > 7 dias (a meta).
+- **Demanda 4 — pronto pra cobrança**: quem já teve a 1ª consulta e ainda não foi resolvido;
+  botão "Marcar resolvido" seta `conversa.cobranca_resolvida_em` (tira da lista).
+- Hamilton fora do ar → a página mostra um aviso, não quebra.
 
 ### Painel: auth por sessão (não é mais HTTP Basic)
 - Login próprio em **`/login`** → cookie de sessão assinado (`SessionMiddleware`,
@@ -579,21 +610,30 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - Painel repaginado (design do Hamilton) + tela de login por sessão
 
 ### Frentes pós-MVP ✅ (já no `main`)
-- **Frente 1 — Neuro + valores configuráveis**: fluxo de neuroavaliação (escala
-  `neuro_reuniao`; objeção de preço escala `preco`) e valores de negócio editáveis no
-  painel (`/painel/config`, tabela `configuracao`, injeção no prompt). Ver `config_negocio.py`.
+- **Frente 1 — Neuro + valores configuráveis** (`config_negocio.py`): fluxo de neuro
+  (v2 escala `neuro_reuniao`; objeção de preço escala `preco`) e valores editáveis no painel.
 - **Frente 2 — Follow-up de lead parado**: `seguimento.py` + `POST /tasks/seguimentos`
   (cron externo, `TASKS_TOKEN`). Uma mensagem dentro da janela de 24h da Meta.
-- **Frente 3 — Dashboard de KPIs**: `metricas.py` + `/painel/metricas` (conversão,
-  autonomia, escaladas por motivo, leads/dia, recuperados).
+- **Frente 3 — Dashboard de KPIs**: `metricas.py` + `/painel/metricas`.
+- **Demanda 2 — Serialização + debounce** (`serializacao.py`): rajada vira 1 resposta; sem
+  corrida na 1ª msg; crise não espera a janela.
+- **Presença humana**: "digitando…" + visto (tiques azuis) via `whatsapp_client.marcar_como_lida`
+  (Graph API **v23**, senão o typing é ignorado). Toggle `simular_digitacao` no painel.
+- **Áudio (ouvir + responder texto)**: `transcricao.py` (Whisper). Toggle `transcrever_audio`.
+- **Demandas 3/4 — Acompanhamento** (`acompanhamento.py`, `/painel/acompanhamento`): espera
+  pela 1ª consulta + pronto pra cobrança, via endpoint novo no Hamilton.
 
-### Status de produção (go-live em andamento)
+### Status de produção (no ar e funcionando)
 - **No ar**: https://sofia-whatsapp.onrender.com (Render). Login painel: `thaina`.
-- **Neon** Postgres com tabelas criadas; **Hamilton** integrado (usuário `sofia-bot`, validado).
-- **Número real** registrado na Meta (`+55 31 8667-3359`); credenciais nas Env Vars do Render
-  (e em `render.env`, gitignored).
-- **Falta (manual)**: configurar o webhook na Meta + assinar `messages`, publicar o app,
-  submeter o template `alerta_thaina`, e garantir crédito na OpenAI. Ver `DEPLOY.md`.
+- **Neon** Postgres migrado; **Hamilton** integrado (usuário `sofia-bot`) e com o endpoint
+  `status-primeira-consulta` deployado. **Número real** na Meta (`+55 31 8667-3359`).
+- **Validado em produção**: recebe/responde texto, escala pra Thainá, presença humana
+  (digitando/visto), e transcrição de áudio (o áudio vira texto no painel).
+- **Config em runtime**: preço/parcelas/follow-up/debounce/digitando/áudio se mudam em
+  **`/painel/config`** (sem Render). Segredos ficam nas Env Vars do Render (e em `render.env`,
+  gitignored). Cron do follow-up = `TASKS_TOKEN` + job no cron-job.org (ver `DEPLOY.md`).
+- **Opcionais na fila**: Demanda 1 (observabilidade de duplicatas — a duplicação em si já foi
+  resolvida pela Demanda 2) e KPI distribuição terapia×neuro.
 
 ---
 
@@ -612,8 +652,9 @@ ALERT_TEMPLATE_NAME=alerta_thaina  # Nome do template
 
 # OpenAI
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini       # ex.: gpt-5.5 (precisa do SDK openai 2.x)
+OPENAI_MODEL=gpt-4o-mini       # ex.: gpt-5.4 (precisa do SDK openai 2.x)
 OPENAI_TEMPERATURE=0.7         # vazio/none = não envia (usa padrão do modelo)
+OPENAI_AUDIO_MODEL=whisper-1   # transcrição de áudio (STT)
 
 # Banco
 DATABASE_URL=                      # postgres://... Neon (ou sqlite:///sofia_dev.db no dev)
@@ -624,11 +665,13 @@ HAMILTON_USERNAME=                 # usuário sofia-bot
 HAMILTON_PASSWORD=
 HAMILTON_API_KEY=                  # legado/opcional
 
-# Valores de negócio (defaults; editáveis em runtime no /painel/config)
+# Valores editáveis em runtime no /painel/config (o env é só o valor INICIAL/default)
 PRECO_TERAPIA_MENSAL=200
 PRECO_NEURO=1200
 PARCELAS_MAX=5
 FOLLOWUP_HORAS=20                  # < 24 (janela da Meta)
+DEBOUNCE_SEGUNDOS=6                 # janela de agrupamento de rajada (prod=6)
+TRANSCREVER_AUDIO=false            # ouvir/transcrever áudio (custo por minuto)
 
 # Painel + sessão
 PAINEL_USER=thaina
@@ -642,8 +685,12 @@ TASKS_TOKEN=
 LOG_LEVEL=INFO
 LOG_JSON=false                     # true na produção (logs estruturados)
 ENVIRONMENT=production             # ou development
-SIMULAR_DIGITACAO=false            # true na produção: marca como lida + "digitando…" + ritmo entre bolhas
+SIMULAR_DIGITACAO=false            # "digitando…" + visto (tiques azuis). Editável no /painel/config
 ```
+
+> **Editáveis no painel** (`/painel/config`, tabela `configuracao`): `PRECO_*`, `PARCELAS_MAX`,
+> `FOLLOWUP_HORAS`, `DEBOUNCE_SEGUNDOS`, `SIMULAR_DIGITACAO`, `TRANSCREVER_AUDIO`. O env define
+> só o **default inicial**; o valor salvo no painel manda. Segredos ficam **só** no Render.
 
 ---
 
