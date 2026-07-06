@@ -143,6 +143,24 @@ class HamiltonClient:
             return data["results"]
         return data if isinstance(data, list) else []
 
+    async def status_primeira_consulta(self, ids: list[int]) -> dict[int, dict]:
+        """Status da 1ª consulta de cada paciente (por pk_paciente).
+
+        Retorna um dict {pk_paciente: {nome, created_at, primeira_consulta_realizada,
+        dat_primeira_consulta}}. Usado no acompanhamento (Demandas 3 e 4).
+        """
+        ids = [i for i in ids if i]
+        if not ids:
+            return {}
+        param = ",".join(str(i) for i in ids)
+        resp = await self._request(
+            "GET", f"/api/v1/pacientes/status-primeira-consulta/?ids={param}"
+        )
+        if resp.status_code != 200:
+            raise HamiltonError(f"Status da 1ª consulta falhou ({resp.status_code})")
+        data = resp.json()
+        return {item["pk_paciente"]: item for item in data if item.get("pk_paciente")}
+
     async def criar_paciente(self, dados: dict) -> dict:
         """Cria o paciente no Hamilton e devolve o registro criado."""
         payload = mapear_dados(dados)

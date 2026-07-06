@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import cadastro, config_negocio, metricas, painel, whatsapp_client
+from app.services import acompanhamento, cadastro, config_negocio, metricas, painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -98,6 +98,24 @@ async def pagina_metricas(request: Request, db: AsyncSession = Depends(get_db)):
         "painel_metricas.html",
         {"request": request, "m": m},
     )
+
+
+@router.get("/acompanhamento")
+async def pagina_acompanhamento(request: Request, db: AsyncSession = Depends(get_db)):
+    dados = await acompanhamento.montar_acompanhamento(db)
+    return templates.TemplateResponse(
+        "painel_acompanhamento.html",
+        {"request": request, **dados},
+    )
+
+
+@router.post("/conversas/{conversa_id}/cobranca-resolvida")
+async def cobranca_resolvida(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await acompanhamento.marcar_cobranca_resolvida(db, conversa)
+    return RedirectResponse("/painel/acompanhamento", status_code=303)
 
 
 @router.get("/fragment/conversas")

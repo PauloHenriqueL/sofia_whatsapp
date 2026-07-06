@@ -34,6 +34,11 @@ class Conversa(Base):
     seguimento_enviado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Quando a Thainá marcou a cobrança como resolvida (Demanda 4). NULL = ainda
+    # pendente; ao marcar, o paciente sai da lista de "pronto pra cobrança".
+    cobranca_resolvida_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

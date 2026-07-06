@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block titulo %}Acompanhamento · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app">
+  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
+
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <h1>Acompanhamento</h1>
+      <div class="subtitle">Espera pela 1ª consulta e cobrança dos pacientes cadastrados</div>
+    </div>
+  </div>
+
+  {% if erro %}
+  <div class="card" style="border-color:var(--red-border); background:var(--red-bg); color:var(--red-text); margin-bottom:16px; box-shadow:none">
+    <i class="bi bi-exclamation-triangle"></i> {{ erro }}
+  </div>
+  {% endif %}
+
+  <div class="card" style="margin-bottom:18px">
+    <h2 style="font-size:16px; margin:0 0 4px">
+      <i class="bi bi-hourglass-split"></i> Esperando a 1ª consulta ({{ espera|length }})
+    </h2>
+    <div class="subtitle" style="margin-bottom:12px">
+      Dias desde o cadastro. Em vermelho, fora da meta de {{ meta_dias }} dias.
+    </div>
+    <table class="table">
+      <thead>
+        <tr><th>Paciente</th><th>Número</th><th>Dias de espera</th></tr>
+      </thead>
+      <tbody>
+        {% for p in espera %}
+        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
+          <td style="font-weight:600">{{ p.nome }}</td>
+          <td class="muted">{{ p.numero }}</td>
+          <td>
+            {% if p.fora_da_meta %}
+              <span class="badge" style="background:var(--red-bg); color:var(--red-text)">{{ p.dias }} dias</span>
+            {% else %}
+              {{ p.dias }} dias
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty"><i class="bi bi-check2-circle"></i> Ninguém esperando a 1ª consulta.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:16px; margin:0 0 4px">
+      <i class="bi bi-cash-coin"></i> Pronto pra cobrança ({{ cobranca|length }})
+    </h2>
+    <div class="subtitle" style="margin-bottom:12px">
+      Já tiveram a 1ª consulta. Envie o link de pagamento e marque como resolvido.
+    </div>
+    <table class="table">
+      <thead>
+        <tr><th>Paciente</th><th>Número</th><th>1ª consulta</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in cobranca %}
+        <tr>
+          <td style="font-weight:600">{{ p.nome }}</td>
+          <td class="muted">{{ p.numero }}</td>
+          <td class="muted">{{ p.dat_primeira_consulta or '—' }}</td>
+          <td>
+            <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-resolvida" style="margin:0">
+              <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-check2"></i> Marcar resolvido</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty"><i class="bi bi-inbox"></i> Ninguém pra cobrar agora.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
