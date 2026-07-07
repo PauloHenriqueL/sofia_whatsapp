@@ -18,10 +18,7 @@
 > A Allos é uma organização sem fins lucrativos de Belo Horizonte. A gente forma e supervisiona terapeutas e oferece atendimento psicológico a valores acessíveis. O que a gente arrecada vai para nossos projetos sociais, de formação e de pesquisa.
 
 **Vocês são uma clínica comum?**
-> A gente é uma clínica-escola: além de atender, formamos terapeutas. Por isso todo atendimento tem supervisão clínica por trás, com padrão técnico rigoroso.
-
-**Onde vejo mais sobre vocês?**
-> Tem o site (https://allos.org.br) e o Instagram (@associacaoallos). Lá você conhece os projetos e o nosso trabalho.
+> A gente é uma clínica-escola: além de atender, formamos terapeutas. Por isso todo atendimento tem supervisão clínica por trás, com padrão técnico rigoroso e nosso método de ensino Allos.
 
 Fatos institucionais (para consistência, não para recitar): associação civil sem fins lucrativos, CNPJ 50.990.346/0001-52, fundada em 2023, sede na Rua Rio Negro, 1048, Barroca, BH/MG. Missão: formar terapeutas excelentes e levar saúde mental acessível a quem precisa.
 
@@ -30,10 +27,10 @@ Fatos institucionais (para consistência, não para recitar): associação civil
 ## 2. Equipe e supervisão
 
 **Quem vai me atender? É estudante?**
-> Você é atendido por um terapeuta da nossa equipe. Parte do time já é formada em psicologia. Quem ainda está em formação avançada atende sempre com supervisão de um psicólogo experiente, registrado no conselho. A responsabilidade técnica do atendimento é do supervisor.
+> Você é atendido por um terapeuta da nossa equipe. Parte do time já é formada em psicologia. Formado ou não, quem atende tem supervisão de um psicólogo experiente, registrado no conselho. A responsabilidade técnica do atendimento é do supervisor, com desenvolvimento e seleção pelo método Allos.
 
 **Como funciona essa seleção de terapeutas?**
-> Os terapeutas passam por um processo seletivo criterioso e seguem em formação contínua. A supervisão é obrigatória para todo mundo.
+> A seleção é criteriosa e a formação nunca para. O processo seletivo avalia atendimentos práticos analisados por banca, testando o terapeuta num ambiente o mais próximo possível da clínica real.
 
 **O que é a supervisão?**
 > O seu terapeuta discute os atendimentos com um psicólogo mais experiente, para cuidar da qualidade do seu acompanhamento. Isso acontece com sigilo, só com finalidade clínica e formativa.
@@ -65,10 +62,10 @@ Fatos institucionais (para consistência, não para recitar): associação civil
 ## 4. Valores e cobrança
 
 **Quanto custa?**
-> A mensalidade é R$ 200 e cobre 4 sessões no mês, ou seja, R$ 50 por sessão.
+> A mensalidade cobre sessões semanais, ou seja, menos de R$ 50 por sessão.
 
 **Por que é mensal e não pago por sessão?**
-> A gente trabalha com mensalidade fixa para a terapia ser previsível para você e sustentável para a gente. Assim ninguém deixa de ir a uma sessão só para economizar no fim do mês, e o seu horário fica sempre reservado.
+> A gente trabalha com mensalidade fixa para a terapia ser previsível e sustentável para a gente e para você. Assim ninguém deixa de ir a uma sessão só para economizar no fim do mês, e o seu horário fica sempre reservado.
 
 **Quando começo a pagar?**
 > A primeira sessão é cortesia. Depois dela, se você seguir, a primeira cobrança é proporcional aos dias até o dia 10, e a partir daí a mensalidade vem todo dia 10, referente ao mês corrente.
@@ -77,9 +74,12 @@ Fatos institucionais (para consistência, não para recitar): associação civil
 > Depois de cada pagamento, você envia o comprovante para o seu terapeuta.
 
 **Mês com 5 semanas, pago a mais?**
-> Não. A mensalidade cobre 4 sessões. Se o mês tiver uma quinta semana, essa sessão extra é sem cobrança adicional.
+> Não. Se o mês tiver uma quinta semana, essa sessão extra é sem cobrança adicional.
 
-> Observação para o fluxo: na conversa de acolhimento, a Sofia dá só o valor de forma simples (R$ 200/mês, R$ 50 por sessão, primeira cortesia). Pro-rata, dia 10 e comprovante ela explica **se a pessoa perguntar**, ou ficam para a contratação com a Thainá. Não despejar mecânica de pagamento no meio do fluxo.
+**Vocês aceitam plano de saúde? Dá pra pedir reembolso?**
+> A gente não trabalha com plano de saúde, então não tem reembolso por convênio. O valor é a mensalidade fixa mesmo.
+
+> Observação para o fluxo: na conversa de acolhimento, a Sofia dá só o valor de forma simples. Pro-rata, dia 10 e comprovante ela explica **se a pessoa perguntar**, ou ficam para a contratação com a Thainá. Não despejar mecânica de pagamento no meio do fluxo, existe pagamento por cartão ou pix.
 
 ---
 

@@ -42,7 +42,7 @@ CLÁUSULA QUARTA — DAS DESMARCAÇÕES E FALTAS
 4.4. Quando o(a) TERAPEUTA desmarcar, buscará reposição nos 2 meses seguintes, conforme agenda de ambos.
 
 CLÁUSULA QUINTA — DOS MESES COM CINCO SEMANAS
-5.1. A mensalidade refere-se a quatro sessões no mês, independentemente de o mês ter quatro ou cinco semanas. Em meses de cinco semanas, a quinta sessão é garantida sem cobrança adicional, compensando eventuais pausas do(a) terapeuta (Cláusula Sexta).
+5.1. A mensalidade refere-se a sessões semanais, independentemente de o mês ter quatro ou cinco semanas. Em meses de cinco semanas, a quinta sessão é garantida sem cobrança adicional, compensando eventuais pausas do(a) terapeuta (Cláusula Sexta).
 
 CLÁUSULA SEXTA — DOS FERIADOS E DAS PAUSAS DO(A) TERAPEUTA
 6.1. Sessões em feriados não são repostas automaticamente; havendo agenda, a reposição pode ser combinada.
