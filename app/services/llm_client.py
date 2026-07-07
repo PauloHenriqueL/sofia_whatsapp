@@ -22,12 +22,15 @@ from app.services import config_negocio
 
 logger = logging.getLogger(__name__)
 
-PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sofia_v01.txt"
-# Base de conhecimento da Sofia (o que ela comunica e como). Fica em docs/ como
-# fonte única (mesmo arquivo que a equipe edita); é carregada em runtime, então
-# NÃO é só documentação — não mover/apagar. O contrato (docs/contrato-*.md) NÃO
-# é carregado de propósito: é só referência interna, nunca citado verbatim.
-KB_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "sofia-base-conhecimento.md"
+# Todo o material que a Sofia usa como referência de resposta mora em prompt/
+# (na raiz do repo): o prompt de fluxo, a base de conhecimento e o contrato.
+_PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompt"
+PROMPT_PATH = _PROMPT_DIR / "sofia_v01.txt"
+# Base de conhecimento da Sofia (o que ela comunica e como). É a fonte única
+# (mesmo arquivo que a equipe edita) e é carregada em runtime, então NÃO é só
+# documentação — não mover/apagar. O contrato (prompt/contrato-*.md) NÃO é
+# carregado de propósito: é só referência interna, nunca citado verbatim.
+KB_PATH = _PROMPT_DIR / "sofia-base-conhecimento.md"
 
 
 class LLMError(Exception):

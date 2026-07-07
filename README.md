@@ -152,7 +152,7 @@ Variáveis de ambiente no dashboard do Render (todas as vars do `.env.example`).
 - 21 testes passando nesse passo.
 
 **Passo 4 — OpenAI**
-- [`app/services/llm_client.py`](app/services/llm_client.py): interface `LLMClient` (abstrata, trocável) + `OpenAIClient` async. System prompt versionado em [`app/prompts/sofia_v01.txt`](app/prompts/sofia_v01.txt).
+- [`app/services/llm_client.py`](app/services/llm_client.py): interface `LLMClient` (abstrata, trocável) + `OpenAIClient` async. System prompt versionado em [`prompt/sofia_v01.txt`](prompt/sofia_v01.txt).
 - `conversation.carregar_historico()`: últimas 20 mensagens no formato role/content.
 - Falha do LLM degrada para uma mensagem de fallback (não derruba a conversa).
 

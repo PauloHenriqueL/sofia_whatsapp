@@ -38,7 +38,7 @@ class TestCarregarSystemPrompt:
         assert llm_client._formatar_reais(settings.preco_terapia_mensal) in prompt
 
     def test_carrega_base_de_conhecimento(self):
-        # A base de conhecimento (docs/sofia-base-conhecimento.md) é anexada ao
+        # A base de conhecimento (prompt/sofia-base-conhecimento.md) é anexada ao
         # system prompt. "quinta semana" só aparece na base, não no fluxo.
         prompt = llm_client.carregar_system_prompt()
         assert "Base de conhecimento" in prompt

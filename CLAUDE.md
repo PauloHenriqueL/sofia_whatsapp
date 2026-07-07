@@ -187,7 +187,7 @@ Não precisa ser formal. Quanto mais claro, melhor. Tente cobrir:
   serviço, não no router).
 - **`app/services/hamilton_client.py`** (ou um cliente novo) — se a função fala
   com o Hamilton ou outra API, o acesso vai aqui.
-- **`app/prompts/sofia_v01.txt`** — ensino a Sofia **quando** e **como** usar a
+- **`prompt/sofia_v01.txt`** — ensino a Sofia **quando** e **como** usar a
   ferramenta. Sem isso o modelo não usa direito.
 - **`app/config.py`** — se precisar de credencial/URL nova, adiciono a
   configuração (e te digo o nome exato da variável).
@@ -332,12 +332,12 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   app sobe com os padrões.
 - **Injeção no prompt**: `llm_client.carregar_system_prompt()` substitui tokens
   `{{PRECO_TERAPIA}}`, `{{PRECO_TERAPIA_SESSAO}}` e `{{DATA_HOJE}}` (data do dia, pra Sofia
-  calcular idade na verificação <12/12-17/18+) em `app/prompts/sofia_v01.txt` com os valores do
+  calcular idade na verificação <12/12-17/18+) em `prompt/sofia_v01.txt` com os valores do
   cache. `{{PRECO_NEURO}}`/`{{PARCELAS_MAX}}` ainda são injetados, mas o prompt v2 não os usa
   (neuro vai direto pra Thainá). O arquivo é cacheado; a substituição é refeita a cada turno.
 - **Base de conhecimento (prompt v2)**: `carregar_system_prompt()` anexa
-  `docs/sofia-base-conhecimento.md` ao system prompt (cacheada). **Esse arquivo é load-bearing
-  em runtime, não é só doc — não mover/apagar.** O `docs/contrato-terapeutico-allos.md` **não** é
+  `prompt/sofia-base-conhecimento.md` ao system prompt (cacheada). **Esse arquivo é load-bearing
+  em runtime, não é só doc — não mover/apagar.** O `prompt/contrato-terapeutico-allos.md` **não** é
   carregado de propósito (só referência interna; a Sofia nunca cita verbatim).
 
 ### Follow-up de lead parado (Frente 2 — `seguimento.py` + `routers/tasks.py`)
@@ -499,6 +499,11 @@ sofia/
 ├── alembic.ini               # Config migrations
 ├── render.yaml               # Deploy config
 │
+├── prompt/                    # Tudo que a Sofia usa como referência de resposta
+│   ├── sofia_v01.txt          # System prompt versionado (fluxo/tom/regras) — load-bearing
+│   ├── sofia-base-conhecimento.md  # Base de conhecimento anexada ao prompt — load-bearing
+│   └── contrato-terapeutico-allos.md  # Contrato: referência interna (NÃO carregado em runtime)
+│
 ├── app/
 │   ├── __init__.py
 │   ├── main.py               # FastAPI app + rotas
@@ -529,9 +534,6 @@ sofia/
 │   │   ├── seguimento.py     # Follow-up de lead parado (Frente 2)
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
-│   │
-│   ├── prompts/
-│   │   └── sofia_v01.txt     # System prompt versionado
 │   │
 │   ├── templates/            # Jinja2 (HTMX via CDN)
 │   │   ├── base.html, _topbar.html, login.html

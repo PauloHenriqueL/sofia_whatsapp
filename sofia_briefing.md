@@ -608,8 +608,6 @@ sofia/
 │   │   ├── llm_client.py          # Interface LLMClient + impl OpenAIClient
 │   │   ├── hamilton_client.py     # Wrapper API Hamilton
 │   │   └── escalation.py          # Lógica de escalada
-│   ├── prompts/
-│   │   └── sofia_v01.txt          # System prompt versionado
 │   ├── templates/                 # Jinja2
 │   │   ├── base.html
 │   │   ├── login.html
