@@ -10,7 +10,15 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import acompanhamento, cadastro, config_negocio, metricas, painel, whatsapp_client
+from app.services import (
+    acompanhamento,
+    cadastro,
+    config_negocio,
+    config_prompt,
+    metricas,
+    painel,
+    whatsapp_client,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -98,6 +106,38 @@ async def pagina_metricas(request: Request, db: AsyncSession = Depends(get_db)):
         "painel_metricas.html",
         {"request": request, "m": m},
     )
+
+
+@router.get("/prompts")
+async def pagina_prompts(request: Request, salvo: str = ""):
+    prompts = [
+        {
+            "chave": chave,
+            "rotulo": rotulo,
+            "vai_pro_bot": vai_pro_bot,
+            "texto": config_prompt.texto(chave),
+            "customizado": config_prompt.customizado(chave),
+        }
+        for chave, (rotulo, _caminho, vai_pro_bot) in config_prompt.PROMPTS.items()
+    ]
+    return templates.TemplateResponse(
+        "painel_prompts.html",
+        {"request": request, "prompts": prompts, "salvo": salvo},
+    )
+
+
+@router.post("/prompts/{chave}")
+async def salvar_prompt(chave: str, texto: str = Form(...), db: AsyncSession = Depends(get_db)):
+    if chave in config_prompt.PROMPTS:
+        await config_prompt.salvar(db, chave, texto)
+    return RedirectResponse(f"/painel/prompts?salvo={chave}", status_code=303)
+
+
+@router.post("/prompts/{chave}/resetar")
+async def resetar_prompt(chave: str, db: AsyncSession = Depends(get_db)):
+    if chave in config_prompt.PROMPTS:
+        await config_prompt.resetar(db, chave)
+    return RedirectResponse(f"/painel/prompts?salvo={chave}", status_code=303)
 
 
 @router.get("/acompanhamento")

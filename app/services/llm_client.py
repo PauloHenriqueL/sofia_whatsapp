@@ -13,24 +13,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
-from pathlib import Path
 
 from openai import AsyncOpenAI, OpenAIError
 
 from app.config import settings
-from app.services import config_negocio
+from app.services import config_negocio, config_prompt
 
 logger = logging.getLogger(__name__)
 
-# Todo o material que a Sofia usa como referência de resposta mora em prompt/
-# (na raiz do repo): o prompt de fluxo, a base de conhecimento e o contrato.
-_PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompt"
-PROMPT_PATH = _PROMPT_DIR / "sofia_v01.txt"
-# Base de conhecimento da Sofia (o que ela comunica e como). É a fonte única
-# (mesmo arquivo que a equipe edita) e é carregada em runtime, então NÃO é só
-# documentação — não mover/apagar. O contrato (prompt/contrato-*.md) NÃO é
-# carregado de propósito: é só referência interna, nunca citado verbatim.
-KB_PATH = _PROMPT_DIR / "sofia-base-conhecimento.md"
+# O texto dos prompts (fluxo + base de conhecimento) vem do `config_prompt`
+# (editável no painel; o arquivo em prompt/ é o padrão). Ver carregar_system_prompt.
 
 
 class LLMError(Exception):
@@ -78,34 +70,15 @@ def _valores_prompt() -> dict[str, str]:
     }
 
 
-@lru_cache(maxsize=1)
-def _ler_template() -> str:
-    """Lê o arquivo do prompt (cacheado; o conteúdo do arquivo não muda em runtime)."""
-    return PROMPT_PATH.read_text(encoding="utf-8").strip()
-
-
-@lru_cache(maxsize=1)
-def _ler_base_conhecimento() -> str:
-    """Lê a base de conhecimento da Sofia (cacheada; conteúdo estático em runtime).
-
-    Falha de leitura não derruba a Sofia: ela segue só com o prompt de fluxo (a
-    KB é pra responder dúvidas; o fluxo principal não depende dela).
-    """
-    try:
-        return KB_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        logger.exception("Não consegui ler a base de conhecimento (%s)", KB_PATH)
-        return ""
-
-
 def carregar_system_prompt() -> str:
     """System prompt: prompt de fluxo + base de conhecimento, com tokens injetados.
 
-    Não é cacheado no nível final de propósito: os valores podem mudar em runtime
-    (painel/data) e a substituição é barata. Os arquivos em si ficam cacheados.
+    O texto vem do `config_prompt` (editável pela Thainá no painel; o arquivo em
+    `prompt/` é o padrão). Não é cacheado no nível final de propósito: prompt e
+    valores podem mudar em runtime, e a substituição é barata.
     """
-    texto = _ler_template()
-    kb = _ler_base_conhecimento()
+    texto = config_prompt.texto("prompt_sistema")
+    kb = config_prompt.texto("prompt_base")
     if kb:
         texto = (
             f"{texto}\n\n---\n\n"

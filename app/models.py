@@ -87,7 +87,9 @@ class Configuracao(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     chave: Mapped[str] = mapped_column(String(50), unique=True, index=True)
-    valor: Mapped[str] = mapped_column(String(100))
+    # Text (não String(100)): além dos valores curtos, guarda também os textos
+    # dos prompts editáveis no painel, que são grandes.
+    valor: Mapped[str] = mapped_column(Text)
     atualizada_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

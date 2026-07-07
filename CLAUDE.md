@@ -335,10 +335,15 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   calcular idade na verificação <12/12-17/18+) em `prompt/sofia_v01.txt` com os valores do
   cache. `{{PRECO_NEURO}}`/`{{PARCELAS_MAX}}` ainda são injetados, mas o prompt v2 não os usa
   (neuro vai direto pra Thainá). O arquivo é cacheado; a substituição é refeita a cada turno.
-- **Base de conhecimento (prompt v2)**: `carregar_system_prompt()` anexa
-  `prompt/sofia-base-conhecimento.md` ao system prompt (cacheada). **Esse arquivo é load-bearing
-  em runtime, não é só doc — não mover/apagar.** O `prompt/contrato-terapeutico-allos.md` **não** é
-  carregado de propósito (só referência interna; a Sofia nunca cita verbatim).
+- **Base de conhecimento**: `carregar_system_prompt()` anexa
+  `prompt/sofia-base-conhecimento.md` ao system prompt. **Load-bearing em runtime, não é só doc.**
+  O `prompt/contrato-terapeutico-allos.md` **não** é enviado ao modelo (só referência interna).
+- **Prompts editáveis no painel (`config_prompt.py` — `/painel/prompts`)**: os 3 arquivos de
+  `prompt/` são o **padrão**; a Thainá edita no painel e o texto salvo (tabela `configuracao`,
+  por isso `valor` é `Text`) passa a valer — "Resetar" volta pro arquivo. `carregar_system_prompt`
+  lê `config_prompt.texto("prompt_sistema")` + `("prompt_base")` (não mais os arquivos direto). O
+  contrato é editável, mas **não** vai pro bot (rotulado no painel). Cache em memória (1 instância),
+  carregado no `main.lifespan` junto com `config_negocio`.
 
 ### Follow-up de lead parado (Frente 2 — `seguimento.py` + `routers/tasks.py`)
 - Um **cron externo** bate em `POST /tasks/seguimentos` (protegido por `TASKS_TOKEN`,

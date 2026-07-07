@@ -29,12 +29,13 @@ async def lifespan(app: FastAPI):
     # Falha aqui (ex.: tabela ainda não migrada) não derruba o app: usa os padrões.
     try:
         from app.database import async_session
-        from app.services import config_negocio
+        from app.services import config_negocio, config_prompt
 
         async with async_session() as db:
             await config_negocio.carregar_do_banco(db)
+            await config_prompt.carregar_do_banco(db)
     except Exception:
-        logger.exception("Não carreguei a config de negócio; seguindo com os padrões")
+        logger.exception("Não carreguei a config (valores/prompts); seguindo com os padrões")
     yield
     logger.info("Sofia encerrada")
 

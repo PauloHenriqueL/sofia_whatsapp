@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titulo %}Prompts da Sofia · Configurações{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app" style="max-width:820px">
+  <a href="/painel/config" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras Configurações</a>
+
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <h1>Prompts da Sofia</h1>
+      <div class="subtitle">Os textos que definem como a Sofia conversa. Editou, salvou, valem na hora.</div>
+    </div>
+  </div>
+
+  <div class="subtitle" style="margin-bottom:18px">
+    O que de fato vai pro robô a cada mensagem: o <b>prompt principal</b> + a
+    <b>base de conhecimento</b>. O contrato é só referência (não vai pro bot).
+  </div>
+
+  {% for p in prompts %}
+  <form class="card" method="post" action="/painel/prompts/{{ p.chave }}" style="margin-bottom:18px">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px">
+      <h2 style="font-size:16px; margin:0">
+        {{ p.rotulo }}
+        {% if p.vai_pro_bot %}
+          <span class="badge" style="background:var(--green-bg); color:var(--green-text)">vai pro bot</span>
+        {% else %}
+          <span class="badge">só referência</span>
+        {% endif %}
+      </h2>
+      {% if p.customizado %}
+        <span class="muted" style="font-size:12px"><i class="bi bi-pencil"></i> editado (diferente do padrão)</span>
+      {% else %}
+        <span class="muted" style="font-size:12px">usando o texto padrão</span>
+      {% endif %}
+    </div>
+
+    {% if salvo == p.chave %}
+    <div class="card" style="border-color:var(--green-border); background:var(--green-bg); color:var(--green-text); box-shadow:none; margin-bottom:10px; padding:8px 12px">
+      <i class="bi bi-check-circle"></i> Salvo. A Sofia já está usando esse texto.
+    </div>
+    {% endif %}
+
+    <textarea name="texto" class="input" rows="16"
+              style="width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; line-height:1.5; resize:vertical"
+              required>{{ p.texto }}</textarea>
+
+    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
+      {% if p.customizado %}
+      <button class="btn btn-ghost" type="submit" formaction="/painel/prompts/{{ p.chave }}/resetar"
+              onclick="return confirm('Voltar esse texto pro padrão? Sua versão editada será descartada.')">
+        <i class="bi bi-arrow-counterclockwise"></i> Resetar pro padrão
+      </button>
+      {% endif %}
+    </div>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}
