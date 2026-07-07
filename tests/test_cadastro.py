@@ -28,6 +28,7 @@ class _FakeHamilton:
         self._criado = criado or {}
         self._erro = erro
         self.criou_com = None
+        self.atualizou = None  # (pid, payload)
 
     async def buscar_paciente_por_telefone(self, tel):
         if self._erro:
@@ -39,6 +40,26 @@ class _FakeHamilton:
             raise hamilton_client.HamiltonError("offline")
         self.criou_com = dados
         return self._criado
+
+    async def atualizar_paciente(self, pid, payload):
+        self.atualizou = (pid, payload)
+        return {"pk_paciente": pid}
+
+
+class TestMapearUpdate:
+    def test_anexa_observacao_e_campos_factuais(self):
+        dados = {
+            "data_nascimento": "2001-08-07",
+            "endereco": "Rua Nova, 10",
+            "horarios_disponiveis": "manhãs",
+            "motivo_busca": "ansiedade",
+        }
+        payload = hamilton_client.mapear_dados_update(dados, {"observacao": "obs antiga"})
+        assert payload["dat_nascimento"] == "2001-08-07"
+        assert payload["endereco"] == "Rua Nova, 10"
+        assert "obs antiga" in payload["observacao"]  # preserva a anterior
+        assert "Horários: manhãs" in payload["observacao"]  # anexa o novo
+        assert "nome" not in payload  # não sobrescreve o nome
 
 
 class TestGarantirTelefone:
@@ -75,6 +96,54 @@ class TestCadastrarPaciente:
         assert c.estado == "cadastrado"
         assert c.paciente_hamilton_id == 123
         assert fake.criou_com["telefone_contato"] == "553183055118"
+
+    @pytest.mark.asyncio
+    async def test_mesmo_telefone_e_nome_atualiza_nao_cria(self, session):
+        # Mesma pessoa voltando (telefone + nome batem) -> atualiza a ficha, não duplica.
+        c = Conversa(
+            numero_whatsapp="553183055118",
+            estado="coletando_dados",
+            dados_coletados={
+                "nome_completo": "José da Silva",
+                "telefone_contato": "553183055118",
+                "endereco": "Rua Nova, 10",
+                "horarios_disponiveis": "manhãs",
+            },
+        )
+        session.add(c)
+        await session.flush()
+        # existente com o mesmo nome (com acento/caixa diferentes) nesse telefone
+        fake = _FakeHamilton(
+            existentes=[{"pk_paciente": 42, "nome": "Jose da silva", "observacao": "antigo"}]
+        )
+        with patch("app.services.cadastro.hamilton_client.get_hamilton_client", return_value=fake):
+            res = await cadastro.cadastrar_paciente(session, c)
+        assert res["status"] == "atualizado"
+        assert c.paciente_hamilton_id == 42
+        assert fake.criou_com is None  # NÃO criou paciente novo
+        assert fake.atualizou[0] == 42  # atualizou o 42
+        assert "endereco" in fake.atualizou[1]  # com os dados novos
+
+    @pytest.mark.asyncio
+    async def test_mesmo_telefone_nome_diferente_cria_novo(self, session):
+        # Pai (mesmo telefone) cadastrando o filho (nome diferente) -> paciente NOVO.
+        c = Conversa(
+            numero_whatsapp="553183055118",
+            estado="coletando_dados",
+            dados_coletados={"nome_completo": "Pedro da Silva", "telefone_contato": "553183055118"},
+        )
+        session.add(c)
+        await session.flush()
+        fake = _FakeHamilton(
+            existentes=[{"pk_paciente": 42, "nome": "José da Silva"}],
+            criado={"pk_paciente": 99},
+        )
+        with patch("app.services.cadastro.hamilton_client.get_hamilton_client", return_value=fake):
+            res = await cadastro.cadastrar_paciente(session, c)
+        assert res["status"] == "cadastrado"
+        assert c.paciente_hamilton_id == 99
+        assert fake.criou_com is not None  # criou o filho
+        assert fake.atualizou is None  # não mexeu no pai
 
     @pytest.mark.asyncio
     async def test_hamilton_falha_marca_pendente(self, session):

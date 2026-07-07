@@ -11,6 +11,7 @@ Falha de integração vira HamiltonError; o orquestrador degrada para
 
 import logging
 import re
+from datetime import datetime
 from functools import lru_cache
 from typing import Any
 
@@ -34,6 +35,48 @@ def normalizar_telefone(numero: str | None) -> str:
     return digits
 
 
+def _itens_intake(dados: dict[str, Any]) -> list[str]:
+    """Itens que a Sofia coleta e que o Hamilton guarda na observação (texto livre)."""
+    itens = []
+    if dados.get("motivo_busca"):
+        itens.append(f"Motivo: {dados['motivo_busca']}")
+    if dados.get("preferencia_terapeuta"):
+        itens.append(f"Preferência: {dados['preferencia_terapeuta']}")
+    if dados.get("horarios_disponiveis"):
+        itens.append(f"Horários: {dados['horarios_disponiveis']}")
+    if dados.get("cep"):
+        itens.append(f"CEP: {dados['cep']}")
+    if dados.get("como_conheceu"):
+        itens.append(f"Origem: {dados['como_conheceu']}")
+    if dados.get("observacoes"):
+        itens.append(f"Obs: {dados['observacoes']}")
+    return itens
+
+
+def mapear_dados_update(dados: dict[str, Any], existente: dict) -> dict[str, Any]:
+    """Payload de atualização (PATCH) quando a MESMA pessoa volta (mesmo nome).
+
+    Atualiza os campos factuais que a Sofia coletou (nascimento, contato de apoio,
+    endereço, email) e **anexa** um resumo datado às observações, preservando o que
+    já estava lá. NÃO mexe no nome (evita sobrescrever uma correção da coordenação).
+    """
+    payload: dict[str, Any] = {}
+    if dados.get("data_nascimento"):
+        payload["dat_nascimento"] = dados["data_nascimento"]
+    if dados.get("telefone_apoio"):
+        payload["contato_apoio"] = normalizar_telefone(dados["telefone_apoio"])
+    if dados.get("endereco"):
+        payload["endereco"] = dados["endereco"]
+    if dados.get("email"):
+        payload["email"] = dados["email"]
+    resumo = " | ".join(_itens_intake(dados))
+    if resumo:
+        anterior = (existente.get("observacao") or "").strip()
+        nota = f"[Atualização Sofia {datetime.now().strftime('%d/%m/%Y')}] {resumo}"
+        payload["observacao"] = f"{anterior}\n{nota}" if anterior else nota
+    return payload
+
+
 def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
     """Converte `dados_coletados` da Sofia no payload de intake do Hamilton.
 
@@ -42,24 +85,9 @@ def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
     usa pra completar o cadastro no Hamilton). O Hamilton seta um valor padrão
     de mensalidade que não bate com o nosso, então anotamos o valor configurado.
     """
-    motivo = (dados.get("motivo_busca") or "").lower()
-    eh_neuro = "neuro" in motivo
-
-    observacao = []
-    if dados.get("motivo_busca"):
-        observacao.append(f"Motivo: {dados['motivo_busca']}")
-    if dados.get("preferencia_terapeuta"):
-        observacao.append(f"Preferência: {dados['preferencia_terapeuta']}")
-    if dados.get("horarios_disponiveis"):
-        observacao.append(f"Horários: {dados['horarios_disponiveis']}")
-    if dados.get("cep"):
-        observacao.append(f"CEP: {dados['cep']}")
-    if dados.get("como_conheceu"):
-        observacao.append(f"Origem: {dados['como_conheceu']}")
-    if dados.get("observacoes"):
-        observacao.append(f"Obs: {dados['observacoes']}")
+    observacao = _itens_intake(dados)
     # Mensalidade só faz sentido pra terapia (neuro é pagamento único/orçamento).
-    if not eh_neuro:
+    if "neuro" not in (dados.get("motivo_busca") or "").lower():
         preco = config_negocio.valor("preco_terapia_mensal")
         observacao.append(f"Mensalidade: R$ {preco:,}".replace(",", "."))
 
@@ -160,6 +188,20 @@ class HamiltonClient:
             raise HamiltonError(f"Status da 1ª consulta falhou ({resp.status_code})")
         data = resp.json()
         return {item["pk_paciente"]: item for item in data if item.get("pk_paciente")}
+
+    async def atualizar_paciente(self, pid: int, payload: dict) -> dict:
+        """PATCH parcial da ficha de um paciente que já existe (reencontro).
+
+        `payload` já vem pronto (ver `mapear_dados_update`). Payload vazio = no-op.
+        """
+        if not pid or not payload:
+            return {}
+        resp = await self._request("PATCH", f"/api/v1/pacientes/{pid}/atualizar/", json=payload)
+        if resp.status_code not in (200, 201):
+            raise HamiltonError(
+                f"Atualização de paciente falhou ({resp.status_code}): {resp.text[:200]}"
+            )
+        return resp.json()
 
     async def criar_paciente(self, dados: dict) -> dict:
         """Cria o paciente no Hamilton e devolve o registro criado."""
