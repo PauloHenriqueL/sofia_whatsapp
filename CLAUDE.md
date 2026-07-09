@@ -404,9 +404,10 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 - Tipo JSON portável: `JSON().with_variant(JSONB(), "postgresql")`.
 
 ### Sanitização da saída do bot (`saida.py`) — rede de proteção, não cosmético
-- O modelo tem 2 canais: `tool_calls` e `content`. Ele **erra o canal**: em beta pôs o JSON
-  do `cadastrar_paciente` (nome/nascimento/endereço de paciente real) no `content` e o texto
-  foi pro WhatsApp dela; noutra vez vazou `@endsection to=final code omitted`.
+- O modelo tem 2 canais: `tool_calls` e `content`. Ele **erra o canal**: em beta fechado
+  (dados fictícios) pôs o JSON do `cadastrar_paciente` no `content` e o texto foi pro
+  WhatsApp; noutra vez vazou `@endsection to=final code omitted`. Com paciente real seria
+  nome/nascimento/endereço dele — dado de saúde.
 - **Todo texto do bot passa por `saida.limpar()`** no único choke point de saída
   (`webhook._enviar_em_bolhas`) — isso cobre fallback, escalada, `PEDIR_TEXTO` e LLM. A
   resposta da **Thainá** (`painel.responder_como_thaina`) **não** passa (é humana, de propósito).

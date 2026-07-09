@@ -1,7 +1,7 @@
 """Sanitização da fala do bot (P0): o modelo não pode vazar dado interno.
 
-Casos reais de beta que motivaram isto:
-- o JSON do `cadastrar_paciente` foi enviado pro WhatsApp da paciente;
+Casos reais de beta fechado (dados fictícios) que motivaram isto:
+- o JSON do `cadastrar_paciente` foi enviado pro WhatsApp como fala;
 - '...organizo os dados de quem quer começar.@endsection\\nto=final code omitted'.
 
 O risco oposto (cortar fala legítima) é pior, então há bateria de falso positivo.

@@ -44,9 +44,12 @@ e esse texto vai direto pra `_enviar_em_bolhas` → `whatsapp_client.enviar_text
 **Não existe nenhuma inspeção entre o modelo e o paciente.** Qualquer coisa que o
 modelo emitir no `content` é enviada.
 
-Isso não se resolve com instrução no prompt: LLM não dá garantia de formato, e o
-custo do vazamento é alto (JSON com nome, nascimento e endereço de uma paciente
-real foi entregue no WhatsApp dela — incidente de LGPD, dado de saúde).
+Isso não se resolve com instrução no prompt: LLM não dá garantia de formato.
+
+Os dois casos aconteceram em **beta fechado**, com um colega terapeuta simulando
+um paciente: **nenhum dado real foi exposto**. Mas o mesmo caminho, com paciente
+de verdade, entregaria nome, nascimento e endereço dele no WhatsApp — dado de
+saúde. Por isso a correção veio antes de abrir pra público.
 
 ### O que fazer
 

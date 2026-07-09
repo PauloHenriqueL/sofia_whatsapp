@@ -2,9 +2,9 @@
 
 Por que isto existe (P0 do BACKLOG.md): o modelo tem dois canais de saída,
 `tool_calls` (estruturado) e `content` (a fala). Ele pode errar o canal. Em beta
-a Sofia mandou pro WhatsApp da paciente o JSON do `cadastrar_paciente` (nome,
-nascimento e endereço dela) e, noutra vez, lixo de template
-(`@endsection to=final code omitted`).
+fechado (dados fictícios) a Sofia mandou pro WhatsApp o JSON do
+`cadastrar_paciente` (nome, nascimento, endereço) e, noutra vez, lixo de template
+(`@endsection to=final code omitted`). Com paciente real, isso é dado de saúde.
 
 Nenhuma instrução de prompt garante formato de saída, então a garantia tem que
 ser em código, na fronteira. Tudo que o **bot** envia passa por `limpar()`, no
