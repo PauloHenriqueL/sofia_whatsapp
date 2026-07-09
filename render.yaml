@@ -4,7 +4,7 @@ services:
   - type: web
     name: sofia
     runtime: python
-    plan: free
+    plan: starter
     buildCommand: "pip install -r requirements.txt && alembic upgrade head"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /health
@@ -70,3 +70,18 @@ services:
       # App
       - key: SECRET_KEY
         sync: false
+
+      # Cron externo do follow-up de lead parado (POST /tasks/seguimentos).
+      # VAZIO = endpoint DESLIGADO (responde 403). Sem isto, o follow-up não sai.
+      - key: TASKS_TOKEN
+        sync: false
+
+      # A Sofia ouve áudio (Whisper) e responde em texto. Custa por minuto.
+      # Editável em runtime no /painel/config; aqui é só o valor inicial.
+      - key: TRANSCREVER_AUDIO
+        value: "true"
+
+      # ATENÇÃO — NÃO defina SOFIA_API_DATABASE_URL aqui nem no dashboard deste
+      # serviço. Essa env pertence ao serviço do **Hamilton** e, enquanto estiver
+      # setada lá, TODOS os cadastros (inclusive de paciente real) vão pro banco
+      # de teste. Ver DEPLOY.md.
