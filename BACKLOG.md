@@ -81,20 +81,25 @@ Um sanitizador na fronteira de saída (`app/services/saida.py`, novo), aplicado 
 
 ---
 
-## P1 — Painel: filtro, ordenação e busca
+## ✅ P1 — Painel: filtro, ordenação e busca — ENTREGUE
 
-- Ordenar por qualquer coluna, em todas as tabelas (lista de conversas e acompanhamento).
-- Trocar os balõezinhos de filtro por um **botão de filtro** onde a Thainá monta o filtro
-  que quiser (modo, estado, período).
-- **Campo de pesquisa** (nome, número, conteúdo de mensagem) nas tabelas.
-- Navegação: balão "Todas as conversas" ao lado de "Acompanhamento", pra alternar fácil.
+- Lista de conversas: ordenação **no servidor** (é paginada) por número, nome, modo,
+  estado e atividade. Cabeçalho clicável alterna asc/desc. `painel.ORDENS` é allowlist:
+  `ordem` vem da querystring e **nunca** é interpolado em SQL.
+- Busca única por **nome, número ou texto de qualquer mensagem** (`?busca=`).
+- Filtro virou um menu (`<details>`, sem JS), no lugar da fileira de chips.
+- Abas "Todas as conversas" ↔ "Acompanhamento" nas duas telas.
+- Acompanhamento: ordenação **client-side** (`static/ordenar-tabela.js`, `<th data-sort>`),
+  porque as tabelas são pequenas e já vêm inteiras. Reutilizável em tabela nova.
 
-## P2 — Assumir controle pra digitar
+## ✅ P2 — Assumir controle pra digitar — ENTREGUE
 
-- O campo de texto da conversa fica **coberto** por um botão "Assumir controle".
-- Ao clicar, o botão some e o campo aparece.
-- Ao sair da conversa (com controle assumido), perguntar:
-  **"Quer que o bot assuma daqui pra frente?"** com Sim / Não.
+- Em modo bot, o campo de texto não existe: no lugar, "Assumir controle pra responder".
+- Em modo humano, o campo aparece (com `autofocus`) e o cabeçalho oferece "Devolver ao bot".
+- Ao sair da conversa com o controle assumido, um `confirm()` pergunta
+  **"Quer que o bot assuma daqui pra frente?"**. Aceitando, devolve ao bot e segue pro
+  destino; recusando, navega mantendo o controle.
+- `?proximo=` só aceita caminho interno (`_destino_seguro`) — sem open redirect.
 
 ## P3 — Imagem e documento (recebimento)
 

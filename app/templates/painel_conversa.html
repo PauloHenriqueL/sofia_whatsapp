@@ -26,13 +26,10 @@
           <i class="bi bi-box-arrow-up-right"></i> Completar no Hamilton
         </a>
       {% endif %}
+      {# Assumir agora se faz pelo botão sobre o campo de digitar (embaixo). #}
       {% if conversa.modo == 'humano' %}
         <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
-        </form>
-      {% else %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir" style="margin:0">
-          <button class="btn btn-primary" type="submit"><i class="bi bi-person-raised-hand"></i> Assumir conversa</button>
         </form>
       {% endif %}
       <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" style="margin:0"
@@ -79,13 +76,59 @@
     </div>
   </div>
 
-  <form class="card" style="margin-top:14px; padding:12px; display:flex; gap:10px; align-items:flex-end"
-        hx-post="/painel/conversas/{{ conversa.id }}/responder"
-        hx-target="#mensagens" hx-swap="innerHTML"
-        hx-on::after-request="this.reset()">
-    <textarea name="texto" class="input" rows="2" required
-              placeholder="Escreva a resposta para o paciente..." style="flex:1"></textarea>
-    <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar</button>
-  </form>
+  {# Pra digitar, a Thainá precisa assumir a conversa antes: enquanto o bot está
+     no comando, o campo fica coberto pelo botão (senão ela escreve por cima da
+     Sofia, que continua respondendo). #}
+  <div class="card compositor" style="margin-top:14px">
+    {% if conversa.modo == 'humano' %}
+      <form style="padding:12px; display:flex; gap:10px; align-items:flex-end"
+            hx-post="/painel/conversas/{{ conversa.id }}/responder"
+            hx-target="#mensagens" hx-swap="innerHTML"
+            hx-on::after-request="this.reset()">
+        <textarea name="texto" class="input" rows="2" required autofocus
+                  placeholder="Escreva a resposta para o paciente..." style="flex:1"></textarea>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar</button>
+      </form>
+    {% else %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir"
+            class="compositor-bloqueado">
+        <span><i class="bi bi-robot"></i> A Sofia está atendendo esta conversa.</span>
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-person-raised-hand"></i> Assumir controle pra responder
+        </button>
+      </form>
+    {% endif %}
+  </div>
 </div>
+
+{% if conversa.modo == 'humano' %}
+{# Ao sair da conversa com o controle assumido, oferece devolver ao bot. Só
+   dispara na navegação de saída (não no envio de mensagem, que é HTMX). #}
+<script>
+  (function () {
+    const id = {{ conversa.id }};
+    document.addEventListener('click', function (e) {
+      const link = e.target.closest('a[href]');
+      if (!link) return;
+      const url = new URL(link.href, location.href);
+      if (url.origin !== location.origin) return;
+      if (url.pathname.startsWith('/painel/conversas/' + id)) return;  // ficou aqui
+
+      e.preventDefault();
+      if (confirm('Quer que o bot assuma daqui pra frente?')) {
+        const f = document.createElement('form');
+        f.method = 'post';
+        f.action = '/painel/conversas/' + id + '/devolver-bot';
+        const destino = document.createElement('input');
+        destino.type = 'hidden'; destino.name = 'proximo'; destino.value = url.pathname + url.search;
+        f.appendChild(destino);
+        document.body.appendChild(f);
+        f.submit();
+      } else {
+        location.href = link.href;  // Thainá segue no controle
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

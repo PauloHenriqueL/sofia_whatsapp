@@ -153,3 +153,65 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .data-row dd { margin:0; color:var(--text-primary); white-space:pre-wrap; }
 .data-row dd.vazio { color:var(--text-tertiary); font-style:italic; }
 @media (max-width:640px) { .data-row { flex-direction:column; gap:2px; } .data-row dt { width:auto; } }
+
+/* ── Abas de navegação (Conversas ↔ Acompanhamento) ───────────────────────── */
+.tabs { display:flex; gap:6px; margin:0 0 16px; border-bottom:1.5px solid var(--border-default); }
+.tabs .tab {
+  display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-bottom:-1.5px;
+  font-size:14px; font-weight:600; text-decoration:none; color:var(--text-tertiary);
+  border-bottom:2.5px solid transparent; transition:all .2s;
+}
+.tabs .tab:hover { color:var(--teal-600); }
+.tabs .tab.active { color:var(--teal-600); border-bottom-color:var(--teal-500); }
+
+/* ── Barra de ferramentas: busca + filtro ─────────────────────────────────── */
+.toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+.toolbar .search {
+  position:relative; display:flex; align-items:center; gap:8px; flex:1; min-width:260px;
+  background:var(--bg-card); border:1.5px solid var(--border-strong); border-radius:12px; padding:0 12px;
+}
+.toolbar .search:focus-within { border-color:var(--teal-500); box-shadow:0 0 0 3px var(--teal-glow); }
+.toolbar .search > .bi-search { color:var(--text-tertiary); font-size:14px; }
+.toolbar .search .input { border:none; background:transparent; padding:10px 0; }
+.toolbar .search .input:focus { outline:none; box-shadow:none; }
+
+/* ── Dropdown de filtro (<details>, sem JS) ───────────────────────────────── */
+.dropdown { position:relative; }
+.dropdown > summary { list-style:none; cursor:pointer; }
+.dropdown > summary::-webkit-details-marker { display:none; }
+.dropdown[open] > summary { border-color:var(--teal-500); color:var(--teal-600); }
+.dropdown-menu {
+  position:absolute; right:0; top:calc(100% + 6px); z-index:20; min-width:210px; padding:6px;
+  background:var(--bg-card); border:1px solid var(--border-default); border-radius:12px; box-shadow:var(--shadow-card);
+}
+.dropdown-menu a {
+  display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:8px;
+  font-size:14px; text-decoration:none; color:var(--text-secondary); white-space:nowrap;
+}
+.dropdown-menu a:hover { background:var(--bg-hover); color:var(--teal-600); }
+.dropdown-menu a.active { color:var(--teal-600); font-weight:600; }
+
+/* ── Cabeçalho de tabela ordenável ────────────────────────────────────────── */
+.th-sort {
+  display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+  color:inherit; font:inherit; cursor:pointer;
+}
+.th-sort:hover { color:var(--teal-600); }
+.th-sort.active { color:var(--teal-600); }
+.th-sort .sort-idle { opacity:0; transition:opacity .15s; font-size:11px; }
+.th-sort:hover .sort-idle { opacity:.45; }
+
+/* ── Assumir controle pra digitar (P2) ────────────────────────────────────── */
+.compositor { position:relative; }
+.compositor-bloqueado {
+  display:flex; align-items:center; justify-content:center; gap:10px; padding:22px;
+  text-align:center; color:var(--text-tertiary); font-size:14px; flex-wrap:wrap;
+}
+
+/* Ordenação client-side (ordenar-tabela.js): th marcado com data-sort */
+.th-sort-js { cursor:pointer; user-select:none; }
+.th-sort-js:hover { color:var(--teal-600); }
+.th-sort-js[data-dir] { color:var(--teal-600); }
+.th-sort-js[data-dir] .sort-idle { opacity:1; }
+.th-sort-js[data-dir="asc"] .sort-idle::before { content:"\f235"; }  /* caret-up-fill */
+.th-sort-js[data-dir="desc"] .sort-idle::before { content:"\f229"; } /* caret-down-fill */

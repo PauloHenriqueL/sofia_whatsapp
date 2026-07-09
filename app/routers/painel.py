@@ -56,12 +56,34 @@ templates.env.filters["data"] = _fmt_data
 templates.env.filters["desde"] = _ha_quanto_tempo
 
 
+def _contexto_lista(request: Request, conversas, filtro, busca, ordem, dir_) -> dict:
+    return {
+        "request": request,
+        "conversas": conversas,
+        "filtro": filtro,
+        "busca": busca,
+        "ordem": ordem,
+        "dir": dir_,
+        "ordens": painel.ORDENS,
+        "filtros": painel.FILTROS,
+    }
+
+
 @router.get("/")
-async def pagina_lista(request: Request, filtro: str = "todas", db: AsyncSession = Depends(get_db)):
-    conversas = await painel.listar_conversas(db, filtro=filtro)
+async def pagina_lista(
+    request: Request,
+    filtro: str = "todas",
+    busca: str = "",
+    ordem: str = "atualizada_em",
+    dir: str = "desc",
+    db: AsyncSession = Depends(get_db),
+):
+    conversas = await painel.listar_conversas(
+        db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
+    )
     return templates.TemplateResponse(
         "painel_lista.html",
-        {"request": request, "conversas": conversas, "filtro": filtro},
+        _contexto_lista(request, conversas, filtro, busca, ordem, dir),
     )
 
 
@@ -160,12 +182,19 @@ async def cobranca_resolvida(conversa_id: int, db: AsyncSession = Depends(get_db
 
 @router.get("/fragment/conversas")
 async def fragment_conversas(
-    request: Request, filtro: str = "todas", db: AsyncSession = Depends(get_db)
+    request: Request,
+    filtro: str = "todas",
+    busca: str = "",
+    ordem: str = "atualizada_em",
+    dir: str = "desc",
+    db: AsyncSession = Depends(get_db),
 ):
-    conversas = await painel.listar_conversas(db, filtro=filtro)
+    conversas = await painel.listar_conversas(
+        db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
+    )
     return templates.TemplateResponse(
         "_conversas_fragment.html",
-        {"request": request, "conversas": conversas, "filtro": filtro},
+        _contexto_lista(request, conversas, filtro, busca, ordem, dir),
     )
 
 
@@ -229,13 +258,28 @@ async def assumir(conversa_id: int, db: AsyncSession = Depends(get_db)):
     return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
 
 
+def _destino_seguro(proximo: str, padrao: str) -> str:
+    """Só redireciona pra caminho interno (evita open redirect via `?proximo=`).
+
+    `//evil.com` é URL protocolo-relativa: começa com `/` mas sai do site.
+    """
+    if proximo.startswith("/") and not proximo.startswith("//"):
+        return proximo
+    return padrao
+
+
 @router.post("/conversas/{conversa_id}/devolver-bot")
-async def devolver_bot(conversa_id: int, db: AsyncSession = Depends(get_db)):
+async def devolver_bot(
+    conversa_id: int, proximo: str = Form(""), db: AsyncSession = Depends(get_db)
+):
     conversa = await painel.obter_conversa(db, conversa_id)
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await painel.devolver_ao_bot(db, conversa)
-    return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
+    # `proximo` vem de quando a Thainá sai da conversa e aceita devolver ao bot.
+    return RedirectResponse(
+        _destino_seguro(proximo, f"/painel/conversas/{conversa_id}/"), status_code=303
+    )
 
 
 @router.post("/conversas/{conversa_id}/cadastrar")

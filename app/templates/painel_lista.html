@@ -8,28 +8,51 @@
       <h1>Conversas</h1>
       <div class="subtitle">Atendimentos da Sofia no WhatsApp</div>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap">
-      <a class="btn btn-ghost" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
-      <a class="btn btn-ghost" href="/painel/metricas"><i class="bi bi-graph-up-arrow"></i> Resultados</a>
-    </div>
+    <a class="btn btn-ghost" href="/painel/metricas"><i class="bi bi-graph-up-arrow"></i> Resultados</a>
   </div>
 
-  <div class="filters">
-    {% set filtros = [
-      ('todas', 'Todas', 'bi-collection'),
-      ('humano', 'Em modo humano', 'bi-person-raised-hand'),
-      ('escalada', 'Em escalada', 'bi-exclamation-triangle'),
-      ('cadastradas_hoje', 'Cadastradas hoje', 'bi-check2-circle'),
-      ('cadastrados', 'Cadastrados', 'bi-person-check')
-    ] %}
-    {% for chave, rotulo, icone in filtros %}
-      <a class="chip {{ 'active' if filtro == chave else '' }}" href="/painel/?filtro={{ chave }}">
-        <i class="bi {{ icone }}"></i> {{ rotulo }}
-      </a>
-    {% endfor %}
+  {# Abas: as duas telas que a Thainá usa o tempo todo, lado a lado. #}
+  <div class="tabs">
+    <a class="tab active" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
+    <a class="tab" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
   </div>
 
-  <div class="card" hx-get="/painel/fragment/conversas?filtro={{ filtro }}"
+  <div class="toolbar">
+    <form class="search" method="get" action="/painel/">
+      <input type="hidden" name="ordem" value="{{ ordem }}">
+      <input type="hidden" name="dir" value="{{ dir }}">
+      <input type="hidden" name="filtro" value="{{ filtro }}">
+      <i class="bi bi-search"></i>
+      <input class="input" type="search" name="busca" value="{{ busca }}"
+             placeholder="Buscar por nome, número ou mensagem...">
+      {% if busca %}
+        <a class="btn btn-ghost btn-sm" href="/painel/?filtro={{ filtro }}" title="Limpar busca">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      {% endif %}
+    </form>
+
+    {# Filtro num menu só, em vez de uma fileira de chips. #}
+    <details class="dropdown">
+      <summary class="btn btn-ghost">
+        <i class="bi bi-funnel{{ '-fill' if filtro != 'todas' }}"></i>
+        {{ filtros.get(filtro, 'Filtrar') }}
+        <i class="bi bi-chevron-down"></i>
+      </summary>
+      <div class="dropdown-menu">
+        {% for chave, rotulo in filtros.items() %}
+          <a class="{{ 'active' if filtro == chave }}"
+             href="/painel/?filtro={{ chave }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}">
+            {% if filtro == chave %}<i class="bi bi-check2"></i>{% endif %}{{ rotulo }}
+          </a>
+        {% endfor %}
+      </div>
+    </details>
+  </div>
+
+  {# O polling preserva busca/ordem/filtro, senão a tela "pula" a cada 15s. #}
+  <div class="card"
+       hx-get="/painel/fragment/conversas?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}"
        hx-trigger="every 15s" hx-swap="innerHTML">
     {% include "_conversas_fragment.html" %}
   </div>

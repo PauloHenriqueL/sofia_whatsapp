@@ -1,12 +1,26 @@
+{# Cabeçalho clicável: alterna asc/desc na coluna atual, começa desc numa nova. #}
+{% macro th(chave, rotulo) %}
+  {% set ativa = (ordem == chave) %}
+  {% set nova_dir = 'asc' if (ativa and dir == 'desc') else ('desc' if ativa else 'desc') %}
+  <th>
+    <a class="th-sort {{ 'active' if ativa }}"
+       href="/painel/?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ chave }}&dir={{ nova_dir }}">
+      {{ rotulo }}
+      {% if ativa %}<i class="bi bi-caret-{{ 'down' if dir == 'desc' else 'up' }}-fill"></i>
+      {% else %}<i class="bi bi-arrow-down-up sort-idle"></i>{% endif %}
+    </a>
+  </th>
+{% endmacro %}
+
 <table class="table">
   <thead>
     <tr>
-      <th>Número</th>
-      <th>Nome</th>
-      <th>Modo</th>
-      <th>Estado</th>
+      {{ th('numero_whatsapp', 'Número') }}
+      {{ th('nome', 'Nome') }}
+      {{ th('modo', 'Modo') }}
+      {{ th('estado', 'Estado') }}
       <th>Última mensagem</th>
-      <th>Atividade</th>
+      {{ th('atualizada_em', 'Atividade') }}
       <th></th>
     </tr>
   </thead>
@@ -35,7 +49,12 @@
     <tr>
       <td colspan="7" class="empty">
         <i class="bi bi-chat-dots"></i>
-        Nenhuma conversa por aqui ainda.
+        {% if busca %}
+          Nada encontrado para "{{ busca }}".
+          <a href="/painel/?filtro={{ filtro }}">Limpar a busca</a>
+        {% else %}
+          Nenhuma conversa por aqui ainda.
+        {% endif %}
       </td>
     </tr>
     {% endfor %}

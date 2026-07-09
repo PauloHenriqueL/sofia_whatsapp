@@ -3,13 +3,16 @@
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app">
-  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
-
-  <div class="page-head" style="margin-top:10px">
+  <div class="page-head">
     <div>
       <h1>Acompanhamento</h1>
       <div class="subtitle">Espera pela 1ª consulta e cobrança dos pacientes cadastrados</div>
     </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
+    <a class="tab active" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
   </div>
 
   {% if erro %}
@@ -27,7 +30,7 @@
     </div>
     <table class="table">
       <thead>
-        <tr><th>Paciente</th><th>Número</th><th>Dias de espera</th></tr>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort="num">Dias de espera</th></tr>
       </thead>
       <tbody>
         {% for p in espera %}
@@ -58,7 +61,7 @@
     </div>
     <table class="table">
       <thead>
-        <tr><th>Paciente</th><th>Número</th><th>1ª consulta</th><th></th></tr>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort>1ª consulta</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in cobranca %}
@@ -79,4 +82,8 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/ordenar-tabela.js" defer></script>
 {% endblock %}

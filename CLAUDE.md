@@ -381,6 +381,21 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   botão "Marcar resolvido" seta `conversa.cobranca_resolvida_em` (tira da lista).
 - Hamilton fora do ar → a página mostra um aviso, não quebra.
 
+### Painel: busca/ordenação e o gate de digitar
+- **Lista de conversas** ordena e busca **no servidor** (`painel.listar_conversas`), porque é
+  paginada: filtro + busca + ordem + `limit/offset` tudo no SQL. `ordem` vem da querystring e
+  é resolvida contra a allowlist `painel.ORDENS` (nunca interpolada em SQL). A busca casa
+  número, texto de mensagem (colunas) e nome — que mora no JSON `dados_coletados` e é casado
+  via `cast(..., String) LIKE` pra ficar portável SQLite↔Postgres.
+- **Acompanhamento** ordena **no cliente** (`static/ordenar-tabela.js`): tabelas pequenas, já
+  carregadas inteiras. Marque a coluna com `<th data-sort>` (ou `data-sort="num"`).
+- O polling HTMX da lista **repassa** filtro/busca/ordem na URL do fragmento; se esquecer, a
+  tela "pula" pro padrão a cada 15s.
+- **Pra digitar, a Thainá precisa assumir a conversa**: em modo bot o `<textarea>` nem é
+  renderizado (senão ela escreveria por cima da Sofia, que continua respondendo). Ao sair da
+  conversa em modo humano, um `confirm()` oferece devolver ao bot; o `?proximo=` do redirect
+  passa por `_destino_seguro` (só caminho interno).
+
 ### Painel: auth por sessão (não é mais HTTP Basic)
 - Login próprio em **`/login`** → cookie de sessão assinado (`SessionMiddleware`,
   `secret_key`). `app/dependencies.py`: `requer_login_pagina` (HTML → 303 p/ `/login`),
@@ -569,6 +584,7 @@ sofia/
 │   │
 │   └── static/
 │       ├── allos.css         # Allos Design System (paleta Hamilton)
+│       ├── ordenar-tabela.js # Ordenação client-side (<th data-sort>)
 │       └── style.css
 │
 ├── alembic/

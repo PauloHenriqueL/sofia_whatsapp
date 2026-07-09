@@ -5,8 +5,9 @@ duplicar a lógica de listar, responder, assumir e devolver ao bot.
 """
 
 from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import delete, desc, select
+from sqlalchemy import String, asc, cast, delete, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -26,24 +27,101 @@ def url_hamilton_paciente(paciente_hamilton_id: int | None) -> str | None:
     return f"{base}/api/v1/pacientes/{paciente_hamilton_id}/editar/"
 
 
-async def listar_conversas(
-    db: AsyncSession, filtro: str = "todas", limite: int = 50, offset: int = 0
-) -> list[dict]:
-    """Lista conversas (mais recentes primeiro) com preview da última mensagem."""
-    q = select(Conversa).order_by(desc(Conversa.atualizada_em))
+# Colunas pelas quais a Thainá pode ordenar a lista, e como cada uma ordena.
+# `preview` não entra: é derivado de subquery por linha, ordenar por ele não
+# ajuda ninguém a se localizar.
+ORDENS = {
+    "numero_whatsapp": "Número",
+    "nome": "Nome",
+    "modo": "Modo",
+    "estado": "Estado",
+    "atualizada_em": "Atividade",
+}
 
+# Filtros do menu (chave -> rótulo). Ficam aqui, e não no template, porque o
+# router precisa deles pra montar o contexto e os testes pra iterar.
+FILTROS = {
+    "todas": "Todas as conversas",
+    "humano": "Em modo humano",
+    "escalada": "Em escalada",
+    "cadastradas_hoje": "Cadastradas hoje",
+    "cadastrados": "Já no Hamilton",
+}
+
+
+def _aplicar_filtro(q, filtro: str):
     if filtro == "humano":
-        q = q.where(Conversa.modo == "humano")
-    elif filtro == "escalada":
-        q = q.where(Conversa.estado == "escalado")
-    elif filtro == "cadastradas_hoje":
+        return q.where(Conversa.modo == "humano")
+    if filtro == "escalada":
+        return q.where(Conversa.estado == "escalado")
+    if filtro == "cadastradas_hoje":
         inicio = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        q = q.where(Conversa.estado == "cadastrado", Conversa.atualizada_em >= inicio)
-    elif filtro == "cadastrados":
+        return q.where(Conversa.estado == "cadastrado", Conversa.atualizada_em >= inicio)
+    if filtro == "cadastrados":
         # Pacientes que já entraram no Hamilton (têm pk lá).
-        q = q.where(Conversa.paciente_hamilton_id.isnot(None))
+        return q.where(Conversa.paciente_hamilton_id.isnot(None))
+    return q
 
-    q = q.limit(limite).offset(offset)
+
+def _aplicar_busca(q, busca: str):
+    """Busca por número, nome do paciente ou texto de qualquer mensagem.
+
+    Número e texto de mensagem são colunas, resolvem no SQL. O nome mora em
+    `dados_coletados` (JSON) e não dá pra filtrar de forma portável entre SQLite
+    e Postgres, então casamos por `LIKE` no JSON serializado — grosseiro, mas
+    suficiente pra uma busca de painel e portável. Falso positivo aqui só faz
+    aparecer uma linha a mais, nunca esconde.
+    """
+    termo = f"%{busca}%"
+    msgs = select(Mensagem.conversa_id).where(Mensagem.texto.ilike(termo))
+    return q.where(
+        or_(
+            Conversa.numero_whatsapp.ilike(termo),
+            cast(Conversa.dados_coletados, String).ilike(termo),
+            Conversa.id.in_(msgs),
+        )
+    )
+
+
+def _coluna_de_ordem(ordem: str) -> Any:
+    """Coluna SQL da chave de ordenação. Chave desconhecida cai no padrão.
+
+    Nunca interpola `ordem` em SQL (viria da querystring): só resolve contra a
+    allowlist `ORDENS`. `nome` mora no JSON `dados_coletados`; ordenar pelo JSON
+    serializado agrupa bem, porque o nome é a primeira chave.
+    """
+    if ordem == "nome":
+        return cast(Conversa.dados_coletados, String)
+    if ordem in ORDENS:
+        return getattr(Conversa, ordem, Conversa.atualizada_em)
+    return Conversa.atualizada_em
+
+
+def _aplicar_ordem(q, ordem: str, descendente: bool):
+    coluna = _coluna_de_ordem(ordem)
+    return q.order_by(desc(coluna) if descendente else asc(coluna))
+
+
+async def listar_conversas(
+    db: AsyncSession,
+    filtro: str = "todas",
+    limite: int = 50,
+    offset: int = 0,
+    busca: str = "",
+    ordem: str = "atualizada_em",
+    descendente: bool = True,
+) -> list[dict]:
+    """Lista conversas com preview da última mensagem, filtradas/ordenadas/buscadas.
+
+    `busca` casa número, nome do paciente ou o texto de qualquer mensagem da
+    conversa. `ordem` é uma chave de `ORDENS` (o resto cai no padrão). Filtro,
+    busca, ordenação e paginação ficam no SQL (a lista cresce com o tempo).
+    """
+    busca = (busca or "").strip()
+    q = _aplicar_filtro(select(Conversa), filtro)
+    if busca:
+        q = _aplicar_busca(q, busca)
+    q = _aplicar_ordem(q, ordem, descendente).limit(limite).offset(offset)
     conversas = (await db.execute(q)).scalars().all()
 
     resultado = []

@@ -297,3 +297,123 @@ class TestCSRF:
         assert resp.status_code == 403
         async with maker() as s:
             assert (await s.get(Conversa, cid)).modo == "bot"  # não mudou
+
+
+class TestBuscaEOrdenacao:
+    """P1: a Thainá filtra, ordena e busca pra se localizar na lista."""
+
+    @pytest.mark.asyncio
+    async def test_busca_por_nome_numero_e_mensagem(self, ambiente):
+        client, maker = ambiente
+        async with maker() as s:
+            a = Conversa(
+                numero_whatsapp="5531911112222",
+                dados_coletados={"nome_completo": "Amanda Soares"},
+                modo="bot",
+                estado="novo",
+            )
+            b = Conversa(numero_whatsapp="5531933334444", modo="bot", estado="novo")
+            s.add_all([a, b])
+            await s.flush()
+            s.add(
+                Mensagem(
+                    conversa_id=b.id,
+                    direcao="recebida",
+                    origem="paciente",
+                    tipo="texto",
+                    texto="quero neuroavaliação",
+                )
+            )
+            await s.commit()
+
+        async def nomes(**kw):
+            async with maker() as s:
+                return [
+                    c["numero_whatsapp"] for c in await painel_service.listar_conversas(s, **kw)
+                ]
+
+        assert await nomes(busca="amanda") == ["5531911112222"]  # nome (dentro do JSON)
+        assert await nomes(busca="3333") == ["5531933334444"]  # número
+        assert await nomes(busca="neuro") == ["5531933334444"]  # texto de mensagem
+        assert await nomes(busca="inexistente") == []
+        assert len(await nomes()) == 2  # sem busca, traz tudo
+
+    @pytest.mark.asyncio
+    async def test_ordena_por_coluna_nos_dois_sentidos(self, ambiente):
+        client, maker = ambiente
+        await _seed_conversa(maker, numero="5531900000001")
+        await _seed_conversa(maker, numero="5531900000002")
+
+        async with maker() as s:
+            asc_ = await painel_service.listar_conversas(
+                s, ordem="numero_whatsapp", descendente=False
+            )
+            desc_ = await painel_service.listar_conversas(
+                s, ordem="numero_whatsapp", descendente=True
+            )
+        assert [c["numero_whatsapp"] for c in asc_] == ["5531900000001", "5531900000002"]
+        assert [c["numero_whatsapp"] for c in desc_] == ["5531900000002", "5531900000001"]
+
+    @pytest.mark.asyncio
+    async def test_ordem_invalida_nao_injeta_sql_e_cai_no_padrao(self, ambiente):
+        client, maker = ambiente
+        await _seed_conversa(maker)
+        async with maker() as s:
+            r = await painel_service.listar_conversas(s, ordem="'; DROP TABLE conversa;--")
+        assert len(r) == 1  # não explodiu, não apagou nada
+
+    @pytest.mark.asyncio
+    async def test_pagina_aceita_busca_e_ordem_na_query(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        await _seed_conversa(maker)
+        resp = await client.get("/painel/?busca=oi&ordem=nome&dir=asc&filtro=todas")
+        assert resp.status_code == 200
+
+
+class TestAssumirParaDigitar:
+    """P2: sem assumir, não há campo de digitar; ao sair, oferece devolver ao bot."""
+
+    @pytest.mark.asyncio
+    async def test_sem_assumir_mostra_botao_e_esconde_campo(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="bot")
+        html = (await client.get(f"/painel/conversas/{cid}/")).text
+        assert "Assumir controle pra responder" in html
+        assert "<textarea" not in html
+
+    @pytest.mark.asyncio
+    async def test_com_controle_mostra_campo(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="humano")
+        html = (await client.get(f"/painel/conversas/{cid}/")).text
+        assert "<textarea" in html
+        assert "Quer que o bot assuma daqui pra frente?" in html
+
+    @pytest.mark.asyncio
+    async def test_devolver_ao_bot_redireciona_pro_destino(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="humano")
+        resp = await client.post(
+            f"/painel/conversas/{cid}/devolver-bot",
+            data={"proximo": "/painel/acompanhamento"},
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/painel/acompanhamento"
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).modo == "bot"
+
+    @pytest.mark.asyncio
+    async def test_destino_externo_e_ignorado(self, ambiente):
+        """Open redirect: `proximo` só pode ser caminho interno."""
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="humano")
+        for malicioso in ("https://evil.example", "//evil.example"):
+            resp = await client.post(
+                f"/painel/conversas/{cid}/devolver-bot", data={"proximo": malicioso}
+            )
+            assert resp.headers["location"] == f"/painel/conversas/{cid}/"
