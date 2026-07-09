@@ -211,7 +211,11 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         # Mescla os dados coletados e delega pro serviço de cadastro (que garante
         # um telefone válido e faz busca-antes-de-criar no Hamilton).
         conversa.dados_coletados = {**(conversa.dados_coletados or {}), **tc.arguments}
-        return await cadastro.cadastrar_paciente(session, conversa)
+        resultado = await cadastro.cadastrar_paciente(session, conversa)
+        # Avisa a Thainá: sem isto ela só descobre o cadastro se abrir o painel.
+        # (Cadastro feito pelo botão do painel não alerta: ela mesma clicou.)
+        await escalation.alertar_cadastro(conversa, resultado)
+        return resultado
 
     logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
     return {"status": "desconhecida"}

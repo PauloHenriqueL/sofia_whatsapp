@@ -719,3 +719,91 @@ class TestRootEndpoint:
         response = client.get("/", follow_redirects=False)
         assert response.status_code in (302, 307)
         assert response.headers["location"] == "/painel/"
+
+
+class TestAlertaDeCadastro:
+    """Cadastro pela tool avisa a Thainá (antes ela só via abrindo o painel)."""
+
+    @pytest.mark.asyncio
+    async def test_cadastro_pela_tool_alerta_a_thaina(self, db_em_memoria):
+        class _LLMCadastra:
+            def __init__(self):
+                self.n = 0
+
+            async def gerar_resposta(self, historico, tools_=None, tools=None):
+                self.n += 1
+                if self.n == 1:
+                    return llm_client.LLMResposta(
+                        texto=None,
+                        tool_calls=[
+                            llm_client.ToolCall(
+                                id="t1",
+                                name="cadastrar_paciente",
+                                arguments={
+                                    "nome_completo": "Maria Silva",
+                                    "data_nascimento": "1990-01-01",
+                                },
+                            )
+                        ],
+                    )
+                return llm_client.LLMResposta(texto="Pronto, anotei tudo!")
+
+        fake_hamilton = AsyncMock()
+        fake_hamilton.buscar_paciente_por_telefone = AsyncMock(return_value=[])
+        fake_hamilton.criar_paciente = AsyncMock(return_value={"pk_paciente": 99})
+
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=_LLMCadastra()
+        ), patch("app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock), patch(
+            "app.services.cadastro.hamilton_client.get_hamilton_client",
+            return_value=fake_hamilton,
+        ), patch(
+            "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ) as mock_tpl:
+            await _rodar(_payload_texto(numero="5531977778888", msg_id="wamid.cad"))
+
+        mock_tpl.assert_awaited_once()
+        params = mock_tpl.await_args.kwargs["parametros"]
+        assert params[0] == "Maria Silva"
+        assert "ficha 99" in params[1]
+
+    @pytest.mark.asyncio
+    async def test_hamilton_fora_do_ar_alerta_que_falhou(self, db_em_memoria):
+        """O caso mais urgente pra Thainá: ela tem que cadastrar à mão."""
+        from app.services import hamilton_client as hc
+
+        class _LLMCadastra:
+            def __init__(self):
+                self.n = 0
+
+            async def gerar_resposta(self, historico, tools=None):
+                self.n += 1
+                if self.n == 1:
+                    return llm_client.LLMResposta(
+                        texto=None,
+                        tool_calls=[
+                            llm_client.ToolCall(
+                                id="t1",
+                                name="cadastrar_paciente",
+                                arguments={
+                                    "nome_completo": "Ana",
+                                    "data_nascimento": "1990-01-01",
+                                },
+                            )
+                        ],
+                    )
+                return llm_client.LLMResposta(texto="Anotei!")
+
+        fake = AsyncMock()
+        fake.buscar_paciente_por_telefone = AsyncMock(side_effect=hc.HamiltonError("offline"))
+
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=_LLMCadastra()
+        ), patch("app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock), patch(
+            "app.services.cadastro.hamilton_client.get_hamilton_client", return_value=fake
+        ), patch(
+            "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ) as mock_tpl:
+            await _rodar(_payload_texto(numero="5531966667777", msg_id="wamid.falha"))
+
+        assert "FALHOU" in mock_tpl.await_args.kwargs["parametros"][1]

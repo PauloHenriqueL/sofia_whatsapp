@@ -460,6 +460,18 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   `requer_login_api` (JSON → 401), `verificar_origem` (defesa CSRF por header `Origin`).
   Credenciais comparadas em tempo constante (`secrets.compare_digest`).
 
+### Alertas pra Thainá (`escalation.py`, template `alerta_thaina`)
+- **Um template só** pra tudo: `alerta_thaina` (2 params: nome do paciente, o que aconteceu).
+  Reusar evita esperar aprovação da Meta a cada tipo de aviso novo.
+- `alertar_thaina(conversa, motivo)` → escalada. `alertar_cadastro(conversa, resultado)` →
+  cadastro novo, reencontro (ficha atualizada) ou **CADASTRO FALHOU** (o mais urgente: a
+  Thainá tem que cadastrar à mão).
+- Disparado na tool `cadastrar_paciente` do webhook. O botão "Cadastrar no Hamilton" do
+  painel **não** alerta (a Thainá mesma clicou).
+- Falha no envio **nunca** derruba a conversa: o evento já está no painel, o alerta é
+  conveniência. Loga sem o nome do paciente (LGPD).
+- Fora da janela de 24h só template funciona — por isso o alerta é template, não texto.
+
 ### Cadastro no Hamilton (`cadastro.py` + `hamilton_client.py`)
 - **Busca-antes-de-criar** por telefone; cria um **lead sem terapeuta** (a coordenação faz
   o match depois). Falha do Hamilton → `estado = cadastro_pendente` (não propaga erro pro

@@ -38,15 +38,15 @@ async def registrar_escalada(
     return escalada
 
 
-async def alertar_thaina(conversa: Conversa, motivo: str) -> bool:
-    """Envia o template de alerta pra Thainá. Retorna True se enviou com sucesso.
+async def _enviar_alerta(conversa: Conversa, rotulo: str) -> bool:
+    """Manda o template `alerta_thaina` com (nome do paciente, o que aconteceu).
 
-    Falha no envio é logada e não derruba a conversa (a escalada já foi
-    registrada e aparece no painel mesmo sem o alerta chegar).
+    Falha no envio é logada e **não** derruba a conversa: o evento já está
+    registrado e aparece no painel mesmo sem o alerta chegar. O alerta é
+    conveniência, não a fonte da verdade.
     """
     dados = conversa.dados_coletados or {}
     nome = dados.get("nome_completo") or conversa.numero_whatsapp
-    rotulo = tools.MOTIVO_LABELS.get(motivo, motivo)
     try:
         await whatsapp_client.enviar_template(
             settings.thaina_whatsapp_number,
@@ -55,5 +55,34 @@ async def alertar_thaina(conversa: Conversa, motivo: str) -> bool:
         )
         return True
     except whatsapp_client.WhatsAppError:
-        logger.error("Não consegui alertar a Thainá pelo template")
+        # Sem o nome do paciente no log (LGPD).
+        logger.error("Não consegui alertar a Thainá pelo template (%s)", rotulo)
         return False
+
+
+async def alertar_thaina(conversa: Conversa, motivo: str) -> bool:
+    """Alerta de escalada: a conversa passou pra Thainá."""
+    return await _enviar_alerta(conversa, tools.MOTIVO_LABELS.get(motivo, motivo))
+
+
+# O que a Thainá lê no template quando um cadastro acontece. Reusa o
+# `alerta_thaina` (o texto é genérico: "<nome> — <o que aconteceu>"), pra não
+# depender de aprovar um template novo na Meta.
+ROTULOS_CADASTRO = {
+    "cadastrado": "paciente novo cadastrado no Hamilton (ficha {id})",
+    "atualizado": "paciente já conhecido voltou; ficha {id} atualizada",
+    "cadastro_pendente": "CADASTRO FALHOU — precisa cadastrar à mão no Hamilton",
+}
+
+
+async def alertar_cadastro(conversa: Conversa, resultado: dict) -> bool:
+    """Avisa a Thainá do desfecho de um cadastro (novo, reencontro ou falha).
+
+    `resultado` é o que `cadastro.cadastrar_paciente` devolve. Status desconhecido
+    não manda nada (melhor silêncio que uma mensagem sem sentido).
+    """
+    modelo = ROTULOS_CADASTRO.get(resultado.get("status", ""))
+    if not modelo:
+        return False
+    rotulo = modelo.format(id=resultado.get("paciente_id") or "?")
+    return await _enviar_alerta(conversa, rotulo)
