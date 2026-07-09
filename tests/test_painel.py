@@ -1,5 +1,6 @@
 """Testes do painel da Thainá: login por sessão, API, páginas e CSRF."""
 
+import itertools
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.models import Conversa, Mensagem
+from app.models import Conversa, Mensagem, Midia
 from app.services import painel as painel_service
 
 
@@ -417,3 +418,80 @@ class TestAssumirParaDigitar:
                 f"/painel/conversas/{cid}/devolver-bot", data={"proximo": malicioso}
             )
             assert resp.headers["location"] == f"/painel/conversas/{cid}/"
+
+
+class TestDownloadDeAnexo:
+    """P3: a Thainá abre/baixa o anexo. É dado de saúde: exige login."""
+
+    _proximo = itertools.count(1)
+
+    async def _seed_midia(self, maker, mime="image/png", nome=None, conteudo=b"\x89PNG"):
+        # Número único: conversa.numero_whatsapp é UNIQUE e um teste semeia 2 anexos.
+        numero = f"55319999{next(self._proximo):05d}"
+        async with maker() as s:
+            c = Conversa(numero_whatsapp=numero, modo="humano", estado="escalado")
+            s.add(c)
+            await s.flush()
+            m = Mensagem(
+                conversa_id=c.id,
+                direcao="recebida",
+                origem="paciente",
+                tipo="image",
+                texto="[imagem recebida]",
+            )
+            s.add(m)
+            await s.flush()
+            anexo = Midia(
+                mensagem_id=m.id,
+                mime=mime,
+                nome_arquivo=nome,
+                tamanho=len(conteudo),
+                conteudo=conteudo,
+            )
+            s.add(anexo)
+            await s.commit()
+            return anexo.id
+
+    @pytest.mark.asyncio
+    async def test_exige_login(self, ambiente):
+        client, maker = ambiente
+        mid = await self._seed_midia(maker)
+        resp = await client.get(f"/painel/midia/{mid}")
+        assert resp.status_code == 303  # manda pro /login
+
+    @pytest.mark.asyncio
+    async def test_serve_imagem_inline(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        mid = await self._seed_midia(maker)
+        resp = await client.get(f"/painel/midia/{mid}")
+        assert resp.status_code == 200
+        assert resp.content == b"\x89PNG"
+        assert resp.headers["content-type"].startswith("image/png")
+        assert resp.headers["content-disposition"].startswith("inline")
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.asyncio
+    async def test_download_forcado(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        mid = await self._seed_midia(maker, mime="application/pdf", nome="laudo.pdf")
+        resp = await client.get(f"/painel/midia/{mid}?download=1")
+        assert 'attachment; filename="laudo.pdf"' in resp.headers["content-disposition"]
+
+    @pytest.mark.asyncio
+    async def test_tipo_perigoso_nunca_e_inline(self, ambiente):
+        """HTML/SVG do paciente não pode rodar na origem do painel."""
+        client, maker = ambiente
+        await _login(client)
+        for mime in ("text/html", "image/svg+xml"):
+            mid = await self._seed_midia(maker, mime=mime, conteudo=b"<script>alert(1)</script>")
+            resp = await client.get(f"/painel/midia/{mid}")
+            assert resp.headers["content-type"].startswith("application/octet-stream")
+            assert resp.headers["content-disposition"].startswith("attachment")
+
+    @pytest.mark.asyncio
+    async def test_anexo_inexistente_da_404(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        assert (await client.get("/painel/midia/99999")).status_code == 404

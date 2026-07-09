@@ -1,7 +1,27 @@
 {% for m in mensagens %}
   <div class="msg msg-{{ m.origem }}">
     <small>{{ m.origem }} · {{ m.criada_em | data }}</small>
-    <p>{{ m.texto if m.texto else '[' ~ m.tipo ~ ']' }}</p>
+    {% if m.midia %}
+      {# Anexo do paciente: imagem vira miniatura clicável; o resto vira ícone.
+         Em ambos os casos, dá pra baixar. Os bytes vêm de /painel/midia/{id}. #}
+      <div class="anexo">
+        {% if m.midia | e_imagem %}
+          <a href="/painel/midia/{{ m.midia.id }}" target="_blank" rel="noopener">
+            <img src="/painel/midia/{{ m.midia.id }}" alt="Imagem enviada pelo paciente" loading="lazy">
+          </a>
+        {% else %}
+          <div class="anexo-arquivo">
+            <i class="bi bi-file-earmark-text"></i>
+            <span class="anexo-nome">{{ m.midia | nome_anexo }}</span>
+          </div>
+        {% endif %}
+        <a class="btn btn-ghost btn-sm" href="/painel/midia/{{ m.midia.id }}?download=1">
+          <i class="bi bi-download"></i> Baixar <span class="muted">({{ m.midia.tamanho | tamanho }})</span>
+        </a>
+      </div>
+    {% else %}
+      <p>{{ m.texto if m.texto else '[' ~ m.tipo ~ ']' }}</p>
+    {% endif %}
   </div>
 {% else %}
   <div class="empty">Sem mensagens ainda.</div>

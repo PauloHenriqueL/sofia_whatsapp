@@ -9,9 +9,10 @@ from typing import Any
 
 from sqlalchemy import String, asc, cast, delete, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from app.config import settings
-from app.models import Conversa, Escalada, Mensagem
+from app.models import Conversa, Escalada, Mensagem, Midia
 from app.services import conversation, whatsapp_client
 
 
@@ -154,6 +155,11 @@ async def obter_conversa(db: AsyncSession, conversa_id: int) -> Conversa | None:
     return await db.get(Conversa, conversa_id)
 
 
+async def obter_midia(db: AsyncSession, midia_id: int) -> Midia | None:
+    """Anexo com os bytes carregados (a coluna `conteudo` é deferred por padrão)."""
+    return await db.get(Midia, midia_id, options=[undefer(Midia.conteudo)])
+
+
 async def carregar_mensagens(db: AsyncSession, conversa_id: int) -> list[Mensagem]:
     """Mensagens da conversa em ordem cronológica (para exibir no chat)."""
     result = await db.execute(
@@ -184,13 +190,19 @@ async def devolver_ao_bot(db: AsyncSession, conversa: Conversa) -> None:
 
 
 async def excluir_conversa(db: AsyncSession, conversa: Conversa) -> None:
-    """Apaga a conversa e tudo ligado a ela (mensagens e escaladas).
+    """Apaga a conversa e tudo ligado a ela (mídias, mensagens e escaladas).
 
     Usada pelo botão "Reiniciar conversa" (teste): como o `numero_whatsapp` é
     único, apagar a conversa libera o número pra começar do zero como paciente
     novo. Apaga os filhos explicitamente (portável: não depende do ON DELETE
     CASCADE do banco, que no SQLite do teste fica desligado por padrão).
+
+    A ordem importa: mídia depende de mensagem. E a mídia **tem** que sair aqui,
+    senão o anexo do paciente (dado de saúde) fica órfão no banco depois do
+    "Reiniciar conversa".
     """
+    msgs = select(Mensagem.id).where(Mensagem.conversa_id == conversa.id)
+    await db.execute(delete(Midia).where(Midia.mensagem_id.in_(msgs)))
     await db.execute(delete(Mensagem).where(Mensagem.conversa_id == conversa.id))
     await db.execute(delete(Escalada).where(Escalada.conversa_id == conversa.id))
     await db.execute(delete(Conversa).where(Conversa.id == conversa.id))

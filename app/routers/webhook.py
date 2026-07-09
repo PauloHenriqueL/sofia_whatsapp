@@ -19,6 +19,7 @@ from app.services import (
     conversation,
     escalation,
     llm_client,
+    midia,
     saida,
     serializacao,
     tools,
@@ -40,7 +41,10 @@ FALLBACK_RESPOSTA = (
 # Áudio: a Sofia não transcreve; escala imediatamente pra Thainá.
 AUDIO_RECEBIDO = "Recebi seu áudio. Vou chamar a Thainá pra te responder direito."
 
-# Resposta fixa para tipos sem texto que não são áudio (imagem, vídeo, sticker...).
+# Imagem/documento: a Sofia guarda o anexo e chama a Thainá, que abre no painel.
+ANEXO_RECEBIDO = "Recebi seu arquivo. Vou chamar a Thainá pra dar uma olhada e te responder."
+
+# Resposta fixa pros outros tipos sem texto (vídeo, sticker, localização...).
 PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
 
 # Sinais de crise que NÃO devem esperar a janela de agrupamento (Demanda 2 NFR):
@@ -329,6 +333,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 await _enviar_em_bolhas(session, conversa, numero, AUDIO_RECEBIDO)
                 return
 
+            if tipo_efetivo in midia.TIPOS_SUPORTADOS:
+                # A Sofia não lê o anexo: guarda (já feito) e chama a Thainá, que
+                # abre no painel.
+                await escalation.registrar_escalada(session, conversa, "anexo_recebido")
+                await escalation.alertar_thaina(conversa, "anexo_recebido")
+                await session.commit()
+                await _enviar_em_bolhas(session, conversa, numero, ANEXO_RECEBIDO)
+                return
+
             if tipo_efetivo != "text":
                 await _enviar_em_bolhas(session, conversa, numero, PEDIR_TEXTO)
                 return
@@ -362,7 +375,12 @@ async def _transcrever_audio_msg(mensagem: dict[str, Any]) -> str | None:
 
 
 async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str | None:
-    """Persiste a mensagem recebida e devolve o texto (só faz sentido p/ texto)."""
+    """Persiste a mensagem recebida e devolve o texto (só faz sentido p/ texto).
+
+    Imagem e documento: além da mensagem, baixa e guarda o anexo (a URL da Meta
+    expira em minutos). Se o download falhar, a mensagem fica registrada mesmo
+    assim — a Thainá vê que veio algo e pede de novo ao paciente.
+    """
     if tipo == "text":
         texto = mensagem.get("text", {}).get("body", "")
         await conversation.registrar_mensagem_recebida(
@@ -373,6 +391,15 @@ async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str |
         await conversation.registrar_mensagem_recebida(
             session, conversa, tipo="audio", texto="[áudio recebido]", whatsapp_message_id=wamid
         )
+        return None
+    if tipo in midia.TIPOS_SUPORTADOS:
+        registro = await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo=tipo, texto=midia.ROTULOS[tipo], whatsapp_message_id=wamid
+        )
+        try:
+            await midia.baixar_e_guardar(session, registro, mensagem)
+        except midia.MidiaError as exc:
+            logger.error("Não consegui guardar o anexo da conversa %s: %s", conversa.id, exc)
         return None
     await conversation.registrar_mensagem_recebida(
         session, conversa, tipo=tipo, texto=None, whatsapp_message_id=wamid

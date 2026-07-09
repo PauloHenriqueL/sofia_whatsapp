@@ -215,3 +215,16 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .th-sort-js[data-dir] .sort-idle { opacity:1; }
 .th-sort-js[data-dir="asc"] .sort-idle::before { content:"\f235"; }  /* caret-up-fill */
 .th-sort-js[data-dir="desc"] .sort-idle::before { content:"\f229"; } /* caret-down-fill */
+
+/* ── Anexo recebido do paciente (P3) ──────────────────────────────────────── */
+.anexo { display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-top:6px; }
+.anexo img {
+  max-width:260px; max-height:260px; border-radius:10px; display:block;
+  border:1px solid var(--border-default); background:var(--bg-hover);
+}
+.anexo-arquivo {
+  display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:10px;
+  background:var(--bg-hover); border:1px solid var(--border-default); max-width:280px;
+}
+.anexo-arquivo .bi { font-size:22px; color:var(--teal-600); flex-shrink:0; }
+.anexo-nome { font-size:13px; font-weight:600; word-break:break-all; }

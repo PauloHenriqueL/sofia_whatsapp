@@ -101,14 +101,22 @@ Um sanitizador na fronteira de saída (`app/services/saida.py`, novo), aplicado 
   destino; recusando, navega mantendo o controle.
 - `?proximo=` só aceita caminho interno (`_destino_seguro`) — sem open redirect.
 
-## P3 — Imagem e documento (recebimento)
+## ✅ P3 — Imagem e documento (recebimento) — ENTREGUE
 
-Escopo decidido: **só painel**, sem visão do modelo.
-- Recebe imagem/documento, guarda a referência da mídia, mostra no painel
-  (miniatura pra imagem, ícone + nome pra documento) com **botão de baixar**.
-- A Sofia continua escalando pra Thainá nesses casos.
-- Precisa de coluna nova em `mensagem` (ou usar o `extra` JSON) e decidir onde
-  ficam os bytes (a URL da Meta expira; provavelmente baixar e guardar).
+Escopo: **só painel**, sem visão do modelo.
+- Tabela `midia` (migration `f9a0b1c2d3e4`): bytes no Postgres, porque a URL da Meta
+  expira em minutos e o filesystem do Render é recriado a cada deploy. Teto de 8 MB
+  por arquivo (`midia.TAMANHO_MAXIMO`) — se ficar apertado, é hora do bucket externo.
+- `conteudo` é `deferred`: o poll de 5s do painel lê os metadados sem arrastar blobs.
+- Imagem vira miniatura clicável; documento vira ícone + nome. Ambos com "Baixar".
+- A Sofia guarda o anexo e escala (`anexo_recebido`). Download falho ainda registra a
+  mensagem, pra Thainá ver que veio algo e pedir de novo.
+- `excluir_conversa` apaga a mídia junto (senão o anexo ficaria órfão — LGPD).
+- **Segurança** (o nome e o MIME vêm do paciente e vão pra headers HTTP):
+  `nome_para_download` neutraliza header injection e path traversal; `mime_seguro` é
+  uma **allowlist** de formatos raster + PDF, não um prefixo `image/` — `image/svg+xml`
+  executa `<script>` e seria XSS na origem do painel. O resto vai como `attachment`
+  + `X-Content-Type-Options: nosniff`. A rota exige login.
 
 ## P4 — Responder mensagem específica (reply-to)
 

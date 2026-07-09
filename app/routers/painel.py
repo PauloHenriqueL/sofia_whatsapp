@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.services import (
     config_negocio,
     config_prompt,
     metricas,
+    midia,
     painel,
     whatsapp_client,
 )
@@ -52,8 +53,20 @@ def _ha_quanto_tempo(valor):
     return f"há {horas // 24}d"
 
 
+def _tamanho_legivel(bytes_: int) -> str:
+    """1536 -> '1,5 KB'. Vírgula decimal (pt-BR)."""
+    if not isinstance(bytes_, int) or bytes_ < 1024:
+        return f"{bytes_ or 0} B"
+    if bytes_ < 1024 * 1024:
+        return f"{bytes_ / 1024:.1f} KB".replace(".", ",")
+    return f"{bytes_ / (1024 * 1024):.1f} MB".replace(".", ",")
+
+
 templates.env.filters["data"] = _fmt_data
 templates.env.filters["desde"] = _ha_quanto_tempo
+templates.env.filters["tamanho"] = _tamanho_legivel
+templates.env.filters["e_imagem"] = midia.e_imagem
+templates.env.filters["nome_anexo"] = midia.nome_para_download
 
 
 def _contexto_lista(request: Request, conversas, filtro, busca, ordem, dir_) -> dict:
@@ -168,6 +181,33 @@ async def pagina_acompanhamento(request: Request, db: AsyncSession = Depends(get
     return templates.TemplateResponse(
         "painel_acompanhamento.html",
         {"request": request, **dados},
+    )
+
+
+@router.get("/midia/{midia_id}")
+async def baixar_midia(midia_id: int, download: int = 0, db: AsyncSession = Depends(get_db)):
+    """Serve o anexo que o paciente mandou. Exige login (é dado de saúde).
+
+    `?download=1` força o "salvar como"; sem isso o navegador exibe inline (a
+    miniatura da imagem no chat aponta pra cá).
+    """
+    registro = await painel.obter_midia(db, midia_id)
+    if registro is None:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+    nome = midia.nome_para_download(registro)
+    mime = midia.mime_seguro(registro)
+    # O que não é imagem/PDF nunca é exibido inline (evita HTML/script rodando na
+    # origem do painel, com a sessão da Thainá).
+    inline = not download and mime != "application/octet-stream"
+    return Response(
+        content=registro.conteudo,
+        media_type=mime,
+        headers={
+            "Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{nome}"',
+            # Anexo de paciente não deve ficar em cache compartilhado.
+            "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

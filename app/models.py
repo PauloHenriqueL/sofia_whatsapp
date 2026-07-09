@@ -6,7 +6,7 @@ JSON em SQLite) e timestamps com timezone.
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,6 +63,11 @@ class Mensagem(Base):
     criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversa: Mapped["Conversa"] = relationship(back_populates="mensagens")
+    # Imagem/documento anexo (None pra texto/áudio). `lazy="selectin"` porque o
+    # painel sempre lê a lista de mensagens e precisa saber se tem anexo.
+    midia: Mapped["Midia | None"] = relationship(
+        back_populates="mensagem", cascade="all, delete-orphan", uselist=False, lazy="selectin"
+    )
 
     __table_args__ = (
         Index("idx_mensagem_conversa", "conversa_id", "criada_em"),
@@ -75,6 +80,33 @@ class Mensagem(Base):
             sqlite_where=whatsapp_message_id.isnot(None),
         ),
     )
+
+
+class Midia(Base):
+    """Imagem/documento que o paciente mandou, guardada pra Thainá ver no painel.
+
+    Os bytes ficam aqui (não em disco): o Render recria o filesystem a cada deploy,
+    e a URL que a Meta devolve expira em minutos — então baixamos na hora e
+    persistimos. Apaga junto com a mensagem (CASCADE), que apaga junto com a
+    conversa: o "Reiniciar conversa" continua limpando tudo (LGPD).
+    """
+
+    __tablename__ = "midia"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    mensagem_id: Mapped[int] = mapped_column(
+        ForeignKey("mensagem.id", ondelete="CASCADE"), index=True
+    )
+    mime: Mapped[str] = mapped_column(String(100))
+    nome_arquivo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tamanho: Mapped[int] = mapped_column(Integer)
+    # `deferred`: o painel lista mensagens o tempo todo (poll de 5s) e só precisa
+    # dos metadados. Os bytes só são carregados por quem acessa `.conteudo`
+    # (a rota de download). Sem isso, cada poll arrastaria todos os blobs.
+    conteudo: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    mensagem: Mapped["Mensagem"] = relationship(back_populates="midia")
 
 
 class Configuracao(Base):

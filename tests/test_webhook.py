@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.main import app
-from app.models import Conversa
+from app.models import Conversa, Mensagem, Midia
 from app.routers import webhook as webhook_module
 from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
-from app.services import config_negocio, conversation, llm_client, serializacao
+from app.services import config_negocio, conversation, llm_client, serializacao, whatsapp_client
 
 
 class TestWebhookVerification:
@@ -465,18 +465,117 @@ class TestProcessarPayload:
             assert conversa.estado == "escalado"
 
     @pytest.mark.asyncio
-    async def test_imagem_pede_texto(self, db_em_memoria):
-        """Imagem (não áudio) pede texto, sem escalar nem chamar o LLM."""
+    def _payload_midia(self, tipo, numero="5531911112222", msg_id="wamid.x", **extra):
+        bloco = {"id": "media-123", **extra}
+        return {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {"from": numero, "id": msg_id, "type": tipo, tipo: bloco}
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+
+    @pytest.mark.asyncio
+    async def test_video_pede_texto(self, db_em_memoria):
+        """Tipo sem suporte (vídeo) pede texto, sem escalar nem chamar o LLM."""
         with patch(
             "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
         ) as mock_texto:
-            await _rodar(self._payload_tipo("image", numero="5531955554444", msg_id="wamid.i"))
+            await _rodar(self._payload_tipo("video", numero="5531955554444", msg_id="wamid.v"))
 
         _, texto = mock_texto.await_args.args
         assert "texto" in texto.lower()
         async with db_em_memoria() as s:
             conversa = await conversation.obter_ou_criar_conversa(s, "5531955554444")
             assert conversa.modo == "bot"
+
+    @pytest.mark.asyncio
+    async def test_imagem_guarda_anexo_e_escala(self, db_em_memoria):
+        """P3: imagem é baixada, guardada e escalada pra Thainá (não pede texto)."""
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_texto, patch(
+            "app.services.midia.whatsapp_client.baixar_midia",
+            new_callable=AsyncMock,
+            return_value=(b"\x89PNG-bytes", "image/png"),
+        ), patch(
+            "app.routers.webhook.escalation.alertar_thaina", new_callable=AsyncMock
+        ) as mock_alerta:
+            await _rodar(self._payload_midia("image", numero="5531955551111", msg_id="wamid.img"))
+
+        _, texto = mock_texto.await_args.args
+        assert "arquivo" in texto.lower()
+        mock_alerta.assert_awaited_once()
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531955551111")
+            assert conversa.modo == "humano"  # escalou
+            # Há 2 mensagens: a imagem recebida e a resposta do bot. Queremos a 1ª.
+            msg = (
+                await s.execute(
+                    select(Mensagem).where(
+                        Mensagem.conversa_id == conversa.id, Mensagem.tipo == "image"
+                    )
+                )
+            ).scalar_one()
+            anexo = (await s.execute(select(Midia).where(Midia.mensagem_id == msg.id))).scalar_one()
+            assert anexo.mime == "image/png"
+            assert anexo.tamanho == len(b"\x89PNG-bytes")
+
+    @pytest.mark.asyncio
+    async def test_documento_guarda_nome_do_arquivo(self, db_em_memoria):
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch(
+            "app.services.midia.whatsapp_client.baixar_midia",
+            new_callable=AsyncMock,
+            return_value=(b"%PDF-1.4", "application/pdf"),
+        ), patch(
+            "app.routers.webhook.escalation.alertar_thaina", new_callable=AsyncMock
+        ):
+            await _rodar(
+                self._payload_midia(
+                    "document", numero="5531955552222", msg_id="wamid.doc", filename="laudo.pdf"
+                )
+            )
+
+        async with db_em_memoria() as s:
+            anexo = (await s.execute(select(Midia))).scalar_one()
+            assert anexo.nome_arquivo == "laudo.pdf"
+
+    @pytest.mark.asyncio
+    async def test_download_falho_ainda_registra_a_mensagem(self, db_em_memoria):
+        """Se a Meta falhar, a Thainá ainda vê que veio um anexo (e pede de novo)."""
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch(
+            "app.services.midia.whatsapp_client.baixar_midia",
+            new_callable=AsyncMock,
+            side_effect=whatsapp_client.WhatsAppError("expirou"),
+        ), patch(
+            "app.routers.webhook.escalation.alertar_thaina", new_callable=AsyncMock
+        ):
+            await _rodar(self._payload_midia("image", numero="5531955553333", msg_id="wamid.f"))
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531955553333")
+            msg = (
+                await s.execute(
+                    select(Mensagem).where(
+                        Mensagem.conversa_id == conversa.id, Mensagem.tipo == "image"
+                    )
+                )
+            ).scalar_one()
+            assert msg.texto == "[imagem recebida]"  # a Thainá vê que veio algo
+            assert (await s.execute(select(Midia))).scalar_one_or_none() is None  # sem anexo
 
 
 class TestSerializacaoDebounce:

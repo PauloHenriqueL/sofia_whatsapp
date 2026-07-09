@@ -22,7 +22,8 @@ MOTIVOS_ESCALADA = [
 ]
 
 # Rótulos legíveis pra Thainá, usados no texto do alerta (template alerta_thaina).
-# Inclui 'audio_recebido', que é detectado em código (não escolhido pelo modelo).
+# Inclui 'audio_recebido' e 'anexo_recebido', detectados em código (não escolhidos
+# pelo modelo) — por isso não aparecem em MOTIVOS_ESCALADA.
 MOTIVO_LABELS = {
     "pedido_humano": "pediu pra falar com uma pessoa",
     "neuro_reuniao": "avaliação neuropsicológica",
@@ -33,6 +34,7 @@ MOTIVO_LABELS = {
     "menor_11": "paciente menor de 11 anos (online inviável)",
     "crise": "CRISE / risco — prioridade máxima",
     "audio_recebido": "mandou um áudio (a Sofia não transcreve)",
+    "anexo_recebido": "mandou uma imagem ou documento (veja no painel)",
     "outro": "outro (ver contexto)",
 }
 

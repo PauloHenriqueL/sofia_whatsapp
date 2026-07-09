@@ -262,13 +262,19 @@ mensagem
 ├─ id, conversa_id
 ├─ direcao ('recebida'/'enviada')
 ├─ origem ('paciente'/'bot'/'thaina')
-├─ tipo ('texto'/'audio'/'imagem'/'documento'/'template')
+├─ tipo ('texto'/'audio'/'image'/'document'/'template')
 ├─ texto, whatsapp_message_id (único), metadata
+└─ criada_em
+
+midia  (anexo do paciente; bytes no banco — a URL da Meta expira)
+├─ id, mensagem_id (CASCADE)
+├─ mime, nome_arquivo, tamanho
+├─ conteudo (LargeBinary, deferred: o poll do painel não carrega os bytes)
 └─ criada_em
 
 escalada
 ├─ id, conversa_id
-├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'presencial'/'menor_11'/'crise'/'audio_recebido'/'outro')
+├─ motivo ('pedido_humano'/'neuro_reuniao'/'preco'/'prefeitura'/'gratuidade'/'presencial'/'menor_11'/'crise'/'audio_recebido'/'anexo_recebido'/'outro')
 ├─ contexto
 ├─ criada_em, resolvida_em
 ```
@@ -380,6 +386,22 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 - **Demanda 4 — pronto pra cobrança**: quem já teve a 1ª consulta e ainda não foi resolvido;
   botão "Marcar resolvido" seta `conversa.cobranca_resolvida_em` (tira da lista).
 - Hamilton fora do ar → a página mostra um aviso, não quebra.
+
+### Imagem e documento recebidos (`midia.py` + tabela `midia`)
+- Paciente manda imagem/documento → baixa **na hora** (a URL da Meta expira em minutos),
+  guarda os **bytes no Postgres** (o filesystem do Render é recriado a cada deploy) e
+  **escala** pra Thainá (`anexo_recebido`). A Sofia **não lê** o anexo.
+- `Midia.conteudo` é **`deferred`**: o painel faz poll de 5s e só precisa de metadados. Sem
+  isso, cada poll arrastaria todos os blobs. Quem precisa dos bytes usa `painel.obter_midia`
+  (com `undefer`).
+- Teto de 8 MB (`midia.TAMANHO_MAXIMO`). Se apertar, é sinal de migrar pra bucket externo.
+- **`excluir_conversa` apaga a mídia junto** (antes das mensagens, por causa da FK): sem isso
+  o "Reiniciar conversa" deixaria anexo de paciente órfão no banco (LGPD).
+- **Nome de arquivo e MIME vêm do paciente** e vão pra headers HTTP. `nome_para_download`
+  neutraliza header injection/path traversal; `mime_seguro` é **allowlist** (png/jpeg/gif/
+  webp/pdf), **não** o prefixo `image/`: `image/svg+xml` executa `<script>` e seria XSS na
+  origem do painel, com a sessão da Thainá. O resto vai `attachment` + `nosniff`.
+- Falha no download não perde a mensagem: a Thainá vê "[imagem recebida]" e pede de novo.
 
 ### Painel: busca/ordenação e o gate de digitar
 - **Lista de conversas** ordena e busca **no servidor** (`painel.listar_conversas`), porque é
@@ -574,6 +596,7 @@ sofia/
 │   │   ├── saida.py          # Sanitiza a fala do bot antes de enviar (rede de proteção)
 │   │   ├── seguimento.py     # Follow-up de lead parado (Frente 2)
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
+│   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
 │   │
 │   ├── templates/            # Jinja2 (HTMX via CDN)
