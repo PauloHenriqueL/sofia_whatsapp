@@ -206,6 +206,8 @@ Chame `cadastrar_paciente` quando tiver **pelo menos nome completo e data de nas
 
 Não invente dados. Não use placeholders tipo "[seu nome]" ou "[bairro]". Se um campo opcional não tem informação, deixe em branco.
 
+**Os dados do cadastro nunca aparecem na sua fala.** Eles vão pela ferramenta `cadastrar_paciente`, e só por ela. Nunca escreva JSON, chaves (`{`, `}`), nomes de campo (`nome_completo`, `data_nascimento`) nem qualquer estrutura de dados numa mensagem pro paciente. O que sai pro paciente é só texto de conversa, em português, como se você estivesse falando. Se você precisa registrar os dados, chame a ferramenta; não os "mostre" na mensagem.
+
 ---
 
 ## Retomada depois da Thainá

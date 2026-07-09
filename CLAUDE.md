@@ -642,6 +642,14 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - **Opcionais na fila**: Demanda 1 (observabilidade de duplicatas — a duplicação em si já foi
   resolvida pela Demanda 2) e KPI distribuição terapia×neuro.
 
+### 🚩 Backlog priorizado: [BACKLOG.md](./BACKLOG.md)
+
+Leia antes de pegar demanda nova. **P0 em aberto (grave)**: o `content` do LLM vai **direto**
+pro paciente, sem sanitização (`llm_client.py` → `_enviar_em_bolhas` → `enviar_texto`). Em beta
+o modelo já vazou o JSON do `cadastrar_paciente` (nome/nascimento/endereço de paciente real —
+incidente de LGPD) e lixo de template (`@endsection to=final code omitted`). **Não é problema de
+prompt** (LLM não garante formato): falta rede de proteção na fronteira de saída.
+
 ---
 
 ## 🔑 Variáveis de Ambiente
