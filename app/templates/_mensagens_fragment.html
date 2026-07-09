@@ -1,13 +1,30 @@
+{% macro resumo(m) %}{{ (m.texto or '[' ~ m.tipo ~ ']') | truncate(70) }}{% endmacro %}
+
 {% for m in mensagens %}
-  <div class="msg msg-{{ m.origem }}">
-    <small>{{ m.origem }} · {{ m.criada_em | data }}</small>
+  <div class="msg msg-{{ m.origem }}" data-id="{{ m.id }}" data-resumo="{{ resumo(m) }}">
+    <small>
+      {{ m.origem }} · {{ m.criada_em | data }}
+      {# Só dá pra citar mensagem que tem wamid (as antigas não têm). #}
+      {% if m.whatsapp_message_id %}
+        <button type="button" class="btn-citar" title="Responder a esta mensagem"
+                data-citar="{{ m.id }}"><i class="bi bi-reply"></i></button>
+      {% endif %}
+    </small>
+
+    {% if m.responde_a %}
+      {# A mensagem citada, como no WhatsApp: um bloco menor acima do conteúdo. #}
+      <div class="citacao">
+        <span class="citacao-autor">{{ m.responde_a.origem }}</span>
+        <span class="citacao-texto">{{ resumo(m.responde_a) }}</span>
+      </div>
+    {% endif %}
+
     {% if m.midia %}
-      {# Anexo do paciente: imagem vira miniatura clicável; o resto vira ícone.
-         Em ambos os casos, dá pra baixar. Os bytes vêm de /painel/midia/{id}. #}
+      {# Anexo: imagem vira miniatura clicável; o resto vira ícone. Sempre dá pra baixar. #}
       <div class="anexo">
         {% if m.midia | e_imagem %}
           <a href="/painel/midia/{{ m.midia.id }}" target="_blank" rel="noopener">
-            <img src="/painel/midia/{{ m.midia.id }}" alt="Imagem enviada pelo paciente" loading="lazy">
+            <img src="/painel/midia/{{ m.midia.id }}" alt="Anexo da conversa" loading="lazy">
           </a>
         {% else %}
           <div class="anexo-arquivo">
@@ -19,6 +36,7 @@
           <i class="bi bi-download"></i> Baixar <span class="muted">({{ m.midia.tamanho | tamanho }})</span>
         </a>
       </div>
+      {% if m.texto and not m.texto.startswith('[') %}<p>{{ m.texto }}</p>{% endif %}
     {% else %}
       <p>{{ m.texto if m.texto else '[' ~ m.tipo ~ ']' }}</p>
     {% endif %}

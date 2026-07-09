@@ -441,11 +441,18 @@ async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> No
         if config_negocio.valor("simular_digitacao"):
             await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
         try:
-            await whatsapp_client.enviar_texto(numero, bolha)
+            envio = await whatsapp_client.enviar_texto(numero, bolha)
         except whatsapp_client.WhatsAppError:
             logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
             break
-        await conversation.registrar_mensagem_enviada(session, conversa, texto=bolha)
+        # Guarda o wamid da nossa própria fala: é o que permite a Thainá citá-la
+        # depois no painel (reply).
+        await conversation.registrar_mensagem_enviada(
+            session,
+            conversa,
+            texto=bolha,
+            whatsapp_message_id=whatsapp_client.id_da_resposta(envio),
+        )
         await session.commit()
 
 

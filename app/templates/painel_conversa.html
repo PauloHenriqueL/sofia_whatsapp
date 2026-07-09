@@ -81,11 +81,36 @@
      Sofia, que continua respondendo). #}
   <div class="card compositor" style="margin-top:14px">
     {% if conversa.modo == 'humano' %}
-      <form style="padding:12px; display:flex; gap:10px; align-items:flex-end"
+      {# Barra de citação (P4): aparece quando a Thainá clica no ícone de responder. #}
+      <div id="barra-citacao" class="citacao-barra" hidden>
+        <i class="bi bi-reply"></i>
+        <span id="citacao-preview" class="citacao-texto"></span>
+        <button type="button" id="cancelar-citacao" class="btn-citar" title="Cancelar">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      {# Anexo escolhido (P5): nome do arquivo + botão de tirar. #}
+      <div id="barra-anexo" class="anexo-barra" hidden>
+        <i class="bi bi-paperclip"></i>
+        <span id="anexo-nome"></span>
+        <button type="button" id="cancelar-anexo" class="btn-citar" title="Remover anexo">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <form id="compositor-form" style="padding:12px; display:flex; gap:10px; align-items:flex-end"
             hx-post="/painel/conversas/{{ conversa.id }}/responder"
             hx-target="#mensagens" hx-swap="innerHTML"
-            hx-on::after-request="this.reset()">
-        <textarea name="texto" class="input" rows="2" required autofocus
+            hx-encoding="multipart/form-data"
+            hx-on::after-request="limparCompositor()">
+        <input type="hidden" name="responde_a_id" id="responde_a_id">
+        <input type="file" name="anexo" id="anexo" hidden
+               accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,.doc,.docx">
+        <label for="anexo" class="btn btn-ghost" title="Anexar imagem ou documento">
+          <i class="bi bi-paperclip"></i>
+        </label>
+        <textarea name="texto" class="input" rows="2" autofocus
                   placeholder="Escreva a resposta para o paciente..." style="flex:1"></textarea>
         <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar</button>
       </form>
@@ -102,6 +127,71 @@
 </div>
 
 {% if conversa.modo == 'humano' %}
+{# Compositor: citar mensagem (P4) e anexar arquivo (P5). #}
+<script>
+  (function () {
+    const form = document.getElementById('compositor-form');
+    const campoId = document.getElementById('responde_a_id');
+    const barraCit = document.getElementById('barra-citacao');
+    const preview = document.getElementById('citacao-preview');
+    const anexo = document.getElementById('anexo');
+    const barraAnexo = document.getElementById('barra-anexo');
+    const nomeAnexo = document.getElementById('anexo-nome');
+    const MAX = {{ max_anexo }};
+
+    function citar(id, resumo) {
+      campoId.value = id;
+      preview.textContent = resumo;
+      barraCit.hidden = false;
+      form.querySelector('textarea').focus();
+    }
+    function limparCitacao() {
+      campoId.value = '';
+      barraCit.hidden = true;
+    }
+    function limparAnexo() {
+      anexo.value = '';
+      barraAnexo.hidden = true;
+    }
+    // Chamado pelo hx-on::after-request do form.
+    window.limparCompositor = function () {
+      form.reset();
+      limparCitacao();
+      limparAnexo();
+    };
+
+    // Delegação: os botões de citar vivem no fragmento que o HTMX troca a cada 5s.
+    document.addEventListener('click', function (e) {
+      const botao = e.target.closest('[data-citar]');
+      if (botao) {
+        const msg = botao.closest('.msg');
+        citar(msg.dataset.id, msg.dataset.resumo);
+        return;
+      }
+      if (e.target.closest('#cancelar-citacao')) limparCitacao();
+      if (e.target.closest('#cancelar-anexo')) limparAnexo();
+    });
+
+    anexo.addEventListener('change', function () {
+      const arquivo = anexo.files[0];
+      if (!arquivo) return limparAnexo();
+      if (arquivo.size > MAX) {
+        alert('Arquivo grande demais. O limite é 8 MB.');
+        return limparAnexo();
+      }
+      nomeAnexo.textContent = arquivo.name;
+      barraAnexo.hidden = false;
+    });
+
+    // Não deixa enviar vazio (sem texto e sem anexo). `htmx:confirm` é o hook que
+    // o HTMX oferece pra abortar antes do request (um submit cancelado não basta).
+    form.addEventListener('htmx:confirm', function (e) {
+      const temTexto = form.querySelector('textarea').value.trim() !== '';
+      if (!temTexto && !anexo.files.length) e.preventDefault();
+    });
+  })();
+</script>
+
 {# Ao sair da conversa com o controle assumido, oferece devolver ao bot. Só
    dispara na navegação de saída (não no envio de mensagem, que é HTMX). #}
 <script>

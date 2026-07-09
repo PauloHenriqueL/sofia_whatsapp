@@ -118,15 +118,27 @@ Escopo: **só painel**, sem visão do modelo.
   executa `<script>` e seria XSS na origem do painel. O resto vai como `attachment`
   + `X-Content-Type-Options: nosniff`. A rota exige login.
 
-## P4 — Responder mensagem específica (reply-to)
+## ✅ P4 — Responder mensagem específica (reply-to) — ENTREGUE
 
-- A Thainá marca uma mensagem e responde a ela, como no WhatsApp
-  (`context.message_id` na Cloud API).
-- Idealmente a Sofia também, quando responde algo pontual.
+- Coluna `mensagem.responde_a_id` (migration `a0b1c2d3e4f5`), auto-referência com
+  `ON DELETE SET NULL`. O painel renderiza a citação acima da mensagem.
+- No WhatsApp, sai como reply de verdade (`context.message_id` da Cloud API).
+- **Passamos a guardar o wamid das mensagens que ENVIAMOS** (bot e Thainá). Sem
+  isso não dava pra citar a própria fala da Sofia — só o que o paciente mandou.
+  Mensagens antigas não têm wamid: o botão de citar não aparece nelas.
+- `responde_a_id` vem do form, então o serviço valida que a mensagem citada é
+  **desta** conversa (senão vazaria mensagem de outro paciente).
+- A Sofia (bot) ainda não cita; só a Thainá. O encanamento está pronto se quisermos.
 
-## P5 — Thainá enviar foto e documento
+## ✅ P5 — Thainá enviar foto e documento — ENTREGUE
 
-- Upload no painel → `POST /{phone_number_id}/media` → enviar por `id`.
+- Botão de clipe no compositor. Upload → `subir_midia` (`POST /media`) → `enviar_midia`.
+- Imagem vai como `image` (com legenda); o resto como `document` (com `filename`).
+- Cópia guardada na tabela `midia`, então o painel mostra o que foi enviado.
+- Teto de 8 MB checado **na leitura** (`read(MAX+1)`), não depois: um upload de
+  500 MB não chega a entrar na memória do processo. Erro 413 se passar.
+- Texto + anexo na mesma mensagem = legenda. Só texto = mensagem simples.
+  Nem texto nem anexo = nada é enviado (validado no cliente e no servidor).
 
 ## P6 — PWA (app na tela inicial da Thainá)
 

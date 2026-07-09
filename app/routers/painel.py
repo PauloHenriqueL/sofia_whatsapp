@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -251,6 +251,7 @@ async def pagina_conversa(request: Request, conversa_id: int, db: AsyncSession =
             "conversa": conversa,
             "mensagens": mensagens,
             "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
+            "max_anexo": midia.TAMANHO_MAXIMO,
         },
     )
 
@@ -270,18 +271,44 @@ async def fragment_mensagens(
 async def responder(
     request: Request,
     conversa_id: int,
-    texto: str = Form(...),
+    texto: str = Form(""),
+    responde_a_id: int | None = Form(None),
+    anexo: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
 ):
+    """Resposta da Thainá: texto e/ou anexo, opcionalmente citando uma mensagem.
+
+    `responde_a_id` é validado no serviço (tem que ser mensagem desta conversa).
+    """
     conversa = await painel.obter_conversa(db, conversa_id)
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
-    texto = texto.strip()
-    if texto:
-        try:
-            await painel.responder_como_thaina(db, conversa, texto)
-        except whatsapp_client.WhatsAppError:
-            logger.error(f"Falha ao enviar resposta da Thainá (conversa {conversa_id})")
+
+    texto = (texto or "").strip()
+    tem_anexo = anexo is not None and bool(anexo.filename)
+
+    try:
+        if tem_anexo:
+            assert anexo is not None  # garantido por `tem_anexo` (pro type checker)
+            # Lê no máximo o teto + 1 byte: assim detectamos "grande demais" sem
+            # carregar um arquivo de 500 MB na memória do processo.
+            conteudo = await anexo.read(midia.TAMANHO_MAXIMO + 1)
+            if len(conteudo) > midia.TAMANHO_MAXIMO:
+                raise HTTPException(status_code=413, detail="Arquivo grande demais (máx. 8 MB)")
+            await painel.enviar_anexo_como_thaina(
+                db,
+                conversa,
+                conteudo,
+                mime=anexo.content_type or "application/octet-stream",
+                nome=anexo.filename or "anexo",
+                legenda=texto,
+                responde_a_id=responde_a_id,
+            )
+        elif texto:
+            await painel.responder_como_thaina(db, conversa, texto, responde_a_id=responde_a_id)
+    except whatsapp_client.WhatsAppError:
+        logger.error(f"Falha ao enviar resposta da Thainá (conversa {conversa_id})")
+
     mensagens = await painel.carregar_mensagens(db, conversa_id)
     return templates.TemplateResponse(
         "_mensagens_fragment.html",

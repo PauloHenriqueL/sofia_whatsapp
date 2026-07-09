@@ -58,11 +58,22 @@ class Mensagem(Base):
     tipo: Mapped[str] = mapped_column(String(20), default="texto")
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
     whatsapp_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Reply (P4): mensagem desta conversa que esta aqui está citando, como o
+    # "responder" do WhatsApp. NULL = mensagem solta. Aponta pra `mensagem.id`
+    # (não pro wamid) porque é o que o painel precisa pra renderizar a citação.
+    responde_a_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mensagem.id", ondelete="SET NULL"), nullable=True
+    )
     # Atributo 'extra' mapeado pra coluna 'metadata' ('metadata' é reservado no ORM).
     extra: Mapped[dict] = mapped_column("metadata", JSONType, default=dict)
     criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversa: Mapped["Conversa"] = relationship(back_populates="mensagens")
+    # A mensagem citada. `remote_side` resolve a auto-referência; `lazy="selectin"`
+    # porque o painel renderiza a citação junto de cada mensagem.
+    responde_a: Mapped["Mensagem | None"] = relationship(
+        remote_side=[id], lazy="selectin", foreign_keys=[responde_a_id]
+    )
     # Imagem/documento anexo (None pra texto/áudio). `lazy="selectin"` porque o
     # painel sempre lê a lista de mensagens e precisa saber se tem anexo.
     midia: Mapped["Midia | None"] = relationship(

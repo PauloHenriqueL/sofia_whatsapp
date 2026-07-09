@@ -170,10 +170,93 @@ async def carregar_mensagens(db: AsyncSession, conversa_id: int) -> list[Mensage
     return list(result.scalars().all())
 
 
-async def responder_como_thaina(db: AsyncSession, conversa: Conversa, texto: str) -> None:
-    """Envia a resposta da Thainá pelo WhatsApp e persiste com origem='thaina'."""
-    await whatsapp_client.enviar_texto(conversa.numero_whatsapp, texto)
-    await conversation.registrar_mensagem_enviada(db, conversa, texto=texto, origem="thaina")
+async def _citada(
+    db: AsyncSession, conversa: Conversa, responde_a_id: int | None
+) -> Mensagem | None:
+    """Mensagem citada, se ela existir e for **desta** conversa.
+
+    A checagem de conversa importa: `responde_a_id` vem do formulário, e sem ela a
+    Thainá (ou alguém com a sessão dela) citaria mensagem de outro paciente.
+    """
+    if not responde_a_id:
+        return None
+    msg = await db.get(Mensagem, responde_a_id)
+    if msg is None or msg.conversa_id != conversa.id:
+        return None
+    return msg
+
+
+async def responder_como_thaina(
+    db: AsyncSession, conversa: Conversa, texto: str, responde_a_id: int | None = None
+) -> None:
+    """Envia a resposta da Thainá pelo WhatsApp e persiste com origem='thaina'.
+
+    Com `responde_a_id`, a mensagem sai citando a outra (o "responder" do
+    WhatsApp). Só dá pra citar mensagem que já tem wamid — as antigas, enviadas
+    antes de passarmos a guardá-lo, não podem ser citadas: aí manda solta.
+    """
+    citada = await _citada(db, conversa, responde_a_id)
+    resposta = await whatsapp_client.enviar_texto(
+        conversa.numero_whatsapp,
+        texto,
+        responder_a=citada.whatsapp_message_id if citada else None,
+    )
+    await conversation.registrar_mensagem_enviada(
+        db,
+        conversa,
+        texto=texto,
+        origem="thaina",
+        whatsapp_message_id=whatsapp_client.id_da_resposta(resposta),
+        responde_a_id=citada.id if citada else None,
+    )
+    await db.commit()
+
+
+async def enviar_anexo_como_thaina(
+    db: AsyncSession,
+    conversa: Conversa,
+    conteudo: bytes,
+    mime: str,
+    nome: str,
+    legenda: str = "",
+    responde_a_id: int | None = None,
+) -> None:
+    """Sobe o arquivo pra Meta, envia ao paciente e guarda cópia no banco (P5).
+
+    Guardamos a cópia pela mesma razão do anexo recebido: o painel precisa
+    mostrar o que foi enviado, e o `media_id` da Meta expira em 30 dias.
+    """
+    tipo = "image" if mime.startswith("image/") else "document"
+    citada = await _citada(db, conversa, responde_a_id)
+
+    media_id = await whatsapp_client.subir_midia(conteudo, mime, nome)
+    resposta = await whatsapp_client.enviar_midia(
+        conversa.numero_whatsapp,
+        media_id,
+        tipo,
+        legenda=legenda or None,
+        nome=nome,
+        responder_a=citada.whatsapp_message_id if citada else None,
+    )
+
+    mensagem = await conversation.registrar_mensagem_enviada(
+        db,
+        conversa,
+        texto=legenda or f"[{'imagem' if tipo == 'image' else 'documento'} enviado]",
+        origem="thaina",
+        tipo=tipo,
+        whatsapp_message_id=whatsapp_client.id_da_resposta(resposta),
+        responde_a_id=citada.id if citada else None,
+    )
+    db.add(
+        Midia(
+            mensagem_id=mensagem.id,
+            mime=mime,
+            nome_arquivo=nome,
+            tamanho=len(conteudo),
+            conteudo=conteudo,
+        )
+    )
     await db.commit()
 
 

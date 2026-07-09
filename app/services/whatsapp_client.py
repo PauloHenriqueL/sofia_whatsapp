@@ -83,7 +83,35 @@ async def marcar_como_lida(message_id: str | None, com_digitacao: bool = False) 
             pass
 
 
-async def enviar_texto(numero: str, texto: str) -> dict[str, Any]:
+def id_da_resposta(resposta: Any) -> str | None:
+    """Extrai o wamid da mensagem que acabamos de enviar (pra citar depois).
+
+    Defensivo de propósito: o retorno vem da Meta, e só um `str` pode ir pro
+    banco (a coluna tem índice único). Formato inesperado vira None, e a mensagem
+    fica sem wamid — perde-se a possibilidade de citá-la, nada mais.
+    """
+    if not isinstance(resposta, dict):
+        return None
+    mensagens = resposta.get("messages")
+    if not isinstance(mensagens, list) or not mensagens:
+        return None
+    primeira = mensagens[0]
+    wamid = primeira.get("id") if isinstance(primeira, dict) else None
+    return wamid if isinstance(wamid, str) else None
+
+
+def _citar(payload: dict[str, Any], responder_a: str | None) -> dict[str, Any]:
+    """Adiciona o `context` que faz a mensagem virar resposta a outra (reply).
+
+    É o mesmo "responder" do app do WhatsApp: a mensagem citada aparece acima.
+    `responder_a` é o wamid da mensagem citada; se for None, nada muda.
+    """
+    if responder_a:
+        payload["context"] = {"message_id": responder_a}
+    return payload
+
+
+async def enviar_texto(numero: str, texto: str, responder_a: str | None = None) -> dict[str, Any]:
     """Envia uma mensagem de texto livre para um número.
 
     Só funciona dentro da janela de 24h da última mensagem do paciente.
@@ -92,6 +120,7 @@ async def enviar_texto(numero: str, texto: str) -> dict[str, Any]:
     Args:
         numero: Número do destinatário no formato internacional (ex: 5531999998888).
         texto: Corpo da mensagem.
+        responder_a: wamid da mensagem citada (reply), ou None pra mensagem solta.
 
     Returns:
         Resposta JSON da Cloud API (contém o ID da mensagem enviada).
@@ -106,7 +135,76 @@ async def enviar_texto(numero: str, texto: str) -> dict[str, Any]:
         "type": "text",
         "text": {"body": texto},
     }
-    return await _enviar(payload, descricao=f"texto para {mascarar_telefone(numero)}")
+    return await _enviar(
+        _citar(payload, responder_a), descricao=f"texto para {mascarar_telefone(numero)}"
+    )
+
+
+async def subir_midia(conteudo: bytes, mime: str, nome: str) -> str:
+    """Sobe um arquivo pra Cloud API e devolve o `media_id` (válido por 30 dias).
+
+    Passo obrigatório antes de enviar imagem/documento: a Meta não aceita bytes
+    inline no /messages, só um id de mídia já hospedada por ela.
+
+    Raises:
+        WhatsAppError: se o upload falhar.
+    """
+    url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/media"
+    headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
+    dados = {"messaging_product": "whatsapp", "type": mime}
+    arquivos = {"file": (nome, conteudo, mime)}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resposta = await client.post(url, data=dados, files=arquivos, headers=headers)
+    except httpx.HTTPError as exc:
+        logger.error(f"Falha de rede ao subir mídia ({mime}): {exc}")
+        raise WhatsAppError("falha de rede ao subir mídia") from exc
+
+    if resposta.status_code >= 400:
+        logger.error(f"Cloud API {resposta.status_code} ao subir mídia: {resposta.text}")
+        raise WhatsAppError(f"Cloud API erro {resposta.status_code} ao subir mídia")
+
+    media_id = resposta.json().get("id")
+    if not isinstance(media_id, str) or not media_id:
+        raise WhatsAppError("upload de mídia não devolveu id")
+    logger.info("Mídia enviada à Meta (mime=%s, bytes=%d)", mime, len(conteudo))
+    return media_id
+
+
+async def enviar_midia(
+    numero: str,
+    media_id: str,
+    tipo: str,
+    legenda: str | None = None,
+    nome: str | None = None,
+    responder_a: str | None = None,
+) -> dict[str, Any]:
+    """Envia imagem ou documento já hospedado na Meta (ver `subir_midia`).
+
+    Args:
+        tipo: "image" ou "document".
+        legenda: texto que acompanha o anexo (opcional).
+        nome: nome do arquivo mostrado ao paciente (só documento).
+    """
+    if tipo not in ("image", "document"):
+        raise WhatsAppError(f"tipo de mídia não suportado: {tipo}")
+
+    corpo: dict[str, Any] = {"id": media_id}
+    if legenda:
+        corpo["caption"] = legenda
+    if tipo == "document" and nome:
+        corpo["filename"] = nome
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": numero,
+        "type": tipo,
+        tipo: corpo,
+    }
+    return await _enviar(
+        _citar(payload, responder_a), descricao=f"{tipo} para {mascarar_telefone(numero)}"
+    )
 
 
 async def enviar_template(

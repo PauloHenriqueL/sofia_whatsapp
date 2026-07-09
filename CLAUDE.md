@@ -263,7 +263,9 @@ mensagem
 ├─ direcao ('recebida'/'enviada')
 ├─ origem ('paciente'/'bot'/'thaina')
 ├─ tipo ('texto'/'audio'/'image'/'document'/'template')
-├─ texto, whatsapp_message_id (único), metadata
+├─ texto, whatsapp_message_id (único; guardado também nas ENVIADAS, p/ reply)
+├─ responde_a_id (FK auto-referência: mensagem citada; SET NULL) — P4
+├─ metadata
 └─ criada_em
 
 midia  (anexo do paciente; bytes no banco — a URL da Meta expira)
@@ -403,6 +405,22 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   origem do painel, com a sessão da Thainá. O resto vai `attachment` + `nosniff`.
 - Falha no download não perde a mensagem: a Thainá vê "[imagem recebida]" e pede de novo.
 
+### Reply e envio de anexo pela Thainá (P4/P5)
+- **Só dá pra citar mensagem que tem `whatsapp_message_id`.** Por isso passamos a guardar o
+  wamid das mensagens **enviadas** (bot e Thainá) — antes só as recebidas tinham. Mensagens
+  anteriores a isso não têm wamid e não mostram o botão de citar.
+- `whatsapp_client.id_da_resposta()` é defensivo de propósito: só devolve `str`. A coluna tem
+  índice único, e um `MagicMock`/payload torto da Meta iria pro banco e explodiria o INSERT.
+- `responde_a_id` chega pelo formulário: `painel._citada()` **valida que a mensagem é da mesma
+  conversa** (senão a citação vazaria mensagem de outro paciente).
+- Envio de anexo: `subir_midia` (POST `/media`, devolve `media_id`) → `enviar_midia`. A Meta
+  não aceita bytes inline no `/messages`. Guardamos uma cópia na tabela `midia` (o `media_id`
+  da Meta expira em 30 dias e o painel precisa mostrar o que foi enviado).
+- O teto de 8 MB é checado com `await anexo.read(MAX + 1)`, **antes** de materializar o arquivo:
+  ler tudo e medir depois deixaria um upload de 500 MB entrar na memória.
+- No template, o botão de citar vive no fragmento que o HTMX troca a cada 5s → o JS usa
+  **delegação de evento** no `document`, não listener por botão.
+
 ### Painel: busca/ordenação e o gate de digitar
 - **Lista de conversas** ordena e busca **no servidor** (`painel.listar_conversas`), porque é
   paginada: filtro + busca + ordem + `limit/offset` tudo no SQL. `ordem` vem da querystring e
@@ -488,10 +506,13 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 
 ### Fluxo de Resposta Thainá (Painel)
 
-1. Thainá digita no painel e clica enviar
-2. Painel POST `/api/conversas/{id}/responder`
-3. App persiste com `origem = thaina`
-4. App envia via Cloud API pro paciente
+1. Thainá **assume o controle** (sem isso o campo de digitar nem é renderizado)
+2. Digita e/ou anexa um arquivo; pode clicar no ícone de responder pra **citar** uma mensagem
+3. Painel POST `/painel/conversas/{id}/responder` (multipart)
+4. Anexo: `subir_midia` → `enviar_midia`; texto: `enviar_texto` (com `context` se citou)
+5. App persiste com `origem = thaina`, guardando o **wamid do envio** (pra poder ser citada) e
+   o `responde_a_id` (validado: tem que ser mensagem desta conversa)
+6. Ao sair da conversa, o painel pergunta se o bot assume de volta
 
 ### Detecção de Áudio (Escalada Imediata)
 

@@ -122,8 +122,14 @@ async def registrar_mensagem_enviada(
     origem: str = "bot",
     tipo: str = "texto",
     whatsapp_message_id: str | None = None,
+    responde_a_id: int | None = None,
 ) -> Mensagem:
-    """Persiste uma mensagem enviada (bot ou Thainá)."""
+    """Persiste uma mensagem enviada (bot ou Thainá).
+
+    `whatsapp_message_id` é o wamid devolvido pela Meta no envio: guardá-lo é o
+    que permite citar depois uma fala nossa (reply). `responde_a_id` é a mensagem
+    desta conversa que esta aqui cita.
+    """
     mensagem = Mensagem(
         conversa_id=conversa.id,
         direcao="enviada",
@@ -131,6 +137,7 @@ async def registrar_mensagem_enviada(
         tipo=tipo,
         texto=texto,
         whatsapp_message_id=whatsapp_message_id,
+        responde_a_id=responde_a_id,
     )
     session.add(mensagem)
     await session.flush()

@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Mensagem, Midia
+from app.services import midia as midia_service
 from app.services import painel as painel_service
 
 
@@ -239,7 +240,10 @@ class TestAcoes:
                 json={"texto": "Oi, aqui é a Thainá"},
             )
         assert resp.status_code == 200
-        mock_enviar.assert_awaited_once_with("5531999998888", "Oi, aqui é a Thainá")
+        # Sem citar nada: responder_a=None (o reply é opcional — P4).
+        mock_enviar.assert_awaited_once_with(
+            "5531999998888", "Oi, aqui é a Thainá", responder_a=None
+        )
 
         async with maker() as s:
             enviada = (
@@ -495,3 +499,156 @@ class TestDownloadDeAnexo:
         client, maker = ambiente
         await _login(client)
         assert (await client.get("/painel/midia/99999")).status_code == 404
+
+
+class TestReplyEAnexoDaThaina:
+    """P4 (citar mensagem) e P5 (enviar foto/documento)."""
+
+    async def _conversa_com_mensagem(self, maker, numero, wamid="wamid.paciente"):
+        async with maker() as s:
+            c = Conversa(numero_whatsapp=numero, modo="humano", estado="escalado")
+            s.add(c)
+            await s.flush()
+            m = Mensagem(
+                conversa_id=c.id,
+                direcao="recebida",
+                origem="paciente",
+                tipo="texto",
+                texto="quanto custa?",
+                whatsapp_message_id=wamid,
+            )
+            s.add(m)
+            await s.commit()
+            return c.id, m.id
+
+    @pytest.mark.asyncio
+    async def test_responder_citando_manda_context_e_persiste(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid, mid = await self._conversa_com_mensagem(maker, "5531900001111")
+
+        with patch(
+            "app.services.painel.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+            return_value={"messages": [{"id": "wamid.thaina"}]},
+        ) as mock_enviar:
+            resp = await client.post(
+                f"/painel/conversas/{cid}/responder",
+                data={"texto": "São R$ 200", "responde_a_id": str(mid)},
+            )
+        assert resp.status_code == 200
+        # Citou a mensagem do paciente pelo wamid dela.
+        assert mock_enviar.await_args.kwargs["responder_a"] == "wamid.paciente"
+
+        async with maker() as s:
+            enviada = (
+                await s.execute(select(Mensagem).where(Mensagem.origem == "thaina"))
+            ).scalar_one()
+            assert enviada.responde_a_id == mid
+            assert enviada.whatsapp_message_id == "wamid.thaina"  # dá pra citar depois
+
+    @pytest.mark.asyncio
+    async def test_nao_cita_mensagem_de_outra_conversa(self, ambiente):
+        """`responde_a_id` vem do form: não pode vazar mensagem de outro paciente."""
+        client, maker = ambiente
+        await _login(client)
+        cid_a, mid_a = await self._conversa_com_mensagem(maker, "5531900002222", "wamid.a")
+        cid_b, _ = await self._conversa_com_mensagem(maker, "5531900003333", "wamid.b")
+
+        with patch(
+            "app.services.painel.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+            return_value={"messages": [{"id": "wamid.x"}]},
+        ) as mock_enviar:
+            # Na conversa B, tenta citar uma mensagem da conversa A.
+            await client.post(
+                f"/painel/conversas/{cid_b}/responder",
+                data={"texto": "oi", "responde_a_id": str(mid_a)},
+            )
+        assert mock_enviar.await_args.kwargs["responder_a"] is None  # ignorou a citação
+
+        async with maker() as s:
+            enviada = (
+                await s.execute(select(Mensagem).where(Mensagem.origem == "thaina"))
+            ).scalar_one()
+            assert enviada.responde_a_id is None
+
+    @pytest.mark.asyncio
+    async def test_enviar_imagem_sobe_envia_e_guarda(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid, _ = await self._conversa_com_mensagem(maker, "5531900004444")
+
+        with patch(
+            "app.services.painel.whatsapp_client.subir_midia",
+            new_callable=AsyncMock,
+            return_value="media-999",
+        ) as mock_subir, patch(
+            "app.services.painel.whatsapp_client.enviar_midia",
+            new_callable=AsyncMock,
+            return_value={"messages": [{"id": "wamid.img"}]},
+        ) as mock_enviar:
+            resp = await client.post(
+                f"/painel/conversas/{cid}/responder",
+                data={"texto": "olha o comprovante"},
+                files={"anexo": ("foto.png", b"\x89PNG", "image/png")},
+            )
+        assert resp.status_code == 200
+        mock_subir.assert_awaited_once()
+        assert mock_enviar.await_args.args[2] == "image"  # tipo
+        assert mock_enviar.await_args.kwargs["legenda"] == "olha o comprovante"
+
+        async with maker() as s:
+            anexo = (await s.execute(select(Midia))).scalar_one()
+            assert anexo.mime == "image/png"
+            enviada = await s.get(Mensagem, anexo.mensagem_id)
+            assert enviada.origem == "thaina" and enviada.tipo == "image"
+
+    @pytest.mark.asyncio
+    async def test_pdf_vai_como_documento(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid, _ = await self._conversa_com_mensagem(maker, "5531900005555")
+
+        with patch(
+            "app.services.painel.whatsapp_client.subir_midia",
+            new_callable=AsyncMock,
+            return_value="media-1",
+        ), patch(
+            "app.services.painel.whatsapp_client.enviar_midia",
+            new_callable=AsyncMock,
+            return_value={"messages": [{"id": "w"}]},
+        ) as mock_enviar:
+            await client.post(
+                f"/painel/conversas/{cid}/responder",
+                files={"anexo": ("contrato.pdf", b"%PDF", "application/pdf")},
+            )
+        assert mock_enviar.await_args.args[2] == "document"
+        assert mock_enviar.await_args.kwargs["nome"] == "contrato.pdf"
+
+    @pytest.mark.asyncio
+    async def test_arquivo_grande_demais_e_recusado(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid, _ = await self._conversa_com_mensagem(maker, "5531900006666")
+        gigante = b"x" * (midia_service.TAMANHO_MAXIMO + 10)
+
+        resp = await client.post(
+            f"/painel/conversas/{cid}/responder",
+            files={"anexo": ("grande.png", gigante, "image/png")},
+        )
+        assert resp.status_code == 413
+        async with maker() as s:
+            assert (await s.execute(select(Midia))).scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_mensagem_vazia_nao_envia_nada(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid, _ = await self._conversa_com_mensagem(maker, "5531900007777")
+        with patch(
+            "app.services.painel.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_enviar:
+            resp = await client.post(f"/painel/conversas/{cid}/responder", data={"texto": "   "})
+        assert resp.status_code == 200
+        mock_enviar.assert_not_awaited()
