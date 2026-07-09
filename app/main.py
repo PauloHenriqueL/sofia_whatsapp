@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -87,6 +87,35 @@ app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(painel.router)
 app.include_router(tasks.router)
+
+
+_STATIC = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """Service worker servido da RAIZ (não de /static).
+
+    Um SW só controla páginas dentro do seu próprio caminho: servido de
+    `/static/sw.js`, o escopo seria `/static/` e o `/painel/` ficaria de fora —
+    o navegador não ofereceria "instalar app". Sem auth de propósito: o SW é
+    público e não expõe dado nenhum.
+    """
+    return FileResponse(
+        _STATIC / "sw.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def manifest():
+    return FileResponse(_STATIC / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(_STATIC / "icons" / "favicon.ico")
 
 
 @app.get("/")

@@ -140,8 +140,32 @@ Escopo: **só painel**, sem visão do modelo.
 - Texto + anexo na mesma mensagem = legenda. Só texto = mensagem simples.
   Nem texto nem anexo = nada é enviado (validado no cliente e no servidor).
 
-## P6 — PWA (app na tela inicial da Thainá)
+## ✅ P6 — PWA (app na tela inicial da Thainá) — ENTREGUE
 
-Escopo decidido: **PWA do painel atual**, sem push.
-- `manifest.json`, service worker mínimo, ícones.
-- "Adicionar à tela inicial" no celular dela; abre em tela cheia.
+Escopo: **PWA do painel atual**, sem push.
+- `manifest.webmanifest` + `sw.js`, ambos servidos da **raiz** (`app/main.py`). O SW
+  precisa estar na raiz: servido de `/static/sw.js` seu escopo seria `/static/` e o
+  navegador não ofereceria instalar o app.
+- Ícones: **"S" da Fraunces** (a `--font-display` do design system) sobre o gradiente
+  teal do `.brand .logo`. 192/512 normais + 192/512 *maskable* (o Android recorta 20%
+  das bordas) + apple-touch 180 + favicon. Gerados por script com `fontTools` +
+  `Pillow` — **não** são dependência de runtime.
+- **O SW não cacheia `/painel/`, `/api/` nem `/login`**: dado de saúde não pode ficar no
+  disco do celular (LGPD), a sessão expira, e o painel já se atualiza via HTMX. Só o
+  `/static/` é cacheado (network-first).
+- Responsivo: toolbar empilha, abas deslizam, tabela rola na horizontal mantendo o
+  `thead` (senão a Thainá perderia a ordenação no celular), safe-area do iPhone.
+
+### Como a Thainá instala
+Abre https://sofia-whatsapp.onrender.com no celular → menu do navegador →
+"Adicionar à tela inicial" (Android: aparece o convite sozinho; iPhone: Compartilhar →
+Adicionar à Tela de Início).
+
+---
+
+## Ideias fora do backlog atual
+- Testes mais completos das entregas P4/P5/P6 (o Paulo pediu pra priorizar
+  desenvolvimento; P0–P3 têm cobertura, P4/P5 têm o essencial, P6 não tem).
+- Notificação push quando chega escalada nova (exige VAPID; no iPhone só depois de
+  instalado).
+- A Sofia (bot) citar mensagem específica — o encanamento do P4 já suporta.

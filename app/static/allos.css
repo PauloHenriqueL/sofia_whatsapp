@@ -249,3 +249,33 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .citacao-barra .bi-reply, .anexo-barra .bi-paperclip { color:var(--teal-600); }
 .citacao-barra .citacao-texto, .anexo-barra span { flex:1; }
 .anexo-barra span { font-weight:600; word-break:break-all; }
+
+/* ── PWA / celular ────────────────────────────────────────────────────────── */
+/* Instalado na tela inicial, o app ocupa a tela toda: respeita o notch/barra
+   inferior do iPhone (viewport-fit=cover no base.html habilita as env()). */
+body { padding-bottom:env(safe-area-inset-bottom); }
+.topbar { padding-top:env(safe-area-inset-top); }
+
+@media (max-width:640px) {
+  /* Toolbar: busca ocupa a linha toda, filtro embaixo. */
+  .toolbar { flex-direction:column; align-items:stretch; }
+  .toolbar .search { min-width:0; }
+  .dropdown > summary { width:100%; justify-content:center; }
+  .dropdown-menu { left:0; right:0; }
+
+  /* Abas: sem quebrar linha, deslizam na horizontal. */
+  .tabs { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tabs .tab { white-space:nowrap; }
+
+  /* Tabelas: rolam na horizontal em vez de espremer as colunas. O `thead` volta
+     a aparecer (o padrão do painel esconde), senão a Thainá perde a ordenação. */
+  .card:has(> .table), .card > .table { overflow-x:auto; }
+  .table { min-width:560px; }
+  .table thead { display:table-header-group; }
+
+  /* Compositor: botão de anexo e envio não podem sumir na tela estreita. */
+  #compositor-form { flex-wrap:wrap; }
+  #compositor-form textarea { min-width:100%; order:-1; }
+
+  .anexo img { max-width:100%; }
+}

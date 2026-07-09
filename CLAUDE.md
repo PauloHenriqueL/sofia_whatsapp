@@ -436,6 +436,18 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   conversa em modo humano, um `confirm()` oferece devolver ao bot; o `?proximo=` do redirect
   passa por `_destino_seguro` (só caminho interno).
 
+### PWA (o painel como app no celular da Thainá)
+- `manifest.webmanifest` e `sw.js` são servidos da **raiz** por rotas em `app/main.py`, não
+  pelo mount `/static`. Motivo: um service worker só controla páginas dentro do seu caminho —
+  de `/static/sw.js` o escopo seria `/static/` e o navegador não ofereceria instalar o app.
+- **O SW não cacheia `/painel/`, `/api/` nem `/login`** — é dado de saúde (LGPD: não pode ficar
+  no disco do celular), a sessão expira, e o painel já se atualiza via HTMX. Só `/static/`.
+- Ícones: "S" da **Fraunces** (`--font-display`) sobre o gradiente do `.brand .logo`. Há versões
+  **maskable** (o Android recorta 20% das bordas; sem elas o S fica cortado). Regerar com
+  `scripts/gerar_icones.py` (fontTools + Pillow, **não** são dependência de runtime).
+- No mobile a tabela rola na horizontal **mantendo o `thead`**: o padrão do painel esconde o
+  cabeçalho em telas pequenas, e sem ele a Thainá perderia a ordenação por coluna.
+
 ### Painel: auth por sessão (não é mais HTTP Basic)
 - Login próprio em **`/login`** → cookie de sessão assinado (`SessionMiddleware`,
   `secret_key`). `app/dependencies.py`: `requer_login_pagina` (HTML → 303 p/ `/login`),
@@ -630,6 +642,9 @@ sofia/
 │       ├── allos.css         # Allos Design System (paleta Hamilton)
 │       ├── ordenar-tabela.js # Ordenação client-side (<th data-sort>)
 │       └── style.css
+│
+├── scripts/
+│   └── gerar_icones.py       # Regera os ícones do PWA (dev-only)
 │
 ├── alembic/
 │   ├── env.py
