@@ -14,8 +14,25 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Mensagem, Midia
+from app.services import config_negocio, config_prompt
 from app.services import midia as midia_service
 from app.services import painel as painel_service
+
+
+@pytest.fixture(autouse=True)
+def _isola_cache_de_config():
+    """`config_negocio._cache` e `config_prompt._cache` são globais (1 instância).
+
+    Snapshot + restaura, em vez de `clear()`: um cache vazio é estado impossível
+    em produção (é populado no startup) e faria `valores()` estourar KeyError.
+    """
+    snap_neg = dict(config_negocio._cache)
+    snap_prompt = dict(config_prompt._cache)
+    yield
+    config_negocio._cache.clear()
+    config_negocio._cache.update(snap_neg)
+    config_prompt._cache.clear()
+    config_prompt._cache.update(snap_prompt)
 
 
 class TestUrlHamiltonPaciente:
@@ -652,3 +669,167 @@ class TestReplyEAnexoDaThaina:
             resp = await client.post(f"/painel/conversas/{cid}/responder", data={"texto": "   "})
         assert resp.status_code == 200
         mock_enviar.assert_not_awaited()
+
+
+class TestPaginasDoPainel:
+    """As telas renderizam (Jinja quebrado num branch não exercitado é invisível)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/painel/",
+            "/painel/?filtro=humano",
+            "/painel/?filtro=escalada",
+            "/painel/?filtro=cadastradas_hoje",
+            "/painel/?filtro=cadastrados",
+            "/painel/?busca=oi&ordem=nome&dir=asc",
+            "/painel/config",
+            "/painel/prompts",
+            "/painel/metricas",
+            "/painel/fragment/conversas",
+        ],
+    )
+    async def test_pagina_responde_200(self, ambiente, url):
+        client, maker = ambiente
+        await _login(client)
+        await _seed_conversa(maker)
+        assert (await client.get(url)).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_acompanhamento_com_hamilton_fora_do_ar(self, ambiente):
+        """Hamilton indisponível mostra aviso, não quebra a página."""
+        client, maker = ambiente
+        await _login(client)
+        with patch(
+            "app.services.acompanhamento.hamilton_client.get_hamilton_client"
+        ) as mock_cliente:
+            mock_cliente.return_value.status_primeira_consulta = AsyncMock(
+                side_effect=Exception("offline")
+            )
+            resp = await client.get("/painel/acompanhamento")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_conversa_renderiza_com_dados_coletados(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        async with maker() as s:
+            c = await s.get(Conversa, cid)
+            c.dados_coletados = {"nome_completo": "Maria", "data_nascimento": "1990-01-01"}
+            await s.commit()
+        html = (await client.get(f"/painel/conversas/{cid}/")).text
+        assert "Maria" in html and "1990-01-01" in html
+
+    @pytest.mark.asyncio
+    async def test_todas_as_paginas_exigem_login(self, ambiente):
+        client, _ = ambiente
+        for url in ("/painel/", "/painel/config", "/painel/metricas", "/painel/prompts"):
+            assert (await client.get(url)).status_code == 303, url
+
+
+class TestAcoesDoPainel:
+    @pytest.mark.asyncio
+    async def test_salvar_config_e_ler_de_volta(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        resp = await client.post(
+            "/painel/config",
+            data={"preco_terapia_mensal": "250", "followup_horas": "40", "simular_digitacao": "on"},
+        )
+        assert resp.status_code == 303
+        # followup é limitado a 23h (janela de 24h da Meta).
+        assert config_negocio.valor("followup_horas") == 23
+        assert config_negocio.valor("preco_terapia_mensal") == 250
+        assert config_negocio.valor("simular_digitacao") is True
+
+    @pytest.mark.asyncio
+    async def test_reiniciar_apaga_a_conversa(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        resp = await client.post(f"/painel/conversas/{cid}/reiniciar")
+        assert resp.status_code == 303
+        async with maker() as s:
+            assert await s.get(Conversa, cid) is None
+
+    @pytest.mark.asyncio
+    async def test_cadastrar_no_hamilton_pelo_botao(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        async with maker() as s:
+            c = await s.get(Conversa, cid)
+            c.dados_coletados = {"nome_completo": "Maria Silva", "data_nascimento": "1990-01-01"}
+            c.estado = "cadastro_pendente"
+            await s.commit()
+
+        fake = AsyncMock()
+        fake.buscar_paciente_por_telefone = AsyncMock(return_value=[])
+        fake.criar_paciente = AsyncMock(return_value={"pk_paciente": 77})
+        with patch("app.services.cadastro.hamilton_client.get_hamilton_client", return_value=fake):
+            resp = await client.post(f"/painel/conversas/{cid}/cadastrar")
+        assert resp.status_code == 303
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).paciente_hamilton_id == 77
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "metodo,url",
+        [
+            ("get", "/painel/conversas/99999/"),
+            ("post", "/painel/conversas/99999/assumir"),
+            ("post", "/painel/conversas/99999/devolver-bot"),
+            ("post", "/painel/conversas/99999/responder"),
+            ("post", "/painel/conversas/99999/cadastrar"),
+            ("post", "/painel/conversas/99999/reiniciar"),
+            ("post", "/painel/conversas/99999/cobranca-resolvida"),
+            ("get", "/painel/midia/99999"),
+        ],
+    )
+    async def test_id_inexistente_da_404(self, ambiente, metodo, url):
+        client, _ = ambiente
+        await _login(client)
+        kwargs = {"data": {"texto": "oi"}} if metodo == "post" else {}
+        resp = await getattr(client, metodo)(url, **kwargs)
+        assert resp.status_code == 404, url
+
+    @pytest.mark.asyncio
+    async def test_falha_no_whatsapp_nao_derruba_a_pagina(self, ambiente):
+        """Cloud API fora do ar: a Thainá vê o chat, não um 500."""
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="humano")
+        with patch(
+            "app.services.painel.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+            side_effect=painel_service.whatsapp_client.WhatsAppError("fora do ar"),
+        ):
+            resp = await client.post(f"/painel/conversas/{cid}/responder", data={"texto": "oi"})
+        assert resp.status_code == 200
+
+
+class TestPromptsEditaveis:
+    @pytest.mark.asyncio
+    async def test_salvar_e_resetar_prompt(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        padrao = config_prompt.padrao("prompt_sistema")
+        resp = await client.post(
+            "/painel/prompts/prompt_sistema", data={"texto": "PROMPT CUSTOMIZADO"}
+        )
+        assert resp.status_code == 303
+        assert config_prompt.texto("prompt_sistema") == "PROMPT CUSTOMIZADO"
+        assert config_prompt.customizado("prompt_sistema")
+
+        await client.post("/painel/prompts/prompt_sistema/resetar")
+        assert config_prompt.texto("prompt_sistema") == padrao
+        assert not config_prompt.customizado("prompt_sistema")
+
+    @pytest.mark.asyncio
+    async def test_chave_desconhecida_e_ignorada(self, ambiente):
+        client, _ = ambiente
+        await _login(client)
+        resp = await client.post("/painel/prompts/inexistente", data={"texto": "x"})
+        assert resp.status_code == 303  # redireciona, não explode

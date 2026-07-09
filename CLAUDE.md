@@ -51,7 +51,7 @@ pytest tests/ -v                                  # suite inteira
 pytest tests/test_webhook.py -v                   # um arquivo
 pytest tests/test_seguimento.py::TestRodarSeguimentos::test_envia_marca_e_nao_reenvia   # um teste
 pytest -k "seguimento and envia"                  # por nome
-pytest tests/ --cov=app --cov-report=html         # cobertura
+pytest --cov --cov-report=term-missing            # cobertura (config no pyproject)
 
 # Lint / format (config em pyproject.toml: line-length 100, profile black)
 black .
@@ -61,6 +61,12 @@ mypy app
 ```
 
 Skills do projeto: **`/test`** (suite) e **`/security-review`** (audit antes de PR).
+
+> ⚠️ **Gotcha — cobertura precisa de `concurrency = ["thread", "greenlet"]`.** Já está no
+> `pyproject.toml`. O SQLAlchemy async roda dentro de **greenlets**; sem isso o coverage
+> perde esses frames e reporta rotas cobertas como **não** cobertas (o router do painel
+> aparecia com 63% quando a cobertura real é 90%). Não "conserte" cobertura sem antes
+> checar se a linha realmente não executa. Use `--cov` (sem `=app`), que lê a config.
 
 > ⚠️ **Gotcha — precisa de `.env` até pra rodar testes.** `app/config.py` faz
 > `settings = Settings()` **no import**, e `Settings` tem campos obrigatórios sem

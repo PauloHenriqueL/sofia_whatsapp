@@ -34,3 +34,18 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+# `greenlet` é obrigatório: o SQLAlchemy async executa dentro de greenlets, e sem
+# isto o coverage perde esses frames e reporta rotas cobertas como não cobertas
+# (o router do painel aparecia com 63% quando a cobertura real é 90%).
+concurrency = ["thread", "greenlet"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]

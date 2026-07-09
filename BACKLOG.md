@@ -163,9 +163,24 @@ Adicionar à Tela de Início).
 
 ---
 
+## ✅ Testes das entregas P4/P5/P6 — FEITO
+
+269 testes, 87% de cobertura. Adicionados:
+- `tests/test_whatsapp_client.py` (18): o payload que sai pra Meta é contrato externo,
+  então usa `httpx.MockTransport` — o request é montado de verdade. Cobre reply
+  (`context`), upload de mídia, `filename` só em documento, os dois passos do download,
+  e o fallback do typing.
+- `tests/test_pwa.py` (22): rotas na raiz, requisitos de instalabilidade do manifest, e
+  **guard-rails do service worker** (não pode cachear `/painel/`, `/api/`, `/login`).
+- `tests/test_painel.py` (+18): páginas, ações, 404 de todas as rotas, prompts editáveis,
+  Hamilton fora do ar, Cloud API fora do ar.
+
+Os guard-rails de segurança foram validados por **sabotagem**: quebrei o `sw.js` (cachear
+o painel), o `mime_seguro` (prefixo `image/` → XSS via SVG) e o `saida.py` (JSON embutido),
+e confirmei que os testes pegam cada regressão. Um teste que nunca falhou não protege nada.
+
 ## Ideias fora do backlog atual
-- Testes mais completos das entregas P4/P5/P6 (o Paulo pediu pra priorizar
-  desenvolvimento; P0–P3 têm cobertura, P4/P5 têm o essencial, P6 não tem).
 - Notificação push quando chega escalada nova (exige VAPID; no iPhone só depois de
   instalado).
 - A Sofia (bot) citar mensagem específica — o encanamento do P4 já suporta.
+- `main.py` 76% e `webhook.py` 84%: o que falta são caminhos de erro raros.
