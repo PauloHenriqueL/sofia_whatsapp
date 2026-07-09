@@ -275,6 +275,46 @@ class TestProcessarPayload:
             assert len(enviadas) == 3
 
     @pytest.mark.asyncio
+    async def test_nao_envia_json_interno_vazado_pelo_modelo(self, db_em_memoria):
+        """Regressão do incidente de beta: o modelo pôs o JSON do cadastro no
+        `content` em vez do canal de tool, e ele foi parar no WhatsApp da paciente.
+        A fala legítima ainda tem que sair; o JSON, não (nem no banco)."""
+        vazamento = (
+            '{"nome_completo":"Amanda Soares Alves","data_nascimento":"2002-05-10",'
+            '"endereco":"Praça Cairo, 44"}\n'
+            "Te explico sim. A terapia aqui é por chamada de vídeo."
+        )
+        fake = _FakeLLM(resposta=vazamento)
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await _rodar(
+                _payload_texto(numero="5531955556666", texto="me explica", msg_id="wamid.vaza")
+            )
+
+        enviados = [c.args[1] for c in mock_enviar.await_args_list]
+        assert enviados == ["Te explico sim. A terapia aqui é por chamada de vídeo."]
+        assert not any("Amanda" in e or "nome_completo" in e for e in enviados)
+
+        # E o vazamento também não pode ficar persistido como mensagem enviada.
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531955556666")
+            hist = await conversation.carregar_historico(s, conversa)
+            assert not any("nome_completo" in m["content"] for m in hist)
+
+    @pytest.mark.asyncio
+    async def test_nao_envia_nada_quando_a_resposta_e_so_lixo(self, db_em_memoria):
+        fake = _FakeLLM(resposta='{"motivo":"crise","contexto":"x"}')
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await _rodar(_payload_texto(numero="5531944445555", msg_id="wamid.solixo"))
+
+        mock_enviar.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_presenca_humana_desligada_por_padrao(self, db_em_memoria):
         """Com simular_digitacao=False (padrão), não marca lida nem dá pausa."""
         fake = _FakeLLM(resposta="Bloco um.\n\nBloco dois.")

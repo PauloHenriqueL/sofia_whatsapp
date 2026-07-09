@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada, Mensagem
-from app.services import tools
+from app.services import saida, tools
 
 logger = logging.getLogger(__name__)
 
@@ -100,4 +100,7 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None) -> 
         "recuperados": recuperados,
         "escaladas_por_motivo": escaladas_por_motivo,
         "leads_por_dia": leads_por_dia,
+        # Rede de proteção da saída (P0): se subir, o modelo/prompt regrediu.
+        # Em memória: zera a cada restart do processo. O registro permanente é o log.
+        "saidas_bloqueadas": saida.bloqueios(),
     }

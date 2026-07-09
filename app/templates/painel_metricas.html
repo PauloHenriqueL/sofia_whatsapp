@@ -33,6 +33,13 @@
       <div class="num">{{ m.pendentes }}</div>
       <div class="lbl">Cadastro pendente (precisa de atenção)</div>
     </div>
+    {% if m.saidas_bloqueadas %}
+    <div class="kpi alert">
+      <div class="num">{{ m.saidas_bloqueadas }}</div>
+      <div class="lbl">Mensagens bloqueadas antes de sair
+        <span class="muted">(a Sofia tentou mandar dado interno; avise o Paulo)</span></div>
+    </div>
+    {% endif %}
     <div class="kpi">
       <div class="num">{{ m.humano }}</div>
       <div class="lbl">Em atendimento humano</div>

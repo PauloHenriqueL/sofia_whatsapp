@@ -403,9 +403,28 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   adiciona); o TLS é ligado via `connect_args={"ssl": True}`. SQLite vira `sqlite+aiosqlite`.
 - Tipo JSON portável: `JSON().with_variant(JSONB(), "postgresql")`.
 
+### Sanitização da saída do bot (`saida.py`) — rede de proteção, não cosmético
+- O modelo tem 2 canais: `tool_calls` e `content`. Ele **erra o canal**: em beta pôs o JSON
+  do `cadastrar_paciente` (nome/nascimento/endereço de paciente real) no `content` e o texto
+  foi pro WhatsApp dela; noutra vez vazou `@endsection to=final code omitted`.
+- **Todo texto do bot passa por `saida.limpar()`** no único choke point de saída
+  (`webhook._enviar_em_bolhas`) — isso cobre fallback, escalada, `PEDIR_TEXTO` e LLM. A
+  resposta da **Thainá** (`painel.responder_como_thaina`) **não** passa (é humana, de propósito).
+  `seguimento` manda constante hardcoded, não precisa.
+- Remove: JSON/estrutura com campo de `tools.py` (linha inteira **ou** embutido na fala),
+  tokens internos (`@endsection`, `to=final`, ```` ``` ````, `<|...|>`) e os prefixos que **nós**
+  injetamos no histórico (`[Thainá, coordenadora clínica]:`, `[Aviso do sistema: ...]`).
+- **Falso positivo > falso negativo**: cortar fala legítima quebra a conversa. O casamento é
+  conservador de propósito (`"Ele disse {isso}"` passa intacto). Há bateria de teste pra isso.
+- Se limpar tudo, **nenhuma bolha é enviada**. Loga WARN (sem o conteúdo — LGPD) e conta em
+  `saida.bloqueios()`, exposto em `/painel/metricas` (card só aparece se > 0). Contador é em
+  memória (zera no restart); o registro permanente é o log.
+- **Não é substituível por prompt** (o prompt reforça, mas LLM não garante formato).
+
 ### LGPD / logs
 - **Nunca logar conteúdo de mensagem** (dado de saúde sensível) — só metadados
   (qtd, tipos, ids). Telefones em log passam por `utils.mascarar_telefone` (`***8888`).
+  Idem o conteúdo que a `saida.limpar()` removeu: loga-se só motivo e tamanho.
 - `logging_config.py`: texto no dev, JSON na prod (`LOG_JSON=true`).
 
 ---
@@ -536,6 +555,7 @@ sofia/
 │   │   ├── cadastro.py       # Cadastro no Hamilton (busca-antes-de-criar)
 │   │   ├── escalation.py     # Lógica de escalada + alerta à Thainá
 │   │   ├── config_negocio.py # Valores de negócio editáveis (cache + tabela configuracao)
+│   │   ├── saida.py          # Sanitiza a fala do bot antes de enviar (rede de proteção)
 │   │   ├── seguimento.py     # Follow-up de lead parado (Frente 2)
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
@@ -644,11 +664,7 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 
 ### 🚩 Backlog priorizado: [BACKLOG.md](./BACKLOG.md)
 
-Leia antes de pegar demanda nova. **P0 em aberto (grave)**: o `content` do LLM vai **direto**
-pro paciente, sem sanitização (`llm_client.py` → `_enviar_em_bolhas` → `enviar_texto`). Em beta
-o modelo já vazou o JSON do `cadastrar_paciente` (nome/nascimento/endereço de paciente real —
-incidente de LGPD) e lixo de template (`@endsection to=final code omitted`). **Não é problema de
-prompt** (LLM não garante formato): falta rede de proteção na fronteira de saída.
+Leia antes de pegar demanda nova (painel, mídia, reply-to, PWA).
 
 ---
 

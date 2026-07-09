@@ -19,6 +19,7 @@ from app.services import (
     conversation,
     escalation,
     llm_client,
+    saida,
     serializacao,
     tools,
     transcricao,
@@ -402,8 +403,13 @@ async def _responder_turno(session, conversa, numero: str) -> None:
 async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> None:
     """Quebra a resposta em bolhas curtas e envia em ordem, persistindo cada uma.
 
+    Sanitiza antes de tudo: este é o único ponto por onde a fala do bot sai, então
+    é aqui que a rede de proteção fica (ver `saida.limpar` e o P0 do BACKLOG.md).
     Se uma bolha falhar, pára (não adianta mandar o resto fora de ordem).
     """
+    resposta = saida.limpar(resposta)
+    if not resposta:
+        return
     for bolha in whatsapp_client.dividir_em_bolhas(resposta):
         if config_negocio.valor("simular_digitacao"):
             await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))

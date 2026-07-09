@@ -5,7 +5,12 @@ Sofia de novo") já foram entregues no commit `a2a2fdf`.
 
 ---
 
-## P0 — Sanitizar a saída do modelo antes de mandar pro paciente
+## ✅ P0 — Sanitizar a saída do modelo antes de mandar pro paciente
+
+**ENTREGUE.** `app/services/saida.py` + `tests/test_saida.py` (22 testes) +
+regressão end-to-end em `tests/test_webhook.py`. Chamado no único choke point de
+saída do bot (`webhook._enviar_em_bolhas`). Contador em `/painel/metricas`.
+O histórico do problema fica abaixo, como registro.
 
 **Gravidade: alta.** Já aconteceu duas vezes em beta.
 
