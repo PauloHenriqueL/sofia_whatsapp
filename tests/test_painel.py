@@ -785,6 +785,7 @@ class TestAcoesDoPainel:
             ("post", "/painel/conversas/99999/cadastrar"),
             ("post", "/painel/conversas/99999/reiniciar"),
             ("post", "/painel/conversas/99999/cobranca-resolvida"),
+            ("post", "/painel/conversas/99999/cobranca-reabrir"),
             ("get", "/painel/midia/99999"),
         ],
     )
@@ -833,3 +834,70 @@ class TestPromptsEditaveis:
         await _login(client)
         resp = await client.post("/painel/prompts/inexistente", data={"texto": "x"})
         assert resp.status_code == 303  # redireciona, não explode
+
+
+class TestCobrancaResolvidaEReabrir:
+    """A conversa nunca some: a Thainá pode reabrir e continuar falando."""
+
+    async def _conversa_cadastrada(self, maker):
+        async with maker() as s:
+            c = Conversa(
+                numero_whatsapp="5531900009999", paciente_hamilton_id=7, estado="cadastrado"
+            )
+            s.add(c)
+            await s.commit()
+            return c.id
+
+    @pytest.mark.asyncio
+    async def test_resolver_e_reabrir_pela_rota(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await self._conversa_cadastrada(maker)
+
+        resp = await client.post(f"/painel/conversas/{cid}/cobranca-resolvida")
+        assert resp.headers["location"] == "/painel/acompanhamento?feito=resolvido"
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).cobranca_resolvida_em is not None
+
+        resp = await client.post(f"/painel/conversas/{cid}/cobranca-reabrir")
+        assert resp.headers["location"] == "/painel/acompanhamento?feito=reaberto"
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).cobranca_resolvida_em is None
+
+    @pytest.mark.asyncio
+    async def test_resolver_nao_apaga_a_conversa(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await self._conversa_cadastrada(maker)
+        await client.post(f"/painel/conversas/{cid}/cobranca-resolvida")
+        # Continua acessível e listada.
+        assert (await client.get(f"/painel/conversas/{cid}/")).status_code == 200
+        assert (await client.get("/painel/")).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_nome_hostil_nao_quebra_o_html_nem_injeta(self, ambiente):
+        """O nome vai pro `data-nome` (autoescapado), nunca interpolado no JS."""
+        client, maker = ambiente
+        await _login(client)
+        async with maker() as s:
+            c = Conversa(
+                numero_whatsapp="5531900008888",
+                paciente_hamilton_id=8,
+                estado="cadastrado",
+                dados_coletados={"nome_completo": '"><script>alert(1)</script>'},
+            )
+            s.add(c)
+            await s.commit()
+
+        fake = AsyncMock()
+        fake.status_primeira_consulta = AsyncMock(
+            return_value={
+                8: {"nome": '"><script>alert(1)</script>', "primeira_consulta_realizada": True}
+            }
+        )
+        with patch(
+            "app.services.acompanhamento.hamilton_client.get_hamilton_client", return_value=fake
+        ):
+            html = (await client.get("/painel/acompanhamento")).text
+        assert "<script>alert(1)</script>" not in html
+        assert "data-confirmar-resolvido" in html

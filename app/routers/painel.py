@@ -176,11 +176,14 @@ async def resetar_prompt(chave: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/acompanhamento")
-async def pagina_acompanhamento(request: Request, db: AsyncSession = Depends(get_db)):
+async def pagina_acompanhamento(
+    request: Request, feito: str = "", db: AsyncSession = Depends(get_db)
+):
+    """`feito` é o aviso pós-ação ('resolvido'/'reaberto'), pra não sumir em silêncio."""
     dados = await acompanhamento.montar_acompanhamento(db)
     return templates.TemplateResponse(
         "painel_acompanhamento.html",
-        {"request": request, **dados},
+        {"request": request, "feito": feito, **dados},
     )
 
 
@@ -213,11 +216,22 @@ async def baixar_midia(midia_id: int, download: int = 0, db: AsyncSession = Depe
 
 @router.post("/conversas/{conversa_id}/cobranca-resolvida")
 async def cobranca_resolvida(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Tira o paciente da fila de cobrança. A conversa continua existindo."""
     conversa = await painel.obter_conversa(db, conversa_id)
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await acompanhamento.marcar_cobranca_resolvida(db, conversa)
-    return RedirectResponse("/painel/acompanhamento", status_code=303)
+    return RedirectResponse("/painel/acompanhamento?feito=resolvido", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/cobranca-reabrir")
+async def cobranca_reabrir(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Desfaz o "marcar resolvido" (clique por engano, ou a cobrança voltou)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await acompanhamento.reabrir_cobranca(db, conversa)
+    return RedirectResponse("/painel/acompanhamento?feito=reaberto", status_code=303)
 
 
 @router.get("/fragment/conversas")

@@ -392,7 +392,17 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   (`is_primeira_consulta` + `is_realizado` no Hamilton), com dias desde o cadastro, ordenado
   do mais urgente, destaque em vermelho > 7 dias (a meta).
 - **Demanda 4 — pronto pra cobrança**: quem já teve a 1ª consulta e ainda não foi resolvido;
-  botão "Marcar resolvido" seta `conversa.cobranca_resolvida_em` (tira da lista).
+  botão "Marcar resolvido" seta `conversa.cobranca_resolvida_em`.
+- **Resolvido é um ESTADO, não o fim.** `cobranca_resolvida_em` é **soft-delete**: tira o
+  paciente da *fila de trabalho*, nunca apaga a conversa (que segue em "Todas as conversas",
+  com todo o histórico). Por isso existe a seção **Resolvidos** (recolhível) com **"Reabrir"**,
+  e as três tabelas têm **"Abrir conversa"** — a Thainá precisa poder continuar falando com um
+  paciente já cadastrado/cobrado. Só `painel.excluir_conversa` (botão "Reiniciar conversa")
+  apaga de verdade.
+- Marcar resolvido **não mexe no `modo`** da conversa: é sobre cobrança, não sobre quem atende.
+- No template, nome de paciente vai pro `data-nome` (Jinja autoescapa) e o JS lê de lá. Nunca
+  interpole no `onsubmit`: `| tojson` emite aspas duplas que fecham o atributo, e um nome como
+  "D'Ávila" quebraria a string.
 - Hamilton fora do ar → a página mostra um aviso, não quebra.
 
 ### Imagem e documento recebidos (`midia.py` + tabela `midia`)

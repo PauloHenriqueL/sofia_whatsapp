@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block titulo %}Acompanhamento · Sofia{% endblock %}
+
+{# Botão explícito pra abrir o chat. A linha inteira também é clicável, mas um
+   botão visível é o que faz a Thainá descobrir que dá pra continuar a conversa. #}
+{% macro abrir(p) %}
+  <a class="btn btn-ghost btn-sm" href="/painel/conversas/{{ p.conversa_id }}/"
+     onclick="event.stopPropagation()" title="Ver e continuar a conversa">
+    <i class="bi bi-chat-dots"></i> Abrir conversa
+    {% if p.modo == 'humano' %}<span class="badge badge-humano">humano</span>{% endif %}
+  </a>
+{% endmacro %}
+
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app">
@@ -21,6 +32,20 @@
   </div>
   {% endif %}
 
+  {# Aviso pós-ação: nada some em silêncio. #}
+  {% if feito == 'resolvido' %}
+  <div class="aviso">
+    <i class="bi bi-check2-circle"></i>
+    Cobrança marcada como resolvida. A conversa continua aqui em <strong>Resolvidos</strong>
+    (e em Todas as conversas), com todo o histórico.
+  </div>
+  {% elif feito == 'reaberto' %}
+  <div class="aviso">
+    <i class="bi bi-arrow-counterclockwise"></i>
+    Cobrança reaberta. O paciente voltou pra lista de <strong>Pronto pra cobrança</strong>.
+  </div>
+  {% endif %}
+
   <div class="card" style="margin-bottom:18px">
     <h2 style="font-size:16px; margin:0 0 4px">
       <i class="bi bi-hourglass-split"></i> Esperando a 1ª consulta ({{ espera|length }})
@@ -30,7 +55,7 @@
     </div>
     <table class="table">
       <thead>
-        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort="num">Dias de espera</th></tr>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort="num">Dias de espera</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in espera %}
@@ -44,15 +69,16 @@
               {{ p.dias }} dias
             {% endif %}
           </td>
+          <td>{{ abrir(p) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="empty"><i class="bi bi-check2-circle"></i> Ninguém esperando a 1ª consulta.</td></tr>
+        <tr><td colspan="4" class="empty"><i class="bi bi-check2-circle"></i> Ninguém esperando a 1ª consulta.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <div class="card">
+  <div class="card" style="margin-bottom:18px">
     <h2 style="font-size:16px; margin:0 0 4px">
       <i class="bi bi-cash-coin"></i> Pronto pra cobrança ({{ cobranca|length }})
     </h2>
@@ -65,12 +91,18 @@
       </thead>
       <tbody>
         {% for p in cobranca %}
-        <tr>
+        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
           <td style="font-weight:600">{{ p.nome }}</td>
           <td class="muted">{{ p.numero }}</td>
           <td class="muted">{{ p.dat_primeira_consulta or '—' }}</td>
-          <td>
-            <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-resolvida" style="margin:0">
+          <td class="acoes">
+            {{ abrir(p) }}
+            {# O nome vai pro `data-nome` (Jinja autoescapa atributo) e o JS o lê de lá.
+               Interpolar direto no `onsubmit` quebraria: `tojson` emite aspas duplas,
+               que fechariam o atributo, e um nome como "D'Ávila" quebraria a string JS. #}
+            <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-resolvida"
+                  style="margin:0" onclick="event.stopPropagation()"
+                  data-nome="{{ p.nome }}" data-confirmar-resolvido>
               <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-check2"></i> Marcar resolvido</button>
             </form>
           </td>
@@ -81,9 +113,59 @@
       </tbody>
     </table>
   </div>
+
+  {# Resolvido é um estado, não o fim: a conversa segue aqui, e dá pra desfazer. #}
+  <details class="card" {% if feito %}open{% endif %}>
+    <summary class="resolvidos-cabecalho">
+      <h2 style="font-size:16px; margin:0">
+        <i class="bi bi-check2-all"></i> Resolvidos ({{ resolvidos|length }})
+      </h2>
+      <span class="muted">Cobrança já resolvida. Clique pra ver, reabrir ou continuar a conversa.</span>
+    </summary>
+    <table class="table">
+      <thead>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort>Resolvido em</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in resolvidos %}
+        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
+          <td style="font-weight:600">{{ p.nome }}</td>
+          <td class="muted">{{ p.numero }}</td>
+          <td class="muted">{{ p.resolvida_em | data }}</td>
+          <td class="acoes">
+            {{ abrir(p) }}
+            <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-reabrir"
+                  style="margin:0" onclick="event.stopPropagation()">
+              <button class="btn btn-ghost btn-sm" type="submit" title="Volta pra fila de cobrança">
+                <i class="bi bi-arrow-counterclockwise"></i> Reabrir
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty"><i class="bi bi-inbox"></i> Nada resolvido ainda.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/ordenar-tabela.js" defer></script>
+<script>
+  // Diz o que vai acontecer ANTES de a linha sumir da fila (a conversa não some).
+  // O nome vem do `data-nome` (já escapado pelo Jinja), nunca interpolado no JS.
+  document.addEventListener('submit', function (e) {
+    const form = e.target.closest('[data-confirmar-resolvido]');
+    if (!form) return;
+    const nome = form.dataset.nome || 'este paciente';
+    const ok = confirm(
+      'Marcar a cobrança de ' + nome + ' como resolvida?\n\n' +
+      'A conversa NÃO some: ela vai pra seção "Resolvidos", onde você pode reabrir ' +
+      'ou continuar falando com o paciente quando quiser.'
+    );
+    if (!ok) e.preventDefault();
+  });
+</script>
 {% endblock %}
