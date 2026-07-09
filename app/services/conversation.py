@@ -15,6 +15,15 @@ from app.utils import mascarar_telefone
 logger = logging.getLogger(__name__)
 
 
+AVISO_RETOMADA = (
+    "[Aviso do sistema: a Thainá assumiu a conversa e falou com a pessoa. "
+    "Agora você, Sofia, voltou a atender. A pessoa não sabe disso. "
+    "Comece a sua próxima mensagem dizendo, em uma frase curta, que é a Sofia de novo "
+    "(ex.: 'Oi, é a Sofia aqui de novo.'), e siga a conversa a partir do que a Thainá disse. "
+    "Faça isso uma vez só.]"
+)
+
+
 async def carregar_historico(
     session: AsyncSession, conversa: Conversa, limite: int = 20
 ) -> list[dict[str, str]]:
@@ -23,6 +32,11 @@ async def carregar_historico(
     Retorna em ordem cronológica (mais antiga primeiro), mapeando a origem:
     'paciente' -> 'user'; 'bot' e 'thaina' -> 'assistant'. Mensagens sem texto
     (áudio, imagem) são ignoradas porque não há conteúdo textual a enviar.
+
+    A fala da Thainá é prefixada, porque no papel `assistant` o modelo não teria
+    como distingui-la da sua própria. E quando a última fala da Allos foi dela,
+    injetamos um aviso pra Sofia se reapresentar ao retomar (senão a pessoa não
+    percebe que trocou de interlocutor de volta).
     """
     result = await session.execute(
         select(Mensagem)
@@ -34,11 +48,19 @@ async def carregar_historico(
     mensagens.reverse()  # do mais antigo para o mais novo
 
     historico: list[dict[str, str]] = []
+    ultima_da_allos: str | None = None
     for m in mensagens:
         if not m.texto:
             continue
-        role = "user" if m.origem == "paciente" else "assistant"
-        historico.append({"role": role, "content": m.texto})
+        if m.origem == "paciente":
+            historico.append({"role": "user", "content": m.texto})
+            continue
+        ultima_da_allos = m.origem
+        conteudo = f"[Thainá, coordenadora clínica]: {m.texto}" if m.origem == "thaina" else m.texto
+        historico.append({"role": "assistant", "content": conteudo})
+
+    if ultima_da_allos == "thaina":
+        historico.append({"role": "system", "content": AVISO_RETOMADA})
     return historico
 
 

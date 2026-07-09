@@ -74,6 +74,33 @@ class TestCarregarHistorico:
             {"role": "user", "content": "quero terapia"},
         ]
 
+    async def test_fala_da_thaina_e_marcada_e_pede_reapresentacao(self, session):
+        # Thainá falou por último: a Sofia tem que saber quem falou e se reapresentar.
+        conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
+        await conversation.registrar_mensagem_recebida(
+            session, conversa, tipo="texto", texto="oi", whatsapp_message_id="w1"
+        )
+        await conversation.registrar_mensagem_enviada(
+            session, conversa, texto="oi, aqui é a Thainá", origem="thaina"
+        )
+        await session.commit()
+
+        hist = await conversation.carregar_historico(session, conversa)
+        assert hist[1]["role"] == "assistant"
+        assert hist[1]["content"].startswith("[Thainá, coordenadora clínica]:")
+        assert hist[-1] == {"role": "system", "content": conversation.AVISO_RETOMADA}
+
+    async def test_sem_aviso_quando_a_sofia_falou_por_ultimo(self, session):
+        conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
+        await conversation.registrar_mensagem_enviada(
+            session, conversa, texto="oi, aqui é a Thainá", origem="thaina"
+        )
+        await conversation.registrar_mensagem_enviada(session, conversa, texto="voltei, é a Sofia")
+        await session.commit()
+
+        hist = await conversation.carregar_historico(session, conversa)
+        assert all(m["role"] != "system" for m in hist)
+
     async def test_ignora_mensagens_sem_texto(self, session):
         conversa = await conversation.obter_ou_criar_conversa(session, "553199999")
         await conversation.registrar_mensagem_recebida(
