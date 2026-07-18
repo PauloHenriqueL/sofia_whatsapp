@@ -517,6 +517,31 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   memória (zera no restart); o registro permanente é o log.
 - **Não é substituível por prompt** (o prompt reforça, mas LLM não garante formato).
 
+### Pagamentos Stripe (`pagamentos.py` + `stripe_client.py`, `/painel/pagamentos`)
+- Portado do painel do site da Allos (guia `reproduzir-painel-pagamentos.md` no repo
+  Allos-site), **com os bugs do original corrigidos**: parcelado tem `cancel_at`
+  (senão cobraria pra sempre), metadata padronizada (`nome_cliente`), tipo via
+  `metadata.tipo`, `apiVersion` fixada (header `Stripe-Version`).
+- **Sem webhook e sem tabela local por escolha**: o Stripe é a única fonte de verdade;
+  a listagem chama a API ao vivo. `stripe_client.py` é httpx puro (form-encoded,
+  `_achatar` gera a notação de colchetes). `STRIPE_SECRET_KEY` vazia = tela desligada
+  (aviso), nada quebra.
+- 3 partes na mesma página (`?aba=`): **gerar link** neuro 1x (Payment Link) ou 2-6x
+  (assinatura mensal da parcela com `cancel_at` — NÃO é parcelamento de cartão;
+  explicar ao paciente que são N cobranças mensais), **assinatura terapia** (recorrente,
+  ancorada no dia 10, pro-rata na 1ª fatura) e **listagem** com faturas.
+- **Vínculo paciente ↔ Stripe**: `conversa.stripe_ref` aceita `sub_...`, `cs_...`,
+  `cus_...`, `plink_...` ou a URL do link (buy.stripe.com) — `interpretar_referencia`
+  normaliza, `status_da_referencia` resolve ao vivo num estado unificado (pago/ativa/
+  atrasada/aguardando/...). Aparece na página da conversa (card Pagamento) e na fila
+  "Pronto pra cobrança" do acompanhamento (`anotar_pagamentos`, tolerante a falha).
+  Link criado com "Vincular ao paciente" já sai amarrado. Parcelado cancelado após
+  quitar as N parcelas conta como **pago**, não "cancelada".
+- `/pagamento-sucesso` e `/pagamento-cancelado` são **públicas** (o paciente cai nelas
+  ao voltar do checkout) e **não confirmam pagamento** — cortesia visual; a verdade é
+  a API. Timestamps do Stripe são em SEGUNDOS (filtro Jinja `data_unix`); valores em
+  CENTAVOS (`fmt_centavos`).
+
 ### LGPD / logs
 - **Nunca logar conteúdo de mensagem** (dado de saúde sensível) — só metadados
   (qtd, tipos, ids). Telefones em log passam por `utils.mascarar_telefone` (`***8888`).
@@ -814,6 +839,10 @@ SECRET_KEY=                        # assina o cookie de sessão (trocar em prod)
 
 # Tarefas agendadas (cron externo dos follow-ups; vazio = endpoint desligado)
 TASKS_TOKEN=
+
+# Stripe (links de pagamento no painel; vazio = tela desligada, mostra aviso)
+STRIPE_SECRET_KEY=                 # mesma conta do site da Allos; só no Render
+BASE_URL=https://sofia-whatsapp.onrender.com   # monta /pagamento-sucesso|cancelado
 
 # Geral
 LOG_LEVEL=INFO

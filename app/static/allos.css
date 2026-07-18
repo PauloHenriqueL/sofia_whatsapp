@@ -291,6 +291,14 @@ body { padding-bottom:env(safe-area-inset-bottom); }
 /* Form que embrulha um botão de ação (o margin default do form desalinha). */
 form.acao-inline { margin:0; }
 
+/* ── Pagamentos (Stripe) ──────────────────────────────────────────────────── */
+.link-gerado {
+  word-break:break-all; background:var(--bg-input); border:1px solid var(--border-default);
+  border-radius:10px; padding:10px 12px; font-size:13px; font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+.assinatura { border-left:3px solid var(--teal-500); }
+.assinatura--atrasada { border-left-color:var(--red-text); }
+
 /* Duas ações por linha (abrir conversa + resolver/reabrir). */
 td.acoes { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 

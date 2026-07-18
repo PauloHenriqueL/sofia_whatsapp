@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     hamilton_username: str = ""
     hamilton_password: str = ""
 
+    # Stripe (links de pagamento gerados no painel). Vazio = feature desligada,
+    # a tela de Pagamentos mostra um aviso em vez de quebrar.
+    stripe_secret_key: str = ""
+    # URL pública da Sofia — monta as páginas de retorno do checkout
+    # (/pagamento-sucesso e /pagamento-cancelado). Sem barra no final.
+    base_url: str = "https://sofia-whatsapp.onrender.com"
+
     # Painel
     painel_user: str = "thaina"
     painel_password: str

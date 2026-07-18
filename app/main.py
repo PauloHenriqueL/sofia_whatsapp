@@ -15,7 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logging_config import configurar_logging
-from app.routers import api, auth, health, painel, tasks, webhook
+from app.routers import api, auth, health, pagamentos, painel, tasks, webhook
 
 configurar_logging()
 logger = logging.getLogger(__name__)
@@ -86,6 +86,8 @@ app.include_router(webhook.router)
 app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(painel.router)
+app.include_router(pagamentos.router)
+app.include_router(pagamentos.publico)
 app.include_router(tasks.router)
 
 

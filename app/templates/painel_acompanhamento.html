@@ -24,6 +24,7 @@
   <div class="tabs">
     <a class="tab" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
     <a class="tab active" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
+    <a class="tab" href="/painel/pagamentos/"><i class="bi bi-credit-card"></i> Pagamentos</a>
   </div>
 
   {% if erro %}
@@ -87,7 +88,7 @@
     </div>
     <table class="table">
       <thead>
-        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort>1ª consulta</th><th></th></tr>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort>1ª consulta</th><th data-sort>Pagamento</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in cobranca %}
@@ -95,6 +96,21 @@
           <td style="font-weight:600">{{ p.nome }}</td>
           <td class="muted">{{ p.numero }}</td>
           <td class="muted">{{ p.dat_primeira_consulta or '—' }}</td>
+          <td>
+            {% if p.pagamento %}
+              {% if p.pagamento.estado in ('pago', 'ativa') %}
+                <span class="badge badge-cadastrado">{{ p.pagamento.rotulo }}</span>
+              {% elif p.pagamento.estado == 'atrasada' %}
+                <span class="badge badge-escalado">{{ p.pagamento.rotulo }}</span>
+              {% elif p.pagamento.estado == 'aguardando' %}
+                <span class="badge badge-humano">{{ p.pagamento.rotulo }}</span>
+              {% else %}
+                <span class="badge">{{ p.pagamento.rotulo }}</span>
+              {% endif %}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
           <td class="acoes">
             {{ abrir(p) }}
             {# O nome vai pro `data-nome` (Jinja autoescapa atributo) e o JS o lê de lá.
@@ -108,7 +124,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="empty"><i class="bi bi-inbox"></i> Ninguém pra cobrar agora.</td></tr>
+        <tr><td colspan="5" class="empty"><i class="bi bi-inbox"></i> Ninguém pra cobrar agora.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block titulo %}Pagamentos · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app">
+  <div class="page-head">
+    <div>
+      <h1>Pagamentos</h1>
+      <div class="subtitle">Links de cobrança do Stripe pra mandar no WhatsApp</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
+    <a class="tab" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
+    <a class="tab active" href="/painel/pagamentos/"><i class="bi bi-credit-card"></i> Pagamentos</a>
+  </div>
+
+  {% if not configurado %}
+  <div class="aviso aviso--erro">
+    <i class="bi bi-exclamation-triangle"></i>
+    Stripe não configurado. Defina a variável <b>STRIPE_SECRET_KEY</b> nas Env Vars do Render
+    (a mesma chave do site da Allos) e a tela passa a funcionar.
+  </div>
+  {% endif %}
+
+  {# Sub-abas da tela #}
+  <div class="tabs">
+    <a class="tab {{ 'active' if aba == 'gerar' }}" href="/painel/pagamentos/?aba=gerar">
+      <i class="bi bi-link-45deg"></i> Gerar link
+    </a>
+    <a class="tab {{ 'active' if aba == 'terapia' }}" href="/painel/pagamentos/?aba=terapia">
+      <i class="bi bi-arrow-repeat"></i> Assinatura terapia
+    </a>
+    <a class="tab {{ 'active' if aba == 'assinaturas' }}" href="/painel/pagamentos/?aba=assinaturas">
+      <i class="bi bi-list-check"></i> Assinaturas
+    </a>
+  </div>
+
+  {% if erro %}
+  <div class="aviso aviso--erro"><i class="bi bi-exclamation-triangle"></i> {{ erro }}</div>
+  {% endif %}
+
+  {# ── Resultado (link criado) ─────────────────────────────────────────── #}
+  {% if resultado %}
+  <div class="aviso"><i class="bi bi-check-circle"></i> Link criado. Copie e mande pro paciente no WhatsApp.</div>
+  <div class="card" style="padding:16px 18px; margin-bottom:18px">
+    <div class="link-gerado" id="link-gerado">{{ resultado.link }}</div>
+    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center">
+      <button class="btn btn-primary" type="button" data-copiar="{{ resultado.link }}">
+        <i class="bi bi-clipboard"></i> Copiar link
+      </button>
+      {% if resultado.resumo %}
+        <span class="muted">
+          {{ resultado.resumo.parcelas }}x de {{ resultado.resumo.valor_parcela }} =
+          {{ resultado.resumo.valor_total }}{% if resultado.resumo.desconto != '0' %} ({{ resultado.resumo.desconto }} off){% endif %}
+        </span>
+      {% else %}
+        <span class="muted">
+          {{ resultado.valor_mensal }}/mês todo dia 10 · 1ª fatura ≈ {{ resultado.pro_rata }}
+          (pro-rata de {{ resultado.dias_ate_dia10 }} dias até {{ resultado.proximo_dia10 }})
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Aba: gerar link (neuro, 1x a 6x) ────────────────────────────────── #}
+  {% if aba == 'gerar' %}
+  <form class="card" style="padding:18px; max-width:560px" method="post" action="/painel/pagamentos/criar-link">
+    <div class="login-field">
+      <label for="pg-nome">Nome do paciente</label>
+      <input class="input" type="text" id="pg-nome" name="nome" required value="{{ form.get('nome', '') }}">
+    </div>
+    <div class="login-field">
+      <label for="pg-email">E-mail</label>
+      <input class="input" type="email" id="pg-email" name="email" required value="{{ form.get('email', '') }}">
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap">
+      <div class="login-field" style="flex:1; min-width:130px">
+        <label for="pg-valor">Valor total (R$)</label>
+        <input class="input" type="number" id="pg-valor" name="valor_total" required
+               min="{{ limites.valor_min }}" max="{{ limites.valor_max }}" step="0.01"
+               value="{{ form.get('valor_total') or '' }}">
+      </div>
+      <div class="login-field" style="flex:1; min-width:110px">
+        <label for="pg-parcelas">Parcelas</label>
+        <select class="input" id="pg-parcelas" name="parcelas">
+          {% for n in range(1, limites.parcelas_max + 1) %}
+            <option value="{{ n }}" {{ 'selected' if form.get('parcelas', 1) == n }}>{{ n }}x</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="login-field" style="flex:1; min-width:110px">
+        <label for="pg-desconto">Desconto (%)</label>
+        <input class="input" type="number" id="pg-desconto" name="desconto"
+               min="0" max="{{ limites.desconto_max }}" step="1" value="{{ form.get('desconto', 0) }}">
+      </div>
+    </div>
+    <div class="login-field">
+      <label for="pg-conversa">Vincular ao paciente da Sofia (opcional)</label>
+      <select class="input" id="pg-conversa" name="conversa_id">
+        <option value="">— não vincular —</option>
+        {% for p in pacientes %}
+          <option value="{{ p.id }}" {{ 'selected' if form.get('conversa_id') == p.id }}>
+            {{ p.rotulo }} ({{ p.numero }})
+          </option>
+        {% endfor %}
+      </select>
+      <div class="muted" style="font-size:12px; margin-top:4px">
+        O status do pagamento aparece na conversa e na fila de cobrança.
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit" {{ 'disabled' if not configurado }}>
+      <i class="bi bi-link-45deg"></i> Gerar link
+    </button>
+    <div class="muted" style="font-size:12px; margin-top:10px">
+      Parcelado (2x a 6x) são <b>N cobranças mensais no cartão</b> (uma assinatura que
+      se encerra sozinha), não parcelamento da fatura — explique isso ao paciente.
+    </div>
+  </form>
+  {% endif %}
+
+  {# ── Aba: assinatura terapia (dia 10) ────────────────────────────────── #}
+  {% if aba == 'terapia' %}
+  <form class="card" style="padding:18px; max-width:560px" method="post" action="/painel/pagamentos/assinatura">
+    <div class="login-field">
+      <label for="as-nome">Nome do paciente</label>
+      <input class="input" type="text" id="as-nome" name="nome" required value="{{ form.get('nome', '') }}">
+    </div>
+    <div class="login-field">
+      <label for="as-email">E-mail</label>
+      <input class="input" type="email" id="as-email" name="email" required value="{{ form.get('email', '') }}">
+    </div>
+    <div class="login-field">
+      <label for="as-valor">Mensalidade (R$)</label>
+      <input class="input" type="number" id="as-valor" name="valor_mensal" required
+             min="{{ limites.terapia_min }}" max="{{ limites.terapia_max }}" step="0.01"
+             value="{{ form.get('valor_mensal') or preco_terapia }}">
+    </div>
+    <div class="login-field">
+      <label for="as-conversa">Vincular ao paciente da Sofia (opcional)</label>
+      <select class="input" id="as-conversa" name="conversa_id">
+        <option value="">— não vincular —</option>
+        {% for p in pacientes %}
+          <option value="{{ p.id }}" {{ 'selected' if form.get('conversa_id') == p.id }}>
+            {{ p.rotulo }} ({{ p.numero }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit" {{ 'disabled' if not configurado }}>
+      <i class="bi bi-arrow-repeat"></i> Criar assinatura
+    </button>
+    <div class="muted" style="font-size:12px; margin-top:10px">
+      Cobrança todo dia 10. Quem assina no meio do mês paga o proporcional até lá na 1ª fatura.
+    </div>
+  </form>
+  {% endif %}
+
+  {# ── Aba: assinaturas (listagem ao vivo do Stripe) ───────────────────── #}
+  {% if aba == 'assinaturas' %}
+  <form class="toolbar" method="get" action="/painel/pagamentos/">
+    <input type="hidden" name="aba" value="assinaturas">
+    <select class="input" name="status" style="max-width:200px" onchange="this.form.submit()">
+      {% for chave, rotulo in [('all', 'Todos os status'), ('active', 'Ativas'), ('past_due', 'Atrasadas'), ('canceled', 'Canceladas')] %}
+        <option value="{{ chave }}" {{ 'selected' if status == chave }}>{{ rotulo }}</option>
+      {% endfor %}
+    </select>
+    <select class="input" name="tipo" style="max-width:200px" onchange="this.form.submit()">
+      {% for chave, rotulo in [('all', 'Todos os tipos'), ('neuro', 'Neuro (parcelado)'), ('clinica', 'Terapia')] %}
+        <option value="{{ chave }}" {{ 'selected' if tipo == chave }}>{{ rotulo }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% for sub in assinaturas or [] %}
+  <div class="card assinatura {{ 'assinatura--atrasada' if sub.parcelas_atrasadas else '' }}" style="padding:14px 18px; margin-bottom:12px">
+    <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center">
+      <div>
+        <b>{{ sub.nome_cliente }}</b>
+        <span class="badge">{{ 'Neuro' if sub.tipo == 'neuro' else 'Terapia' }}</span>
+        {% if sub.status == 'active' %}<span class="badge badge-cadastrado">{{ sub.status_rotulo }}</span>
+        {% elif sub.parcelas_atrasadas or sub.status in ('past_due', 'unpaid') %}<span class="badge badge-escalado">{{ sub.status_rotulo }}</span>
+        {% else %}<span class="badge">{{ sub.status_rotulo }}</span>{% endif %}
+      </div>
+      <div class="muted">{{ sub.valor_parcela }}/mês · desde {{ sub.criado_em | data_unix }}</div>
+    </div>
+    <div class="muted" style="margin-top:6px">
+      {% if sub.tipo == 'neuro' and sub.parcelas_total %}
+        {{ sub.parcelas_pagas }} de {{ sub.parcelas_total }} parcelas pagas
+      {% else %}
+        {{ sub.parcelas_pagas }} mensalidade(s) paga(s) · recorrente
+      {% endif %}
+      {% if sub.parcelas_atrasadas %}
+        · <span style="color:var(--red-text); font-weight:600">{{ sub.parcelas_atrasadas }} atrasada(s)</span>
+      {% endif %}
+    </div>
+    {% if sub.faturas %}
+    <details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer">Faturas ({{ sub.faturas | length }})</summary>
+      <table class="table" style="margin-top:8px">
+        <thead><tr><th>Nº</th><th>Valor</th><th>Status</th><th>Data</th><th></th></tr></thead>
+        <tbody>
+          {% for f in sub.faturas %}
+          <tr>
+            <td>{{ f.numero or '—' }}</td>
+            <td>{{ f.valor }}</td>
+            <td>{{ f.status_rotulo }}</td>
+            <td class="muted">{{ f.criada_em | data_unix }}</td>
+            <td>
+              {% if f.url_pagamento %}<a href="{{ f.url_pagamento }}" target="_blank" rel="noopener noreferrer">abrir</a>{% endif %}
+              {% if f.url_pdf %} · <a href="{{ f.url_pdf }}" target="_blank" rel="noopener noreferrer">PDF</a>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  </div>
+  {% else %}
+    {% if configurado and not erro %}
+    <div class="card"><div class="empty"><i class="bi bi-inbox"></i> Nenhuma assinatura com esses filtros.</div></div>
+    {% endif %}
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Copiar o link gerado (delegado: o botão só existe após criar).
+  document.addEventListener('click', function (e) {
+    const botao = e.target.closest('[data-copiar]');
+    if (!botao) return;
+    navigator.clipboard.writeText(botao.dataset.copiar).then(function () {
+      botao.innerHTML = '<i class="bi bi-clipboard-check"></i> Copiado!';
+    });
+  });
+</script>
+{% endblock %}

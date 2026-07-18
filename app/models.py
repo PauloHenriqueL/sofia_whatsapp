@@ -42,6 +42,10 @@ class Conversa(Base):
     # Quando a Thainá arquivou a conversa: sai da lista padrão do painel, sem
     # apagar nada. NULL = ativa. Mensagem nova do paciente desarquiva sozinha.
     arquivada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Referência de pagamento no Stripe (vincula paciente <-> cobrança). Aceita
+    # sub_..., cs_..., cus_..., plink_... ou a URL do link (buy.stripe.com); o
+    # painel resolve o status ao vivo na API do Stripe (nada é cacheado aqui).
+    stripe_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

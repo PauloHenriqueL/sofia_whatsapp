@@ -178,6 +178,20 @@ async def obter_conversa(db: AsyncSession, conversa_id: int) -> Conversa | None:
     return await db.get(Conversa, conversa_id)
 
 
+async def opcoes_de_pacientes(db: AsyncSession, limite: int = 100) -> list[dict]:
+    """Conversas recentes como opções de vínculo (dropdown da tela de pagamentos)."""
+    q = select(Conversa).order_by(desc(Conversa.atualizada_em)).limit(limite)
+    conversas = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": c.id,
+            "rotulo": (c.dados_coletados or {}).get("nome_completo") or c.numero_whatsapp,
+            "numero": c.numero_whatsapp,
+        }
+        for c in conversas
+    ]
+
+
 async def obter_midia(db: AsyncSession, midia_id: int) -> Midia | None:
     """Anexo com os bytes carregados (a coluna `conteudo` é deferred por padrão)."""
     return await db.get(Midia, midia_id, options=[undefer(Midia.conteudo)])

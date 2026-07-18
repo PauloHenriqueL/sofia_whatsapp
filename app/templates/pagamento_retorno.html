@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titulo %}{{ titulo }} · Allos{% endblock %}
+{% block corpo %}
+{# Página PÚBLICA: o paciente cai aqui ao voltar do checkout do Stripe.
+   Não confirma pagamento (isso é a API do Stripe) — é só cortesia visual. #}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">{{ 'S' }}</div>
+    <h1>{{ titulo }}</h1>
+    <p class="subtitle" style="margin-top:8px">{{ mensagem }}</p>
+    {% if ok %}
+      <p class="subtitle">Qualquer dúvida, é só responder a Allos no WhatsApp.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
