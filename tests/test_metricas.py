@@ -51,6 +51,20 @@ class TestCalcularMetricas:
         assert m["autonomia"] == 75  # (4-1)/4
 
     @pytest.mark.asyncio
+    async def test_arquivada_continua_contando_nos_kpis(self, session):
+        """Arquivar tira da lista do painel, mas não apaga o histórico dos KPIs."""
+        await _conversa(
+            session,
+            numero="555",
+            paciente_hamilton_id=3,
+            estado="cadastrado",
+            arquivada_em=AGORA,
+        )
+        m = await metricas.calcular_metricas(session, AGORA)
+        assert m["total"] == 1
+        assert m["cadastrados"] == 1
+
+    @pytest.mark.asyncio
     async def test_pendentes_e_escaladas_por_motivo(self, session):
         c = await _conversa(session, numero="561", estado="cadastro_pendente")
         session.add(Escalada(conversa_id=c.id, motivo="preco"))

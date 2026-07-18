@@ -47,10 +47,17 @@ FILTROS = {
     "escalada": "Em escalada",
     "cadastradas_hoje": "Cadastradas hoje",
     "cadastrados": "Já no Hamilton",
+    "arquivadas": "Arquivadas",
 }
 
 
 def _aplicar_filtro(q, filtro: str):
+    if filtro == "arquivadas":
+        return q.where(Conversa.arquivada_em.isnot(None))
+    # Arquivada não aparece em nenhum outro filtro (nem no padrão "todas") —
+    # a exclusão vem ANTES dos branches pra nenhum filtro vazar arquivadas.
+    # O /api/conversas usa o mesmo listar_conversas e herda isso (intencional).
+    q = q.where(Conversa.arquivada_em.is_(None))
     if filtro == "humano":
         return q.where(Conversa.modo == "humano")
     if filtro == "escalada":
@@ -145,6 +152,7 @@ async def listar_conversas(
                 "paciente_hamilton_id": c.paciente_hamilton_id,
                 "hamilton_url": url_hamilton_paciente(c.paciente_hamilton_id),
                 "atualizada_em": c.atualizada_em,
+                "arquivada_em": c.arquivada_em,
                 "preview": (ultima.texto[:80] if ultima and ultima.texto else None),
             }
         )
@@ -269,6 +277,24 @@ async def assumir(db: AsyncSession, conversa: Conversa) -> None:
 async def devolver_ao_bot(db: AsyncSession, conversa: Conversa) -> None:
     """Encerra o atendimento humano e devolve a conversa ao bot."""
     conversa.modo = "bot"
+    await db.commit()
+
+
+async def arquivar(db: AsyncSession, conversa: Conversa) -> None:
+    """Arquiva a conversa: sai da lista padrão do painel, sem apagar nada.
+
+    Se estava em modo humano, devolve ao bot: arquivada + humano seria uma
+    armadilha (paciente escreve, bot mudo, Thainá não vê). Não mexe na
+    cobrança: paciente arquivado continua na fila do acompanhamento.
+    """
+    conversa.arquivada_em = datetime.now(timezone.utc)
+    conversa.modo = "bot"
+    await db.commit()
+
+
+async def desarquivar(db: AsyncSession, conversa: Conversa) -> None:
+    """Volta a conversa pra lista (clique por engano, ou o caso reabriu)."""
+    conversa.arquivada_em = None
     await db.commit()
 
 

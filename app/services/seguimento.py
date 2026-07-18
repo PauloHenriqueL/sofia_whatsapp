@@ -61,6 +61,9 @@ async def buscar_leads_parados(db: AsyncSession, agora: datetime) -> list[Conver
             Conversa.paciente_hamilton_id.is_(None),
             Conversa.estado.not_in(ESTADOS_FINALIZADOS),
             Conversa.seguimento_enviado_em.is_(None),
+            # Arquivada = encerrada pela Thainá; follow-up automático aí seria
+            # constrangedor.
+            Conversa.arquivada_em.is_(None),
             ultima_recebida.c.ult <= limite_recente,
             ultima_recebida.c.ult >= limite_janela,
         )

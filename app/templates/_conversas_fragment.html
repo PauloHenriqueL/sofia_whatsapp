@@ -32,6 +32,7 @@
       <td>
         {% if c.modo == 'humano' %}<span class="badge badge-humano">humano</span>
         {% else %}<span class="badge">bot</span>{% endif %}
+        {% if c.arquivada_em %}<span class="badge">arquivada</span>{% endif %}
       </td>
       <td><span class="badge badge-{{ c.estado }}">{{ c.estado }}</span></td>
       <td class="muted">{{ c.preview or '' }}</td>

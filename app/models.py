@@ -39,6 +39,9 @@ class Conversa(Base):
     cobranca_resolvida_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Quando a Thainá arquivou a conversa: sai da lista padrão do painel, sem
+    # apagar nada. NULL = ativa. Mensagem nova do paciente desarquiva sozinha.
+    arquivada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

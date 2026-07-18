@@ -253,6 +253,33 @@ class TestProcessarPayload:
         assert fake.historicos[0][-1] == {"role": "user", "content": "oi"}
 
     @pytest.mark.asyncio
+    async def test_mensagem_nova_desarquiva_conversa(self, db_em_memoria):
+        """Arquivada é estado da lista do painel: mensagem nova reativa sozinha."""
+        from datetime import datetime, timezone
+
+        from app.models import Conversa
+
+        async with db_em_memoria() as s:
+            s.add(
+                Conversa(
+                    numero_whatsapp="5531977778888",
+                    arquivada_em=datetime.now(timezone.utc),
+                )
+            )
+            await s.commit()
+
+        fake = _FakeLLM()
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ), patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await _rodar(_payload_texto(numero="5531977778888", texto="oi de novo"))
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531977778888")
+            assert conversa.arquivada_em is None
+
+    @pytest.mark.asyncio
     async def test_resposta_longa_vai_em_bolhas(self, db_em_memoria):
         """Resposta com parágrafos separados por linha em branco vira N bolhas,
         enviadas e persistidas em ordem."""

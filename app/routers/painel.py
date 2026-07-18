@@ -89,14 +89,16 @@ async def pagina_lista(
     busca: str = "",
     ordem: str = "atualizada_em",
     dir: str = "desc",
+    feito: str = "",
     db: AsyncSession = Depends(get_db),
 ):
+    """`feito` é o aviso pós-ação (ex.: 'arquivada'), pra ação não sumir em silêncio."""
     conversas = await painel.listar_conversas(
         db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
     )
     return templates.TemplateResponse(
         "painel_lista.html",
-        _contexto_lista(request, conversas, filtro, busca, ordem, dir),
+        {**_contexto_lista(request, conversas, filtro, busca, ordem, dir), "feito": feito},
     )
 
 
@@ -361,6 +363,26 @@ async def devolver_bot(
     return RedirectResponse(
         _destino_seguro(proximo, f"/painel/conversas/{conversa_id}/"), status_code=303
     )
+
+
+@router.post("/conversas/{conversa_id}/arquivar")
+async def arquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Arquiva a conversa (sai da lista padrão; nada é apagado)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await painel.arquivar(db, conversa)
+    return RedirectResponse("/painel/?feito=arquivada", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/desarquivar")
+async def desarquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Desfaz o arquivamento (clique por engano, ou o caso reabriu)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await painel.desarquivar(db, conversa)
+    return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/cadastrar")

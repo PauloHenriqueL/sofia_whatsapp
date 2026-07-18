@@ -50,6 +50,13 @@
     </details>
   </div>
 
+  {% if feito == 'arquivada' %}
+    <div class="aviso">
+      <i class="bi bi-archive"></i>
+      Conversa arquivada. Ela fica no filtro "Arquivadas" e volta sozinha se o paciente escrever.
+    </div>
+  {% endif %}
+
   {# O polling preserva busca/ordem/filtro, senão a tela "pula" a cada 15s. #}
   <div class="card"
        hx-get="/painel/fragment/conversas?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}"

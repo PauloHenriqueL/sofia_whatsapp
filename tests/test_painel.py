@@ -786,6 +786,8 @@ class TestAcoesDoPainel:
             ("post", "/painel/conversas/99999/reiniciar"),
             ("post", "/painel/conversas/99999/cobranca-resolvida"),
             ("post", "/painel/conversas/99999/cobranca-reabrir"),
+            ("post", "/painel/conversas/99999/arquivar"),
+            ("post", "/painel/conversas/99999/desarquivar"),
             ("get", "/painel/midia/99999"),
         ],
     )
@@ -901,3 +903,103 @@ class TestCobrancaResolvidaEReabrir:
             html = (await client.get("/painel/acompanhamento")).text
         assert "<script>alert(1)</script>" not in html
         assert "data-confirmar-resolvido" in html
+
+
+class TestArquivamento:
+    """Arquivar tira a conversa da lista padrão sem apagar nada (soft, reversível)."""
+
+    @pytest.mark.asyncio
+    async def test_arquivar_some_da_lista_padrao_mas_segue_no_banco(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, numero="5531900001111")
+        await _seed_conversa(maker, numero="5531900002222")
+
+        resp = await client.post(f"/painel/conversas/{cid}/arquivar")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/painel/?feito=arquivada"
+
+        html = (await client.get("/painel/")).text
+        assert "5531900001111" not in html
+        assert "5531900002222" in html
+        async with maker() as s:
+            c = await s.get(Conversa, cid)
+            assert c is not None
+            assert c.arquivada_em is not None
+        # A página da conversa continua acessível (nada foi apagado).
+        assert (await client.get(f"/painel/conversas/{cid}/")).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_filtro_arquivadas_lista_so_arquivadas(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, numero="5531900001111")
+        await _seed_conversa(maker, numero="5531900002222")
+        await client.post(f"/painel/conversas/{cid}/arquivar")
+
+        html = (await client.get("/painel/?filtro=arquivadas")).text
+        assert "5531900001111" in html
+        assert "5531900002222" not in html
+
+    @pytest.mark.asyncio
+    async def test_arquivar_em_modo_humano_devolve_ao_bot(self, ambiente):
+        """Arquivada + modo humano seria armadilha: paciente escreve e ninguém vê."""
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, modo="humano")
+        await client.post(f"/painel/conversas/{cid}/arquivar")
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).modo == "bot"
+
+    @pytest.mark.asyncio
+    async def test_arquivar_nao_mexe_na_cobranca(self, ambiente):
+        """Cobrança é fila própria: arquivado continua pendente no acompanhamento."""
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        await client.post(f"/painel/conversas/{cid}/arquivar")
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).cobranca_resolvida_em is None
+
+    @pytest.mark.asyncio
+    async def test_desarquivar_volta_pra_lista(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, numero="5531900001111")
+        await client.post(f"/painel/conversas/{cid}/arquivar")
+
+        resp = await client.post(f"/painel/conversas/{cid}/desarquivar")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/painel/conversas/{cid}/"
+        html = (await client.get("/painel/")).text
+        assert "5531900001111" in html
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).arquivada_em is None
+
+    @pytest.mark.asyncio
+    async def test_busca_no_filtro_padrao_nao_traz_arquivada(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, numero="5531900001111")
+        await client.post(f"/painel/conversas/{cid}/arquivar")
+        html = (await client.get("/painel/?busca=5531900001111")).text
+        # O termo ecoa no campo de busca; o que não pode aparecer é a linha.
+        assert f"/painel/conversas/{cid}/" not in html
+        assert "Nada encontrado" in html
+
+    @pytest.mark.asyncio
+    async def test_demais_filtros_excluem_arquivadas(self, ambiente):
+        """Nenhum filtro (além de 'arquivadas') vaza conversa arquivada.
+
+        Arquivar devolve ao bot, então 'arquivada em modo humano' só existe
+        setando direto no banco — exatamente o que fazemos aqui, de propósito.
+        """
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker, numero="5531900001111", modo="humano")
+        async with maker() as s:
+            c = await s.get(Conversa, cid)
+            c.arquivada_em = c.criada_em
+            await s.commit()
+        html = (await client.get("/painel/?filtro=humano")).text
+        assert "5531900001111" not in html

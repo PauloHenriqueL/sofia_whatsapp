@@ -298,6 +298,12 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
 
             conversa = await conversation.obter_ou_criar_conversa(session, numero)
 
+            # Mensagem nova reativa a conversa no painel: arquivada é estado da
+            # lista, não do atendimento. O commit da ingestão persiste.
+            if conversa.arquivada_em is not None:
+                conversa.arquivada_em = None
+                logger.info("Conversa %s desarquivada por mensagem nova do paciente", conversa.id)
+
             # Áudio com transcrição ligada: baixa e transcreve; o áudio passa a
             # valer como uma mensagem de texto (a transcrição). Se falhar (ou
             # estiver desligada), mantém o comportamento de áudio (escala).
