@@ -667,9 +667,8 @@ sofia/
 │   │   └── _conversas_fragment.html, _mensagens_fragment.html
 │   │
 │   └── static/
-│       ├── allos.css         # Allos Design System (paleta Hamilton)
-│       ├── ordenar-tabela.js # Ordenação client-side (<th data-sort>)
-│       └── style.css
+│       ├── allos.css         # Allos Design System (paleta Hamilton, neutros creme)
+│       └── ordenar-tabela.js # Ordenação client-side (<th data-sort>)
 │
 ├── scripts/
 │   └── gerar_icones.py       # Regera os ícones do PWA (dev-only)

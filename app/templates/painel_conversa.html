@@ -18,7 +18,7 @@
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap">
       {% if conversa.estado == 'cadastro_pendente' %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/cadastrar" style="margin:0">
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/cadastrar" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-clipboard-plus"></i> Cadastrar no Hamilton</button>
         </form>
       {% endif %}
@@ -29,21 +29,21 @@
       {% endif %}
       {# Assumir agora se faz pelo botão sobre o campo de digitar (embaixo). #}
       {% if conversa.modo == 'humano' %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
         </form>
       {% endif %}
       {% if conversa.arquivada_em %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/desarquivar" style="margin:0">
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/desarquivar" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-arrow-counterclockwise"></i> Desarquivar</button>
         </form>
       {% else %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/arquivar" style="margin:0"
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/arquivar" class="acao-inline"
               onsubmit="return confirm('Arquivar esta conversa? Ela sai da lista (fica no filtro Arquivadas), nada é apagado, e a Sofia volta a responder se o paciente escrever.')">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-archive"></i> Arquivar</button>
         </form>
       {% endif %}
-      <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" style="margin:0"
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" class="acao-inline"
             onsubmit="return confirm('Apagar esta conversa e todos os dados dela? Isso libera o número pra recomeçar do zero e não dá pra desfazer.')">
         <button class="btn btn-danger" type="submit"><i class="bi bi-trash"></i> Reiniciar conversa</button>
       </form>

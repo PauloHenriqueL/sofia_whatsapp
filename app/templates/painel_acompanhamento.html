@@ -27,7 +27,7 @@
   </div>
 
   {% if erro %}
-  <div class="card" style="border-color:var(--red-border); background:var(--red-bg); color:var(--red-text); margin-bottom:16px; box-shadow:none">
+  <div class="aviso aviso--erro">
     <i class="bi bi-exclamation-triangle"></i> {{ erro }}
   </div>
   {% endif %}
@@ -101,7 +101,7 @@
                Interpolar direto no `onsubmit` quebraria: `tojson` emite aspas duplas,
                que fechariam o atributo, e um nome como "D'Ávila" quebraria a string JS. #}
             <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-resolvida"
-                  style="margin:0" onclick="event.stopPropagation()"
+                  class="acao-inline" onclick="event.stopPropagation()"
                   data-nome="{{ p.nome }}" data-confirmar-resolvido>
               <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-check2"></i> Marcar resolvido</button>
             </form>
@@ -135,7 +135,7 @@
           <td class="acoes">
             {{ abrir(p) }}
             <form method="post" action="/painel/conversas/{{ p.conversa_id }}/cobranca-reabrir"
-                  style="margin:0" onclick="event.stopPropagation()">
+                  class="acao-inline" onclick="event.stopPropagation()">
               <button class="btn btn-ghost btn-sm" type="submit" title="Volta pra fila de cobrança">
                 <i class="bi bi-arrow-counterclockwise"></i> Reabrir
               </button>
