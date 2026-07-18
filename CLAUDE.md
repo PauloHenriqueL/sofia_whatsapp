@@ -844,7 +844,6 @@ TASKS_TOKEN=
 STRIPE_SECRET_KEY=                 # mesma conta do site da Allos; só no Render
 STRIPE_PUBLISHABLE_KEY=            # pk_...; o checkout hospedado não usa (documentação)
 STRIPE_PRECO_MENSAL_ID=            # price_... do catálogo; reusado se a mensalidade bater
-STRIPE_CANCEL_URL=                 # redirect de cancelamento (vazio = página da Sofia)
 BASE_URL=https://sofia-whatsapp.onrender.com   # monta /pagamento-sucesso|cancelado
 
 # Geral

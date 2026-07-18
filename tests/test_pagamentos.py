@@ -210,26 +210,7 @@ class TestAssinaturaTerapia:
 
 class TestUrlDeCancelamento:
     @pytest.mark.asyncio
-    async def test_cancel_url_customizada_vai_pro_checkout(self):
-        """STRIPE_CANCEL_URL (ex.: página do Hamilton) substitui a página da Sofia."""
-        original = settings.stripe_cancel_url
-        settings.stripe_cancel_url = "https://hamilton-v2.onrender.com/api/v1/stripe/cancelado/"
-        preco = AsyncMock(return_value={"id": "price_1"})
-        sessao = AsyncMock(return_value={"id": "cs_x", "url": "u"})
-        try:
-            with patch("app.services.pagamentos.stripe_client.criar_preco", preco), patch(
-                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
-            ):
-                await pagamentos.criar_link_neuro("Maria", "m@x.com", 300, parcelas=2)
-        finally:
-            settings.stripe_cancel_url = original
-        assert (
-            sessao.await_args.args[0]["cancel_url"]
-            == "https://hamilton-v2.onrender.com/api/v1/stripe/cancelado/"
-        )
-
-    @pytest.mark.asyncio
-    async def test_sem_cancel_url_usa_a_pagina_da_sofia(self):
+    async def test_cancelamento_volta_pra_pagina_da_sofia(self):
         sessao = AsyncMock(return_value={"id": "cs_y", "url": "u"})
         with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
             await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)

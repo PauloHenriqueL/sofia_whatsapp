@@ -90,9 +90,6 @@ class Settings(BaseSettings):
     # mensalidade pedida bate com o valor dele, a assinatura reusa esse preço
     # (relatórios unificados com o site da Allos) em vez de criar um novo.
     stripe_preco_mensal_id: str = ""
-    # URL de retorno quando o paciente cancela o checkout. Vazio = usa a página
-    # /pagamento-cancelado da própria Sofia.
-    stripe_cancel_url: str = ""
     # URL pública da Sofia — monta as páginas de retorno do checkout
     # (/pagamento-sucesso e /pagamento-cancelado). Sem barra no final.
     base_url: str = "https://sofia-whatsapp.onrender.com"

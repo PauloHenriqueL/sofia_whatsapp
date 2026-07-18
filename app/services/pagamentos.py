@@ -93,17 +93,6 @@ def _validar_nome(nome: str) -> str:
     return nome
 
 
-def _url_cancelamento() -> str:
-    """Pra onde o paciente volta se desistir do checkout.
-
-    `STRIPE_CANCEL_URL` (ex.: página do Hamilton) tem prioridade; sem ela, a
-    página /pagamento-cancelado da própria Sofia.
-    """
-    from app.config import settings
-
-    return settings.stripe_cancel_url or f"{settings.base_url}/pagamento-cancelado"
-
-
 # ── Link avulso / parcelado (neuro) ───────────────────────────────────────────
 
 
@@ -180,7 +169,7 @@ async def criar_link_neuro(
                 "customer_email": email,
                 "line_items": [{"price": preco["id"], "quantity": 1}],
                 "success_url": f"{settings.base_url}/pagamento-sucesso",
-                "cancel_url": _url_cancelamento(),
+                "cancel_url": f"{settings.base_url}/pagamento-cancelado",
                 "subscription_data": {
                     "cancel_at": int((agora + timedelta(days=30 * parcelas)).timestamp()),
                     "metadata": {
@@ -271,7 +260,7 @@ async def criar_assinatura_terapia(
                 "metadata": {"nome_cliente": nome, "email_cliente": email, "tipo": "clinica"},
             },
             "success_url": f"{settings.base_url}/pagamento-sucesso",
-            "cancel_url": _url_cancelamento(),
+            "cancel_url": f"{settings.base_url}/pagamento-cancelado",
         }
     )
     return {
