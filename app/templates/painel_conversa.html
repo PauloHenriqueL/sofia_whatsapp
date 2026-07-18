@@ -12,7 +12,7 @@
         {{ conversa.numero_whatsapp }} ·
         {% if conversa.modo == 'humano' %}<span class="badge badge-humano">modo humano</span>
         {% else %}<span class="badge">modo bot</span>{% endif %}
-        · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado }}</span>
+        · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado | rotulo_estado }}</span>
         {% if conversa.arquivada_em %} · <span class="badge">arquivada</span>{% endif %}
       </div>
     </div>

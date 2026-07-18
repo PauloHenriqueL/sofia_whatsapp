@@ -71,6 +71,7 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .table tbody td { padding:13px 18px; border-bottom:1px solid var(--border-subtle); vertical-align:middle; }
 .table tbody tr { cursor:pointer; transition:background .15s; }
 .table tbody tr:hover td { background:var(--bg-hover); box-shadow:inset 3px 0 0 var(--teal-500); }
+.table tbody tr:focus-visible { outline:2px solid var(--teal-500); outline-offset:-2px; }
 .table tbody tr:last-child td { border-bottom:none; }
 
 /* Badges */

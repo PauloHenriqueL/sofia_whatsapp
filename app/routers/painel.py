@@ -65,6 +65,7 @@ def _tamanho_legivel(bytes_: int) -> str:
 templates.env.filters["data"] = _fmt_data
 templates.env.filters["desde"] = _ha_quanto_tempo
 templates.env.filters["tamanho"] = _tamanho_legivel
+templates.env.filters["rotulo_estado"] = painel.rotulo_estado
 templates.env.filters["e_imagem"] = midia.e_imagem
 templates.env.filters["nome_anexo"] = midia.nome_para_download
 

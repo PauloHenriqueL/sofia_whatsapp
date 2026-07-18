@@ -50,6 +50,21 @@ FILTROS = {
     "arquivadas": "Arquivadas",
 }
 
+# Rótulo amigável de cada estado da conversa (o valor cru vai pro banco).
+ESTADOS = {
+    "novo": "Novo",
+    "qualificando": "Qualificando",
+    "coletando_dados": "Coletando dados",
+    "cadastrado": "Cadastrado",
+    "cadastro_pendente": "Cadastro pendente",
+    "escalado": "Escalado",
+}
+
+
+def rotulo_estado(estado: str) -> str:
+    """Rótulo legível do estado; estado desconhecido volta cru (nunca esconde)."""
+    return ESTADOS.get(estado, estado)
+
 
 def _aplicar_filtro(q, filtro: str):
     if filtro == "arquivadas":

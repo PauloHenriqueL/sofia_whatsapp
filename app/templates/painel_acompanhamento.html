@@ -59,7 +59,7 @@
       </thead>
       <tbody>
         {% for p in espera %}
-        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
+        <tr tabindex="0" onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
           <td style="font-weight:600">{{ p.nome }}</td>
           <td class="muted">{{ p.numero }}</td>
           <td>
@@ -91,7 +91,7 @@
       </thead>
       <tbody>
         {% for p in cobranca %}
-        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
+        <tr tabindex="0" onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
           <td style="font-weight:600">{{ p.nome }}</td>
           <td class="muted">{{ p.numero }}</td>
           <td class="muted">{{ p.dat_primeira_consulta or '—' }}</td>
@@ -128,7 +128,7 @@
       </thead>
       <tbody>
         {% for p in resolvidos %}
-        <tr onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
+        <tr tabindex="0" onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
           <td style="font-weight:600">{{ p.nome }}</td>
           <td class="muted">{{ p.numero }}</td>
           <td class="muted">{{ p.resolvida_em | data }}</td>

@@ -905,6 +905,47 @@ class TestCobrancaResolvidaEReabrir:
         assert "data-confirmar-resolvido" in html
 
 
+class TestRotulosAmigaveis:
+    @pytest.mark.asyncio
+    async def test_bolhas_mostram_rotulos_amigaveis(self, ambiente):
+        """O chat mostra 'Paciente'/'Sofia'/'Thainá', não o valor cru do banco."""
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        async with maker() as s:
+            s.add(
+                Mensagem(
+                    conversa_id=cid, direcao="enviada", origem="bot", tipo="texto", texto="oi!"
+                )
+            )
+            s.add(
+                Mensagem(
+                    conversa_id=cid,
+                    direcao="enviada",
+                    origem="thaina",
+                    tipo="texto",
+                    texto="aqui é a Thainá",
+                )
+            )
+            await s.commit()
+
+        html = (await client.get(f"/painel/conversas/{cid}/")).text
+        assert "Paciente ·" in html
+        assert "Sofia ·" in html
+        assert "Thainá ·" in html
+
+    @pytest.mark.asyncio
+    async def test_estado_aparece_com_rotulo_legivel(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        cid = await _seed_conversa(maker)
+        async with maker() as s:
+            (await s.get(Conversa, cid)).estado = "cadastro_pendente"
+            await s.commit()
+        html = (await client.get(f"/painel/conversas/{cid}/")).text
+        assert "Cadastro pendente" in html
+
+
 class TestArquivamento:
     """Arquivar tira a conversa da lista padrão sem apagar nada (soft, reversível)."""
 

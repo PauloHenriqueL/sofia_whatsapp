@@ -1,9 +1,12 @@
 {% macro resumo(m) %}{{ (m.texto or '[' ~ m.tipo ~ ']') | truncate(70) }}{% endmacro %}
 
+{# Rótulo amigável de quem falou (o valor cru do banco é 'paciente'/'bot'/'thaina'). #}
+{% set ROTULOS = {'paciente': 'Paciente', 'bot': 'Sofia', 'thaina': 'Thainá'} %}
+
 {% for m in mensagens %}
   <div class="msg msg-{{ m.origem }}" data-id="{{ m.id }}" data-resumo="{{ resumo(m) }}">
     <small>
-      {{ m.origem }} · {{ m.criada_em | data }}
+      {{ ROTULOS.get(m.origem, m.origem) }} · {{ m.criada_em | data }}
       {# Só dá pra citar mensagem que tem wamid (as antigas não têm). #}
       {% if m.whatsapp_message_id %}
         <button type="button" class="btn-citar" title="Responder a esta mensagem"
@@ -14,7 +17,7 @@
     {% if m.responde_a %}
       {# A mensagem citada, como no WhatsApp: um bloco menor acima do conteúdo. #}
       <div class="citacao">
-        <span class="citacao-autor">{{ m.responde_a.origem }}</span>
+        <span class="citacao-autor">{{ ROTULOS.get(m.responde_a.origem, m.responde_a.origem) }}</span>
         <span class="citacao-texto">{{ resumo(m.responde_a) }}</span>
       </div>
     {% endif %}

@@ -26,7 +26,7 @@
   </thead>
   <tbody>
     {% for c in conversas %}
-    <tr onclick="window.location='/painel/conversas/{{ c.id }}/'">
+    <tr tabindex="0" onclick="window.location='/painel/conversas/{{ c.id }}/'">
       <td style="font-weight:600">{{ c.numero_whatsapp }}</td>
       <td>{{ c.nome or '—' }}</td>
       <td>
@@ -34,7 +34,7 @@
         {% else %}<span class="badge">bot</span>{% endif %}
         {% if c.arquivada_em %}<span class="badge">arquivada</span>{% endif %}
       </td>
-      <td><span class="badge badge-{{ c.estado }}">{{ c.estado }}</span></td>
+      <td><span class="badge badge-{{ c.estado }}">{{ c.estado | rotulo_estado }}</span></td>
       <td class="muted">{{ c.preview or '' }}</td>
       <td class="muted">{{ c.atualizada_em | desde }}</td>
       <td>
