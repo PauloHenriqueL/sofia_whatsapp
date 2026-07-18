@@ -147,10 +147,12 @@
     }
     function limparCitacao() {
       campoId.value = '';
+      preview.textContent = '';
       barraCit.hidden = true;
     }
     function limparAnexo() {
       anexo.value = '';
+      nomeAnexo.textContent = '';
       barraAnexo.hidden = true;
     }
     // Chamado pelo hx-on::after-request do form.
