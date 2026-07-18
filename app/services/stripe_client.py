@@ -114,6 +114,10 @@ async def criar_checkout_session(dados: dict) -> dict:
 # ── Leitura (status e listagem) ───────────────────────────────────────────────
 
 
+async def obter_preco(preco_id: str) -> dict:
+    return await _requisicao("GET", f"/prices/{preco_id}")
+
+
 async def obter_assinatura(assinatura_id: str) -> dict:
     return await _requisicao("GET", f"/subscriptions/{assinatura_id}")
 

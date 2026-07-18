@@ -157,6 +157,86 @@ class TestAssinaturaTerapia:
         with pytest.raises(ErroValidacao):
             await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 10)
 
+    @pytest.mark.asyncio
+    async def test_reusa_preco_do_catalogo_quando_o_valor_bate(self):
+        """STRIPE_PRECO_MENSAL_ID + mensalidade igual -> line item com o price
+        do catálogo (relatórios unificados com o site da Allos)."""
+        original = settings.stripe_preco_mensal_id
+        settings.stripe_preco_mensal_id = "price_catalogo"
+        preco = AsyncMock(return_value={"id": "price_catalogo", "unit_amount": 20000})
+        sessao = AsyncMock(return_value={"id": "cs_t_3", "url": "u"})
+        try:
+            with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
+                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+            ):
+                await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+        finally:
+            settings.stripe_preco_mensal_id = original
+        item = sessao.await_args.args[0]["line_items"][0]
+        assert item == {"price": "price_catalogo", "quantity": 1}
+
+    @pytest.mark.asyncio
+    async def test_valor_diferente_do_catalogo_cai_pro_preco_inline(self):
+        original = settings.stripe_preco_mensal_id
+        settings.stripe_preco_mensal_id = "price_catalogo"
+        preco = AsyncMock(return_value={"id": "price_catalogo", "unit_amount": 20000})
+        sessao = AsyncMock(return_value={"id": "cs_t_4", "url": "u"})
+        try:
+            with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
+                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+            ):
+                await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 150, agora=AGORA)
+        finally:
+            settings.stripe_preco_mensal_id = original
+        item = sessao.await_args.args[0]["line_items"][0]
+        assert item["price_data"]["unit_amount"] == 15000  # bolsa/ajuste: preço inline
+
+    @pytest.mark.asyncio
+    async def test_catalogo_inacessivel_nao_impede_a_assinatura(self):
+        original = settings.stripe_preco_mensal_id
+        settings.stripe_preco_mensal_id = "price_catalogo"
+        preco = AsyncMock(side_effect=StripeError("down"))
+        sessao = AsyncMock(return_value={"id": "cs_t_5", "url": "u"})
+        try:
+            with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
+                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+            ):
+                r = await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+        finally:
+            settings.stripe_preco_mensal_id = original
+        assert r["ref"] == "cs_t_5"
+        assert "price_data" in sessao.await_args.args[0]["line_items"][0]
+
+
+class TestUrlDeCancelamento:
+    @pytest.mark.asyncio
+    async def test_cancel_url_customizada_vai_pro_checkout(self):
+        """STRIPE_CANCEL_URL (ex.: página do Hamilton) substitui a página da Sofia."""
+        original = settings.stripe_cancel_url
+        settings.stripe_cancel_url = "https://hamilton-v2.onrender.com/api/v1/stripe/cancelado/"
+        preco = AsyncMock(return_value={"id": "price_1"})
+        sessao = AsyncMock(return_value={"id": "cs_x", "url": "u"})
+        try:
+            with patch("app.services.pagamentos.stripe_client.criar_preco", preco), patch(
+                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+            ):
+                await pagamentos.criar_link_neuro("Maria", "m@x.com", 300, parcelas=2)
+        finally:
+            settings.stripe_cancel_url = original
+        assert (
+            sessao.await_args.args[0]["cancel_url"]
+            == "https://hamilton-v2.onrender.com/api/v1/stripe/cancelado/"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sem_cancel_url_usa_a_pagina_da_sofia(self):
+        sessao = AsyncMock(return_value={"id": "cs_y", "url": "u"})
+        with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
+            await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+        assert sessao.await_args.args[0]["cancel_url"] == (
+            f"{settings.base_url}/pagamento-cancelado"
+        )
+
 
 class TestStatusDaReferencia:
     @pytest.mark.asyncio

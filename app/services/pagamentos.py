@@ -93,6 +93,17 @@ def _validar_nome(nome: str) -> str:
     return nome
 
 
+def _url_cancelamento() -> str:
+    """Pra onde o paciente volta se desistir do checkout.
+
+    `STRIPE_CANCEL_URL` (ex.: página do Hamilton) tem prioridade; sem ela, a
+    página /pagamento-cancelado da própria Sofia.
+    """
+    from app.config import settings
+
+    return settings.stripe_cancel_url or f"{settings.base_url}/pagamento-cancelado"
+
+
 # ── Link avulso / parcelado (neuro) ───────────────────────────────────────────
 
 
@@ -169,7 +180,7 @@ async def criar_link_neuro(
                 "customer_email": email,
                 "line_items": [{"price": preco["id"], "quantity": 1}],
                 "success_url": f"{settings.base_url}/pagamento-sucesso",
-                "cancel_url": f"{settings.base_url}/pagamento-cancelado",
+                "cancel_url": _url_cancelamento(),
                 "subscription_data": {
                     "cancel_at": int((agora + timedelta(days=30 * parcelas)).timestamp()),
                     "metadata": {
@@ -225,31 +236,42 @@ async def criar_assinatura_terapia(
     agora = agora or datetime.now(timezone.utc)
     dia10 = _proximo_dia_10(agora)
     dias_ate_ancora = max(1, (dia10 - agora).days)
+    valor_centavos = round(valor_mensal * 100)
     pro_rata_centavos = round(valor_mensal * 100 / 30 * dias_ate_ancora)
+
+    # Preço do catálogo (STRIPE_PRECO_MENSAL_ID): quando a mensalidade pedida
+    # bate com o valor dele, reusa — relatórios unificados com o site da Allos.
+    # Valor diferente (bolsa, ajuste) cai pro preço inline, como antes.
+    line_item: dict = {
+        "price_data": {
+            "currency": "brl",
+            "product_data": {"name": f"Assinatura Terapia - {nome}"},
+            "unit_amount": valor_centavos,
+            "recurring": {"interval": "month"},
+        },
+        "quantity": 1,
+    }
+    if settings.stripe_preco_mensal_id:
+        try:
+            preco_catalogo = await stripe_client.obter_preco(settings.stripe_preco_mensal_id)
+            if preco_catalogo.get("unit_amount") == valor_centavos:
+                line_item = {"price": settings.stripe_preco_mensal_id, "quantity": 1}
+        except StripeError:
+            logger.warning("Não li o preço do catálogo; usando preço inline")
 
     session = await stripe_client.criar_checkout_session(
         {
             "mode": "subscription",
             "locale": "pt-BR",
             "customer_email": email,
-            "line_items": [
-                {
-                    "price_data": {
-                        "currency": "brl",
-                        "product_data": {"name": f"Assinatura Terapia - {nome}"},
-                        "unit_amount": round(valor_mensal * 100),
-                        "recurring": {"interval": "month"},
-                    },
-                    "quantity": 1,
-                }
-            ],
+            "line_items": [line_item],
             "subscription_data": {
                 "billing_cycle_anchor": int(dia10.timestamp()),
                 "proration_behavior": "create_prorations",
                 "metadata": {"nome_cliente": nome, "email_cliente": email, "tipo": "clinica"},
             },
             "success_url": f"{settings.base_url}/pagamento-sucesso",
-            "cancel_url": f"{settings.base_url}/pagamento-cancelado",
+            "cancel_url": _url_cancelamento(),
         }
     )
     return {
