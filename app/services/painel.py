@@ -269,6 +269,9 @@ async def assumir(db: AsyncSession, conversa: Conversa) -> None:
 async def devolver_ao_bot(db: AsyncSession, conversa: Conversa) -> None:
     """Encerra o atendimento humano e devolve a conversa ao bot."""
     conversa.modo = "bot"
+    # Zera o aviso de "a Thainá já foi avisada": se a conversa for escalada de
+    # novo lá na frente, o paciente precisa receber o aviso outra vez.
+    conversa.aviso_escalada_em = None
     await db.commit()
 
 

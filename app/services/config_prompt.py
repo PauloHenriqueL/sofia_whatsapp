@@ -36,6 +36,28 @@ PROMPTS: dict[str, tuple[str, Path, bool]] = {
         _DIR / "contrato-terapeutico-allos.md",
         False,
     ),
+    # Pesquisa de satisfação: substitui o prompt principal enquanto a conversa
+    # está em modo pesquisa (a pessoa já é paciente, não é um lead a qualificar).
+    "prompt_pesquisa": (
+        "Pesquisa: como conduzir (tom e regras)",
+        _DIR / "pesquisa-conducao.txt",
+        True,
+    ),
+    "prompt_pesquisa_primeira_sessao": (
+        "Pesquisa: perguntas depois da primeira sessão",
+        _DIR / "pesquisa-primeira-sessao.md",
+        True,
+    ),
+    "prompt_pesquisa_encerramento": (
+        "Pesquisa: perguntas de encerramento (alta, desistência, troca)",
+        _DIR / "pesquisa-encerramento.md",
+        True,
+    ),
+    "prompt_pesquisa_extracao": (
+        "Pesquisa: extração das respostas (não vai pro paciente)",
+        _DIR / "pesquisa-extracao.txt",
+        False,
+    ),
 }
 
 # Só as chaves customizadas (override do arquivo). Ausência = usa o padrão do arquivo.

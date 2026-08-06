@@ -4,6 +4,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+# ⏭️ ESTADO ATUAL E PRÓXIMO PASSO (leia primeiro)
+
+**Data deste registro:** 06/08/2026.
+
+O sistema está **em produção** e o MVP (P0–P6) foi entregue há tempos. O último
+ciclo de trabalho implementou 3 demandas novas, que estão **prontas e testadas
+mas ainda não foram ao ar**. Duas coisas ficaram para quem continuar:
+
+### 1. Modelo da tabela de avaliação + planilha de qualidade
+📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
+
+Os campos da `Avaliacao` **já existem** no Hamilton e a pesquisa já grava neles.
+Falta **decidir com o Paulo** quais perguntas ficam no questionário definitivo, o
+que é texto e o que é estruturado, e **editar a planilha** que o time de Qualidade
+usa (ela pressupõe uma pessoa coletando; agora quem coleta é a Sofia).
+
+### 2. Stripe + Pix (Demanda D)
+📄 [`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md), seção "Demanda D"
+
+**Nada foi feito** — nenhuma linha de Stripe foi tocada, nem aqui nem no Hamilton.
+O desenho já está **fechado** e não precisa ser rediscutido: a Sofia fala **direto
+com o Stripe** (chave própria), a chave Pix é fixa e editável no painel, a cobrança
+é **encadeada no fim da pesquisa** com transição adequada, comprovante **escala pra
+Thainá** (a Sofia não confirma vaga sozinha) e paciente de parceria **nunca** é
+cobrado.
+
+### ⚠️ Antes de qualquer deploy
+Leia **"Pendências que bloqueiam o deploy"** em
+[`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md). A mais
+grave: o `.gitignore` do `hamilton-api` **ignora as migrations**, então as duas
+criadas neste ciclo não chegam ao GitHub sozinhas — e sem elas as Demandas A e C
+quebram com erro de coluna inexistente.
+
+### Onde está o resto
+- **O que foi feito, bugs corrigidos e riscos aceitos:** [`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md)
+- **Índice da documentação:** [`docs/README.md`](docs/README.md)
+- **Como o sistema funciona no dia a dia:** [`docs/referencia/workflow.md`](docs/referencia/workflow.md)
+
+> Este repo é a **Sofia**. O **Hamilton** (`../hamilton-api`, Django) é o sistema
+> clínico. **Parte do trabalho recente mexeu nos dois** — inclusive um bug nos
+> signals do Hamilton que gravava no banco errado.
+
+---
+
 # Sofia — Bot WhatsApp da Allos
 
 Automação de atendimento de pacientes novos via WhatsApp, integrando com Hamilton (sistema clínico existente em Django) e OpenAI.
@@ -26,7 +70,14 @@ Automação de atendimento de pacientes novos via WhatsApp, integrando com Hamil
 - **Painel**: Jinja2 + HTMX (server-rendered)
 - **Hosting**: Render
 
-**Integração externa crítica**: Hamilton API REST (não é mexido por Sofia, apenas consumido)
+**Integração externa crítica**: Hamilton API REST (`../hamilton-api`, Django).
+
+> ⚠️ **Isto mudou.** Por muito tempo o Hamilton era só consumido, nunca alterado. Desde o
+> ciclo de 08/2026 **a Sofia exige mudanças lá** (flag `is_parceria` em `Captacao`, campos de
+> resposta na `Avaliacao`, endpoints de avaliação, e o intake aceitando captação e valor).
+> Ao mexer numa demanda que envolva dado do Hamilton, **conte com editar os dois repos** —
+> e lembre que o Hamilton é usado por terapeutas e coordenação, então mudança lá tem
+> blast radius maior que aqui.
 
 ---
 
@@ -243,7 +294,8 @@ peça que eu te lembro onde fica cada uma.
    ├─ Escalada: marca modo humano + alerta template
    ├─ Hamilton: POST cadastro quando pronto
    ├─ Painel: Jinja2 + HTMX pra Thainá responder (login por sessão/cookie assinado)
-   └─ Tasks: POST /tasks/seguimentos (cron externo → follow-up de lead parado)
+   └─ Tasks: POST /tasks/seguimentos (cron → follow-up de lead parado)
+             POST /tasks/pesquisas   (cron → pesquisa de satisfação)
       ↕
 [Thainá: PC ou celular]
 ```
@@ -255,9 +307,13 @@ conversa
 ├─ id, numero_whatsapp (unique)
 ├─ paciente_hamilton_id, modo ('bot'/'humano')
 ├─ estado ('novo'/'qualificando'/'coletando_dados'/'cadastrado'/'cadastro_pendente'/'escalado')
-├─ dados_coletados (JSONB: nome, nascimento, telefone, apoio, endereço, horários...)
+├─ dados_coletados (JSONB: nome, nascimento, telefone, apoio, endereço, horários,
+│                   captacao_id, is_parceria, vinculo_parceria...)
 ├─ seguimento_enviado_em (NULL = ainda não; garante 1 follow-up por conversa — Frente 2)
 ├─ cobranca_resolvida_em (NULL = pendente; "Marcar resolvido" tira da cobrança — Demanda 4)
+├─ aviso_escalada_em (NULL = ainda não avisou; 1 aviso por escalada — Demanda B)
+├─ pesquisa_avaliacao_id (NULL = sem pesquisa; pk da Avaliacao no Hamilton — Demanda C)
+├─ pesquisa_iniciada_em (base do lembrete de 20h e do encerramento de 44h)
 └─ criada_em, atualizada_em
 
 configuracao  (chave/valor — valores editáveis no painel /painel/config)
@@ -307,7 +363,8 @@ pontos que **exigem ler vários arquivos** pra entender:
   `LLMClient` + `OpenAIClient`, singleton via `get_llm_client()`), `tools` (schemas de
   function calling), `escalation`, `cadastro`, `hamilton_client`, `whatsapp_client`,
   `config_negocio`, `seguimento`, `metricas`, `painel`, `serializacao`, `transcricao`
-  (áudio→texto), `acompanhamento` (Demandas 3/4).
+  (áudio→texto), `acompanhamento` (Demandas 3/4), `captacao` (origem do paciente),
+  `pesquisa` (satisfação pós-1ª sessão e de encerramento).
 
 ### Serialização + debounce por conversa (Demanda 2 — `serializacao.py`)
 Ponto **não óbvio** que exige ler webhook + serializacao juntos:
@@ -371,6 +428,57 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 - Métricas (conversão, autonomia, escaladas por motivo, leads/dia, recuperados) são
   **derivadas das tabelas existentes**. O agrupamento por dia é feito **em Python**
   (não em SQL) pra ficar portável entre SQLite (dev) e Postgres (prod).
+
+### Origem do paciente e parceria (`captacao.py`) — Demanda A
+- **A Sofia é o canal, não a origem.** Até aqui todo cadastro ia pro Hamilton com a
+  captação fixa `"WhatsApp (Sofia)"`, o que apagava de onde o paciente veio. Agora ela
+  pergunta na conversa, o **modelo escolhe um ID da lista real** (`GET /api/v1/captacoes/`,
+  injetada no prompt via `{{LISTA_CAPTACOES}}`) e o ID é **validado** em
+  `webhook._validar_captacao` antes de virar cadastro.
+- **Captação errada é pior que captação vazia** (contamina relatório e prestação de contas).
+  ID que não está na lista → cai na captação **"Não sei"** e a coordenação corrige. O
+  `is_parceria` **nunca** vem na palavra do modelo: vem da flag do Hamilton.
+- **Parceria (prefeitura/convênio)** é `Captacao.is_parceria` no Hamilton — **fonte única**.
+  Antes havia duas divergentes: `PREFEITURAS_CAPTACAO_IDS = {13,46}` em `views.py` e um
+  `nome contém 'Prefeitura'` no relatório. As duas saíram.
+- Paciente de parceria vai com **`vlr_sessao = 0`** e `tipo_pagamento='parceria'` (o Hamilton
+  zera por conta própria também — checagem dupla, porque o dado veio de uma conversa).
+- **Elegibilidade é auto-declarada** (a pessoa diz que é servidora). Fica registrada na
+  `observacao` — é a única evidência se a prefeitura questionar uma consulta. Ver o risco
+  registrado em `docs/demandas/01-EM-ANDAMENTO.md`.
+
+### Aviso único pós-escalada (`escalation.AVISO_EM_ATENDIMENTO`) — Demanda B
+- Escalar deixa a conversa em modo humano e a Sofia **ficava totalmente muda**: quem escrevia
+  "e aí, alguma novidade?" não recebia nada até alguém abrir o painel.
+- Agora ela responde **uma vez** (`webhook._avisar_escalada_uma_vez`), texto fixo, **sem LLM**
+  (em modo humano ela não pode retomar o fluxo nem escrever por cima da Thainá). Repetir a
+  cada mensagem seria pior que o silêncio. `aviso_escalada_em` é zerado ao devolver ao bot.
+
+### Pesquisa de satisfação (`pesquisa.py`) — Demanda C
+Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals.py` do Hamilton:
+- **A Sofia puxa, o Hamilton não empurra.** Os signals do Hamilton **já criavam** a `Avaliacao`
+  com `status='pendente'` quando o terapeuta lança a 1ª consulta ou uma alta/desistência — a
+  fila já existia no banco. Um webhook rodaria **dentro do request do terapeuta** (o Hamilton
+  é 100% síncrono, sem worker) e travaria o salvamento do prontuário. Puxar dá **retry de
+  graça**: o pendente fica lá até ser respondido. Cron: `POST /tasks/pesquisas`.
+- **`status='pendente'` é "sem resposta", não "sem envio".** Por isso `sofia_enviada_em` e
+  `sofia_lembrete_em` na `Avaliacao` — sem eles a pessoa seria abordada a cada tick.
+- **Modo pesquisa**: com `conversa.pesquisa_avaliacao_id` preenchido, o turno roda com o
+  prompt da pesquisa no lugar do de acolhimento (a pessoa já é paciente, não é lead).
+- **O modelo conduz e o modelo extrai** (decisão consciente, ver o risco em `docs/demandas/01-EM-ANDAMENTO.md`):
+  no fim, uma chamada separada vira JSON e vai por PATCH. `_normalizar_extracao` é a defesa —
+  **allowlist de campos**, nota fora de 0-10 descartada, data ilegível omitida, `"sim"` não
+  vira booleano. Ela não pega uma nota *lida errado*; nada pega.
+- **Marcadores `[[PESQUISA_CONCLUIDA]]`/`[[PESQUISA_RECUSADA]]`** sinalizam o fim. São
+  removidos antes do envio **e** filtrados no `saida.limpar()` — se o modelo puser um no meio
+  da frase, o choke point do P0 pega.
+- **Encerramento adapta o texto** por `tipo_saida` e `cancelador` (`_contexto_encerramento`):
+  reencaminhamento **não é saída** (a pessoa continua na Allos), alta não é abandono, e quem
+  foi desligado pelo terapeuta não pode ouvir "por que *você* decidiu interromper?".
+- **Prazos**: lembrete único em 20h, encerra em 44h. Colado na janela de 24h da Meta (passada
+  ela, só template). Recusa e silêncio caem os dois em `nao_respondeu`.
+- **Quem nunca falou com a Sofia não recebe pesquisa** — sem conversa aberta e fora da janela
+  de 24h, não há como abordar. São pulados em silêncio. **Em aberto** (ver `docs/demandas/01-EM-ANDAMENTO.md`).
 
 ### Áudio: a Sofia ouve e responde em texto (`transcricao.py` + webhook)
 - Ligado pela flag `transcrever_audio` (painel). Quando ligada, `ingerir_mensagem` baixa a
@@ -611,20 +719,32 @@ if not compare_digest(X_Hub_Signature, expected):
 
 ```
 sofia/
-├── CLAUDE.md                  # Este arquivo
-├── sofia_briefing.md          # Especificação completa (referência)
-├── .claude/
-│   └── settings.json         # Config de agentes
-├── .env.example              # Template
-├── .gitignore                # *.env, __pycache__, .venv, etc
-├── pyproject.toml            # Dependências + config
-├── README.md                 # Setup e deploy
-├── alembic.ini               # Config migrations
-├── render.yaml               # Deploy config
+├── CLAUDE.md                  # Este arquivo (estado atual + arquitetura + porquês)
+├── README.md                  # Setup e deploy
+├── .claude/settings.json      # Config de agentes
+├── .env.example               # Template
+├── pyproject.toml             # Dependências + config
+├── alembic.ini                # Config migrations
+├── render.yaml                # Deploy config
+│
+├── docs/                      # Toda a documentação (índice em docs/README.md)
+│   ├── README.md              # ← PONTO DE ENTRADA: o que ler e o que fazer agora
+│   ├── demandas/              # o que foi, o que é e o que vem
+│   │   ├── 01-EM-ANDAMENTO.md            # ← documento de trabalho do ciclo atual
+│   │   ├── 02-modelo-de-avaliacao.md     # campos da Avaliacao (a decidir)
+│   │   ├── 03-questionario-atual-da-qualidade.md
+│   │   ├── 00-ORIGINAL-com-premissas-erradas.md  # histórico: NÃO implementar daqui
+│   │   └── 99-backlog-entregue.md        # P0–P6, todos entregues
+│   ├── referencia/            # workflow.md, DEPLOY.md, sofia_briefing.md
+│   └── juridico/              # política de privacidade, termo de consentimento
 │
 ├── prompt/                    # Tudo que a Sofia usa como referência de resposta
 │   ├── sofia_v01.txt          # System prompt versionado (fluxo/tom/regras) — load-bearing
 │   ├── sofia-base-conhecimento.md  # Base de conhecimento anexada ao prompt — load-bearing
+│   ├── pesquisa-conducao.txt       # Pesquisa: tom e regras (substitui o prompt principal)
+│   ├── pesquisa-primeira-sessao.md # Pesquisa: roteiro pós-1ª sessão
+│   ├── pesquisa-encerramento.md    # Pesquisa: roteiro de alta/desistência/troca
+│   ├── pesquisa-extracao.txt       # Pesquisa: conversa → JSON (NÃO vai pro paciente)
 │   └── contrato-terapeutico-allos.md  # Contrato: referência interna (NÃO carregado em runtime)
 │
 ├── app/
@@ -643,7 +763,7 @@ sofia/
 │   │   ├── auth.py           # GET/POST /login, /logout (sessão)
 │   │   ├── api.py            # API JSON do painel
 │   │   ├── painel.py         # /painel, /painel/config, /painel/metricas, conversas
-│   │   ├── tasks.py          # POST /tasks/seguimentos (cron externo, X-Tasks-Token)
+│   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas} (cron, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
 │   ├── services/
@@ -658,6 +778,8 @@ sofia/
 │   │   ├── seguimento.py     # Follow-up de lead parado (Frente 2)
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
 │   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
+│   │   ├── captacao.py       # Origem do paciente: lista do Hamilton + validação do ID
+│   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
 │   │
 │   ├── templates/            # Jinja2 (HTMX via CDN)
@@ -682,6 +804,7 @@ sofia/
 │   ├── test_webhook.py, test_conversation.py, test_escalation.py
 │   ├── test_cadastro.py, test_hamilton.py, test_llm.py
 │   ├── test_painel.py, test_metricas.py, test_seguimento.py
+│   ├── test_captacao.py, test_pesquisa.py   # Demandas A e C
 │   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)
@@ -762,11 +885,58 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
   (digitando/visto), e transcrição de áudio (o áudio vira texto no painel).
 - **Config em runtime**: preço/parcelas/follow-up/debounce/digitando/áudio se mudam em
   **`/painel/config`** (sem Render). Segredos ficam nas Env Vars do Render (e em `render.env`,
-  gitignored). Cron do follow-up = `TASKS_TOKEN` + job no cron-job.org (ver `DEPLOY.md`).
+  gitignored). Cron do follow-up = `TASKS_TOKEN` + job no cron-job.org (ver `docs/referencia/DEPLOY.md`).
 - **Opcionais na fila**: Demanda 1 (observabilidade de duplicatas — a duplicação em si já foi
   resolvida pela Demanda 2) e KPI distribuição terapia×neuro.
 
-### 🚩 Backlog priorizado: [BACKLOG.md](./BACKLOG.md)
+### Ciclo atual (06/08/2026) — ver [demandas.md](docs/demandas/01-EM-ANDAMENTO.md)
+
+Fechado em grilling e implementado. **Ainda não foi ao ar** (falta rodar migrations e
+configurar o cron novo — ver "Pendências que bloqueiam o deploy" no `docs/demandas/01-EM-ANDAMENTO.md`).
+
+| Demanda | Status |
+|---|---|
+| **A** — origem real do paciente (captação), `is_parceria`, `vlr_sessao` do painel, fluxo de prefeitura | ✅ entregue |
+| **B** — neuro com a Amanda (R$ 1.000, editável) + aviso único pós-escalada | ✅ entregue |
+| **Ajuste da `Avaliacao`** (campos das respostas) | ⚠️ campos criados; **modelo de perguntas a discutir** |
+| **C** — pesquisas de satisfação (1ª sessão e encerramento) | ✅ entregue (infra) |
+| **D** — cobrança (Pix + Stripe) | ❌ **não iniciada** |
+
+**Mexe nos dois repos**: parte da Demanda A e toda a infra da C exigiram mudança no
+`hamilton-api` (migrations, endpoints e um bug nos signals). Ver `docs/demandas/01-EM-ANDAMENTO.md` §"O que foi
+implementado".
+
+### ➡️ PRÓXIMA DEMANDA (quem pegar o projeto começa aqui)
+
+São **duas coisas**, e a ordem importa — a segunda define onde a primeira começa:
+
+**1. Modelo da tabela de avaliação + planilha de qualidade**
+   → `docs/demandas/02-modelo-de-avaliacao.md` e `docs/demandas/01-EM-ANDAMENTO.md` §D.0
+   Os campos já existem no banco e a pesquisa já grava neles. **Falta decidir com
+   o Paulo** quais perguntas ficam no questionário definitivo, o que é texto e o
+   que é estruturado, e **editar a planilha** que o time de Qualidade usa (hoje
+   ela pressupõe uma pessoa coletando; agora quem coleta é a Sofia). Também é
+   preciso decidir se a planilha vira um export do Hamilton ou segue em paralelo.
+
+**2. Stripe + Pix (Demanda D)**
+   → `docs/demandas/01-EM-ANDAMENTO.md` §"Demanda D"
+   **Nada foi feito** — nenhuma linha de Stripe foi tocada, nem na Sofia nem no
+   Hamilton. O desenho está **fechado no grilling** e não precisa ser rediscutido:
+   a Sofia fala **direto com o Stripe** (chave própria, sem passar pelo Hamilton),
+   a chave Pix é fixa e editável no painel, a cobrança é **encadeada no fim da
+   pesquisa** com transição adequada, comprovante **escala pra Thainá** (a Sofia
+   não confirma vaga sozinha) e paciente de parceria **nunca** é cobrado.
+
+   ⚠️ Contexto que o desenho assume: o **webhook do Stripe no Hamilton está
+   quebrado desde sempre** (21 assinaturas, 0 faturas — ver
+   `hamilton-api/docs/pagamentos-cartao-stripe.md`). Está **fora** deste escopo,
+   mas é o motivo de a Sofia ter integração própria.
+
+**Antes de subir qualquer coisa**, ler "Pendências que bloqueiam o deploy" no
+`docs/demandas/01-EM-ANDAMENTO.md` — em especial a das **migrations do Hamilton, que o `.gitignore`
+ignora** e por isso não chegam ao GitHub sozinhas.
+
+### 🚩 Backlog priorizado: [BACKLOG.md](docs/demandas/99-backlog-entregue.md)
 
 Leia antes de pegar demanda nova (painel, mídia, reply-to, PWA).
 
@@ -802,7 +972,7 @@ HAMILTON_API_KEY=                  # legado/opcional
 
 # Valores editáveis em runtime no /painel/config (o env é só o valor INICIAL/default)
 PRECO_TERAPIA_MENSAL=200
-PRECO_NEURO=1200
+PRECO_NEURO=1000
 PARCELAS_MAX=5
 FOLLOWUP_HORAS=20                  # < 24 (janela da Meta)
 DEBOUNCE_SEGUNDOS=6                 # janela de agrupamento de rajada (prod=6)
@@ -842,7 +1012,7 @@ SIMULAR_DIGITACAO=false            # "digitando…" + visto (tiques azuis). Edit
 
 ## 📚 Referências
 
-- [sofia_briefing.md](./sofia_briefing.md) — Especificação técnica completa
+- [sofia_briefing.md](docs/referencia/sofia_briefing.md) — Especificação técnica completa
 - [Meta Cloud API Docs](https://developers.facebook.com/docs/whatsapp/cloud-api)
 - [OpenAI API](https://platform.openai.com/docs/api-reference)
 - [FastAPI](https://fastapi.tiangolo.com/)

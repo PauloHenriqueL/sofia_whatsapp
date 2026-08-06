@@ -61,6 +61,10 @@ async def buscar_leads_parados(db: AsyncSession, agora: datetime) -> list[Conver
             Conversa.paciente_hamilton_id.is_(None),
             Conversa.estado.not_in(ESTADOS_FINALIZADOS),
             Conversa.seguimento_enviado_em.is_(None),
+            # Pesquisa de satisfação em curso: quem parou de responder ali está
+            # no meio de outra conversa, não é lead sumido. Perguntar "você ainda
+            # tem interesse?" pra quem já é paciente não faz sentido nenhum.
+            Conversa.pesquisa_avaliacao_id.is_(None),
             ultima_recebida.c.ult <= limite_recente,
             ultima_recebida.c.ult >= limite_janela,
         )

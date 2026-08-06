@@ -16,7 +16,14 @@ from app.main import app
 from app.models import Conversa, Mensagem, Midia
 from app.routers import webhook as webhook_module
 from app.routers.webhook import extrair_mensagens, processar_payload, verify_signature
-from app.services import config_negocio, conversation, llm_client, serializacao, whatsapp_client
+from app.services import (
+    config_negocio,
+    conversation,
+    escalation,
+    llm_client,
+    serializacao,
+    whatsapp_client,
+)
 
 
 class TestWebhookVerification:
@@ -209,7 +216,7 @@ class _FakeLLM:
         self.resposta = resposta
         self.historicos: list[list[dict]] = []
 
-    async def gerar_resposta(self, historico, tools=None):
+    async def gerar_resposta(self, historico, tools=None, **kwargs):
         self.historicos.append(historico)
         return llm_client.LLMResposta(texto=self.resposta)
 
@@ -221,7 +228,7 @@ class _FakeLLMComTool:
         self.texto_final = texto_final
         self.chamadas = 0
 
-    async def gerar_resposta(self, historico, tools=None):
+    async def gerar_resposta(self, historico, tools=None, **kwargs):
         self.chamadas += 1
         if self.chamadas == 1:
             return llm_client.LLMResposta(
@@ -386,7 +393,7 @@ class TestProcessarPayload:
     @pytest.mark.asyncio
     async def test_llm_falha_usa_fallback(self, db_em_memoria):
         class _LLMQuebra:
-            async def gerar_resposta(self, historico, tools=None):
+            async def gerar_resposta(self, historico, tools=None, **kwargs):
                 raise llm_client.LLMError("boom")
 
         with patch(
@@ -402,8 +409,15 @@ class TestProcessarPayload:
         assert texto == webhook_module.FALLBACK_RESPOSTA
 
     @pytest.mark.asyncio
-    async def test_modo_humano_nao_responde(self, db_em_memoria):
-        """Em modo humano o bot só persiste; quem responde é a Thainá."""
+    async def test_modo_humano_avisa_uma_vez_e_depois_cala(self, db_em_memoria):
+        """Em modo humano quem conversa é a Thainá; a Sofia só avisa, uma vez.
+
+        Antes a Sofia ficava totalmente muda depois de escalar e a pessoa
+        escrevia no vazio até alguém abrir o painel. Agora ela responde que a
+        equipe foi acionada — mas UMA vez: repetir a cada mensagem seria pior
+        que o silêncio. E o aviso nunca passa pelo LLM (ele não pode retomar o
+        fluxo nem escrever por cima de quem assumiu a conversa).
+        """
         async with db_em_memoria() as s:
             conversa = await conversation.obter_ou_criar_conversa(s, "5531911112222")
             conversa.modo = "humano"
@@ -414,9 +428,12 @@ class TestProcessarPayload:
             "app.routers.webhook.whatsapp_client.enviar_texto",
             new_callable=AsyncMock,
         ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
-            await _rodar(_payload_texto(numero="5531911112222", texto="oi", msg_id="wamid.h"))
+            await _rodar(_payload_texto(numero="5531911112222", texto="oi", msg_id="wamid.h1"))
+            await _rodar(_payload_texto(numero="5531911112222", texto="e aí?", msg_id="wamid.h2"))
+            await _rodar(_payload_texto(numero="5531911112222", texto="alô?", msg_id="wamid.h3"))
 
-        mock_enviar.assert_not_awaited()
+        mock_enviar.assert_awaited_once_with("5531911112222", escalation.AVISO_EM_ATENDIMENTO)
+        assert fake.historicos == []  # o LLM não é consultado em modo humano
 
     @pytest.mark.asyncio
     async def test_mensagem_duplicada_e_ignorada(self, db_em_memoria):
@@ -730,7 +747,7 @@ class TestAlertaDeCadastro:
             def __init__(self):
                 self.n = 0
 
-            async def gerar_resposta(self, historico, tools_=None, tools=None):
+            async def gerar_resposta(self, historico, tools_=None, tools=None, **kwargs):
                 self.n += 1
                 if self.n == 1:
                     return llm_client.LLMResposta(
@@ -776,7 +793,7 @@ class TestAlertaDeCadastro:
             def __init__(self):
                 self.n = 0
 
-            async def gerar_resposta(self, historico, tools=None):
+            async def gerar_resposta(self, historico, tools=None, **kwargs):
                 self.n += 1
                 if self.n == 1:
                     return llm_client.LLMResposta(
@@ -807,3 +824,166 @@ class TestAlertaDeCadastro:
             await _rodar(_payload_texto(numero="5531966667777", msg_id="wamid.falha"))
 
         assert "FALHOU" in mock_tpl.await_args.kwargs["parametros"][1]
+
+
+class TestCaptacaoNoCadastro:
+    """A origem escolhida pelo modelo é validada antes de virar cadastro (Demanda A).
+
+    O `captacao_id` vem de um LLM, e uma origem errada não é um errinho de
+    metadado: ela contamina a prestação de contas enviada à prefeitura e decide
+    se o paciente vai ser cobrado ou atendido de graça.
+    """
+
+    def _llm_que_cadastra(self, **extra):
+        class _LLM:
+            def __init__(self):
+                self.n = 0
+
+            async def gerar_resposta(self, historico, tools_=None, tools=None, **kwargs):
+                self.n += 1
+                if self.n == 1:
+                    return llm_client.LLMResposta(
+                        texto=None,
+                        tool_calls=[
+                            llm_client.ToolCall(
+                                id="t1",
+                                name="cadastrar_paciente",
+                                arguments={
+                                    "nome_completo": "Ana Souza",
+                                    "data_nascimento": "1990-01-01",
+                                    **extra,
+                                },
+                            )
+                        ],
+                    )
+                return llm_client.LLMResposta(texto="Pronto, anotei.")
+
+        return _LLM()
+
+    async def _cadastrar(self, *, numero, msg_id, argumentos, captacoes):
+        """Roda um turno em que o modelo chama `cadastrar_paciente`."""
+        from app.services import captacao as captacao_mod
+
+        captacao_mod.limpar()
+        fake_hamilton = AsyncMock()
+        fake_hamilton.buscar_paciente_por_telefone = AsyncMock(return_value=[])
+        fake_hamilton.criar_paciente = AsyncMock(return_value={"pk_paciente": 42})
+        fake_hamilton.listar_captacoes = AsyncMock(return_value=captacoes)
+
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=self._llm_que_cadastra(**argumentos),
+        ), patch("app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock), patch(
+            "app.services.cadastro.hamilton_client.get_hamilton_client",
+            return_value=fake_hamilton,
+        ), patch(
+            "app.services.captacao.hamilton_client.get_hamilton_client",
+            return_value=fake_hamilton,
+        ), patch(
+            "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ):
+            await _rodar(_payload_texto(numero=numero, msg_id=msg_id))
+        captacao_mod.limpar()
+        return fake_hamilton
+
+    @pytest.mark.asyncio
+    async def test_captacao_valida_vai_pro_cadastro(self, db_em_memoria):
+        hamilton = await self._cadastrar(
+            numero="5531900001111",
+            msg_id="wamid.cap1",
+            argumentos={"captacao_id": 7},
+            captacoes=[{"pk_captacao": 7, "nome": "Instagram", "is_parceria": False}],
+        )
+        payload = hamilton.criar_paciente.await_args.args[0]
+        assert payload["captacao_id"] == 7
+        assert payload["is_parceria"] is False
+
+    @pytest.mark.asyncio
+    async def test_captacao_inventada_pelo_modelo_e_descartada(self, db_em_memoria):
+        """ID que não existe na lista não pode virar cadastro com origem errada."""
+        hamilton = await self._cadastrar(
+            numero="5531900002222",
+            msg_id="wamid.cap2",
+            argumentos={"captacao_id": 9999},
+            captacoes=[{"pk_captacao": 7, "nome": "Instagram", "is_parceria": False}],
+        )
+        payload = hamilton.criar_paciente.await_args.args[0]
+        assert "captacao_id" not in payload
+        assert payload["is_parceria"] is False
+
+    @pytest.mark.asyncio
+    async def test_parceria_vem_da_flag_do_hamilton_nao_do_modelo(self, db_em_memoria):
+        """O modelo pode dizer que é parceria; quem decide é a flag da captação.
+
+        Isso importa porque parceria significa mensalidade zero: se bastasse o
+        modelo afirmar, uma alucinação daria atendimento gratuito a qualquer um.
+        """
+        hamilton = await self._cadastrar(
+            numero="5531900003333",
+            msg_id="wamid.cap3",
+            argumentos={"captacao_id": 7, "is_parceria": True},
+            captacoes=[{"pk_captacao": 7, "nome": "Instagram", "is_parceria": False}],
+        )
+        assert hamilton.criar_paciente.await_args.args[0]["is_parceria"] is False
+
+    @pytest.mark.asyncio
+    async def test_prefeitura_conveniada_marca_parceria(self, db_em_memoria):
+        hamilton = await self._cadastrar(
+            numero="5531900004444",
+            msg_id="wamid.cap4",
+            argumentos={"captacao_id": 46, "vinculo_parceria": "Declarou ser servidora"},
+            captacoes=[
+                {"pk_captacao": 46, "nome": "Prefeitura de Materlândia", "is_parceria": True}
+            ],
+        )
+        payload = hamilton.criar_paciente.await_args.args[0]
+        assert payload["is_parceria"] is True
+        assert payload["captacao_id"] == 46
+
+    @pytest.mark.asyncio
+    async def test_sem_captacao_cadastra_mesmo_assim(self, db_em_memoria):
+        """Origem em branco é só trabalho pra coordenação; travar o cadastro
+        por causa disso perderia o paciente."""
+        hamilton = await self._cadastrar(
+            numero="5531900005555",
+            msg_id="wamid.cap5",
+            argumentos={},
+            captacoes=[{"pk_captacao": 7, "nome": "Instagram", "is_parceria": False}],
+        )
+        hamilton.criar_paciente.assert_awaited_once()
+        assert "captacao_id" not in hamilton.criar_paciente.await_args.args[0]
+
+
+class TestModoPesquisa:
+    """Com pesquisa em curso, o turno roda com o prompt da pesquisa (Demanda C).
+
+    A pessoa aqui já é paciente. Se o turno caísse no fluxo normal, a Sofia
+    voltaria a qualificar e a oferecer cadastro pra quem já é atendido.
+    """
+
+    @pytest.mark.asyncio
+    async def test_conversa_em_pesquisa_nao_usa_o_fluxo_de_acolhimento(self, db_em_memoria):
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531955554444")
+            conversa.pesquisa_avaliacao_id = 10
+            await s.commit()
+
+        fake = _FakeLLM()
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch("app.routers.webhook.pesquisa.responder", new_callable=AsyncMock) as mock_pesquisa:
+            await _rodar(_payload_texto(numero="5531955554444", texto="8", msg_id="wamid.pq1"))
+
+        mock_pesquisa.assert_awaited_once()
+        assert fake.historicos == []  # o prompt de acolhimento não foi usado
+
+    @pytest.mark.asyncio
+    async def test_conversa_normal_segue_no_fluxo_de_acolhimento(self, db_em_memoria):
+        fake = _FakeLLM()
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch("app.routers.webhook.pesquisa.responder", new_callable=AsyncMock) as mock_pesquisa:
+            await _rodar(_payload_texto(numero="5531955556666", msg_id="wamid.pq2"))
+
+        mock_pesquisa.assert_not_awaited()
+        assert len(fake.historicos) == 1

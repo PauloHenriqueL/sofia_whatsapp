@@ -17,7 +17,7 @@ from functools import lru_cache
 from openai import AsyncOpenAI, OpenAIError
 
 from app.config import settings
-from app.services import config_negocio, config_prompt
+from app.services import captacao, config_negocio, config_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +70,16 @@ def _valores_prompt() -> dict[str, str]:
     }
 
 
-def carregar_system_prompt() -> str:
+def carregar_system_prompt(captacoes: list[dict] | None = None) -> str:
     """System prompt: prompt de fluxo + base de conhecimento, com tokens injetados.
 
     O texto vem do `config_prompt` (editável pela Thainá no painel; o arquivo em
     `prompt/` é o padrão). Não é cacheado no nível final de propósito: prompt e
     valores podem mudar em runtime, e a substituição é barata.
+
+    `captacoes` é a lista de origens do Hamilton (ver `services.captacao`). Ela
+    entra no prompt pra que o modelo escolha um ID real em vez de descrever a
+    origem por escrito. Sem ela, o token vira uma instrução pra omitir o campo.
     """
     texto = config_prompt.texto("prompt_sistema")
     kb = config_prompt.texto("prompt_base")
@@ -90,7 +94,7 @@ def carregar_system_prompt() -> str:
         )
     for token, valor in _valores_prompt().items():
         texto = texto.replace(token, valor)
-    return texto
+    return texto.replace("{{LISTA_CAPTACOES}}", captacao.linhas_para_prompt(captacoes or []))
 
 
 class LLMClient(ABC):
@@ -98,7 +102,11 @@ class LLMClient(ABC):
 
     @abstractmethod
     async def gerar_resposta(
-        self, historico: list[dict], tools: list[dict] | None = None
+        self,
+        historico: list[dict],
+        tools: list[dict] | None = None,
+        captacoes: list[dict] | None = None,
+        system_prompt: str | None = None,
     ) -> LLMResposta:
         """Gera o próximo turno da Sofia.
 
@@ -109,6 +117,10 @@ class LLMClient(ABC):
                 prompt é adicionado pela implementação.
             tools: schemas de ferramentas (function calling). Se None, o modelo
                 só pode responder em texto.
+            captacoes: origens do Hamilton pro modelo escolher no cadastro.
+            system_prompt: substitui o prompt padrão da Sofia. Usado pelos fluxos
+                que não são a conversa de acolhimento (ex.: conduzir a pesquisa
+                de satisfação, extrair as respostas dela).
 
         Returns:
             LLMResposta com texto e/ou tool_calls.
@@ -135,10 +147,14 @@ class OpenAIClient(LLMClient):
         self._omitir_temperature = False
 
     async def gerar_resposta(
-        self, historico: list[dict], tools: list[dict] | None = None
+        self,
+        historico: list[dict],
+        tools: list[dict] | None = None,
+        captacoes: list[dict] | None = None,
+        system_prompt: str | None = None,
     ) -> LLMResposta:
         mensagens = [
-            {"role": "system", "content": carregar_system_prompt()},
+            {"role": "system", "content": system_prompt or carregar_system_prompt(captacoes)},
             *historico,
         ]
         kwargs: dict = {"model": self._model, "messages": mensagens}

@@ -21,6 +21,16 @@ ESCALADA_FALLBACK = (
     "da nossa clínica e vai te responder em pouco tempo."
 )
 
+# Resposta a quem escreve DEPOIS de a conversa já ter sido escalada. Sai uma vez
+# por escalada (ver `webhook._avisar_escalada_uma_vez`): antes disso a Sofia
+# ficava totalmente muda em modo humano e a pessoa escrevia no vazio até alguém
+# abrir o painel. Texto fixo de propósito — em modo humano a Sofia não pode
+# retomar o fluxo nem escrever por cima de quem assumiu a conversa.
+AVISO_EM_ATENDIMENTO = (
+    "Sua mensagem chegou aqui e a Thainá já foi avisada. "
+    "Ela vai te responder por aqui mesmo, assim que puder."
+)
+
 
 async def registrar_escalada(
     session: AsyncSession,

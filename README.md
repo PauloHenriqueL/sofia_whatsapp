@@ -10,7 +10,28 @@ Automação de atendimento de pacientes novos:
 
 **Stack**: FastAPI + Postgres/SQLite + OpenAI + Meta WhatsApp Cloud API
 
-**Status**: 🚧 MVP em desenvolvimento (Passo 3 concluído: persistência)
+**Status**: 🟢 **Em produção** ([sofia-whatsapp.onrender.com](https://sofia-whatsapp.onrender.com)).
+MVP + follow-up + métricas + painel (P0–P6) entregues. O ciclo atual (origem do
+paciente, neuro, pesquisas de satisfação) está implementado mas **ainda não foi
+ao ar** — falta rodar migrations e configurar um cron.
+
+---
+
+## 👋 Chegou agora? Comece por aqui
+
+1. **[`docs/README.md`](docs/README.md)** — índice da documentação e **o que
+   precisa ser feito agora**.
+2. **[`docs/referencia/workflow.md`](docs/referencia/workflow.md)** — como o
+   sistema funciona no dia a dia, em linguagem de gente (5 minutos).
+3. **[`CLAUDE.md`](CLAUDE.md)** — a arquitetura de verdade e, principalmente, os
+   **porquês não óbvios**. É o documento mais importante do repo.
+
+**Próxima demanda:** modelo da tabela de avaliação + Stripe/Pix. Detalhes em
+[`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md).
+
+> Este repo é a **Sofia**. Ela conversa com o **Hamilton** (`../hamilton-api`,
+> Django), o sistema clínico onde o paciente vira registro. Parte do trabalho
+> recente mexeu nos **dois repos**.
 
 ---
 
@@ -101,7 +122,7 @@ Checklist:
 
 ## 📚 Documentação
 
-- [sofia_briefing.md](./sofia_briefing.md) — Especificação técnica completa
+- [sofia_briefing.md](docs/referencia/sofia_briefing.md) — Especificação técnica completa
 - [CLAUDE.md](./CLAUDE.md) — Workflow de desenvolvimento
 - [Meta WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)
 - [OpenAI API Reference](https://platform.openai.com/docs/api-reference)

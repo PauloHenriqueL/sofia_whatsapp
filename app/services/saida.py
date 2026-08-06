@@ -1,6 +1,6 @@
 """Sanitização da fala do bot antes de ir pro paciente (rede de proteção).
 
-Por que isto existe (P0 do BACKLOG.md): o modelo tem dois canais de saída,
+Por que isto existe (P0 do docs/demandas/99-backlog-entregue.md): o modelo tem dois canais de saída,
 `tool_calls` (estruturado) e `content` (a fala). Ele pode errar o canal. Em beta
 fechado (dados fictícios) a Sofia mandou pro WhatsApp o JSON do
 `cadastrar_paciente` (nome, nascimento, endereço) e, noutra vez, lixo de template
@@ -94,6 +94,11 @@ _TOKENS_INTERNOS = re.compile(
     | \bcode\s+omitted\b
     | <\|[^>]*\|>             # <|im_end|> e afins
     | ^\s*```.*$              # cercas de bloco de código
+    | \[\[[A-Z_]+\]\]         # marcadores internos ([[PESQUISA_CONCLUIDA]] e afins):
+                              # sinalizam fim de fluxo pro nosso código e são
+                              # removidos antes do envio, mas se o modelo colocar
+                              # um no meio da frase (ou numa bolha inesperada) ele
+                              # chegaria ao paciente. Aqui é o último filtro.
     """,
     re.IGNORECASE | re.MULTILINE | re.VERBOSE,
 )
