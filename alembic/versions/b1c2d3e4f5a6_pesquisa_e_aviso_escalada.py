@@ -8,8 +8,14 @@
   ela começou, que é a base do lembrete e do encerramento por prazo.
 
 Revision ID: b1c2d3e4f5a6
-Revises: a0b1c2d3e4f5
+Revises: c3d4e5f6a7b8
 Create Date: 2026-08-06 00:00:00.000000
+
+Nota: esta migration nasceu apontando para `a0b1c2d3e4f5`, mas a `main` andou
+antes do merge e criou duas outras a partir da mesma revisão (arquivamento e
+stripe_ref). Duas cabeças fariam `alembic upgrade head` falhar no deploy, então
+ela foi reencadeada depois da última — as colunas são independentes, a ordem
+entre elas não importa.
 
 """
 from typing import Sequence, Union
@@ -19,7 +25,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b1c2d3e4f5a6"
-down_revision: Union[str, None] = "a0b1c2d3e4f5"
+down_revision: Union[str, None] = "c3d4e5f6a7b8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -99,6 +99,17 @@ class TestBuscarLeadsParados:
         )
         assert await seguimento.buscar_leads_parados(session, AGORA) == []
 
+    @pytest.mark.asyncio
+    async def test_arquivada_nao_entra(self, session):
+        """Conversa arquivada foi encerrada pela Thainá: sem follow-up automático."""
+        await _lead(
+            session,
+            numero="5531900000008",
+            horas_atras=21,
+            arquivada_em=AGORA - timedelta(hours=1),
+        )
+        assert await seguimento.buscar_leads_parados(session, AGORA) == []
+
 
 class TestRodarSeguimentos:
     @pytest.mark.asyncio

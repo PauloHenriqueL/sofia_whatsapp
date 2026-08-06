@@ -39,6 +39,13 @@ class Conversa(Base):
     cobranca_resolvida_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Quando a Thainá arquivou a conversa: sai da lista padrão do painel, sem
+    # apagar nada. NULL = ativa. Mensagem nova do paciente desarquiva sozinha.
+    arquivada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Referência de pagamento no Stripe (vincula paciente <-> cobrança). Aceita
+    # sub_..., cs_..., cus_..., plink_... ou a URL do link (buy.stripe.com); o
+    # painel resolve o status ao vivo na API do Stripe (nada é cacheado aqui).
+    stripe_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Quando a Sofia já avisou, depois de escalar, que a equipe vai retornar.
     # Escalar coloca a conversa em modo humano e a Sofia fica muda: quem escrevia
     # "e aí, alguma novidade?" não recebia nada até a Thainá abrir o painel. O

@@ -99,6 +99,9 @@ async def montar_acompanhamento(
             espera.append(item)
         elif c.cobranca_resolvida_em is None:
             item["dat_primeira_consulta"] = st.get("dat_primeira_consulta")
+            # Referência Stripe do paciente (se houver): o router anota o status
+            # de pagamento ao vivo em cima dela (pagamentos.anotar_pagamentos).
+            item["stripe_ref"] = c.stripe_ref
             cobranca.append(item)
         else:
             # Resolvido não é fim: fica visível, dá pra abrir a conversa e reabrir

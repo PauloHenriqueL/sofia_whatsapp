@@ -12,12 +12,13 @@
         {{ conversa.numero_whatsapp }} ·
         {% if conversa.modo == 'humano' %}<span class="badge badge-humano">modo humano</span>
         {% else %}<span class="badge">modo bot</span>{% endif %}
-        · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado }}</span>
+        · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado | rotulo_estado }}</span>
+        {% if conversa.arquivada_em %} · <span class="badge">arquivada</span>{% endif %}
       </div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap">
       {% if conversa.estado == 'cadastro_pendente' %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/cadastrar" style="margin:0">
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/cadastrar" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-clipboard-plus"></i> Cadastrar no Hamilton</button>
         </form>
       {% endif %}
@@ -28,11 +29,21 @@
       {% endif %}
       {# Assumir agora se faz pelo botão sobre o campo de digitar (embaixo). #}
       {% if conversa.modo == 'humano' %}
-        <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" style="margin:0">
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
         </form>
       {% endif %}
-      <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" style="margin:0"
+      {% if conversa.arquivada_em %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/desarquivar" class="acao-inline">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-arrow-counterclockwise"></i> Desarquivar</button>
+        </form>
+      {% else %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/arquivar" class="acao-inline"
+              onsubmit="return confirm('Arquivar esta conversa? Ela sai da lista (fica no filtro Arquivadas), nada é apagado, e a Sofia volta a responder se o paciente escrever.')">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-archive"></i> Arquivar</button>
+        </form>
+      {% endif %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/reiniciar" class="acao-inline"
             onsubmit="return confirm('Apagar esta conversa e todos os dados dela? Isso libera o número pra recomeçar do zero e não dá pra desfazer.')">
         <button class="btn btn-danger" type="submit"><i class="bi bi-trash"></i> Reiniciar conversa</button>
       </form>
@@ -67,6 +78,49 @@
       {% endfor %}
     </dl>
   </div>
+
+  {# ── Pagamento (Stripe): vínculo por referência + status ao vivo ─────── #}
+  {% if stripe_configurado %}
+  <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">
+    <h2 style="font-size:16px; margin:0 0 10px"><i class="bi bi-credit-card"></i> Pagamento</h2>
+    {% if pagamento_invalido %}
+      <div class="aviso aviso--erro" style="margin-bottom:10px">
+        <i class="bi bi-exclamation-triangle"></i>
+        Não reconheci essa referência. Aceito sub_..., cs_..., cus_... ou a URL do link (buy.stripe.com).
+      </div>
+    {% endif %}
+    {% if conversa.stripe_ref %}
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+        {% if pagamento_status %}
+          {% if pagamento_status.estado in ('pago', 'ativa') %}
+            <span class="badge badge-cadastrado">{{ pagamento_status.rotulo }}</span>
+          {% elif pagamento_status.estado == 'atrasada' %}
+            <span class="badge badge-escalado">{{ pagamento_status.rotulo }}</span>
+          {% elif pagamento_status.estado == 'aguardando' %}
+            <span class="badge badge-humano">{{ pagamento_status.rotulo }}</span>
+          {% else %}
+            <span class="badge">{{ pagamento_status.rotulo }}</span>
+          {% endif %}
+          {% if pagamento_status.detalhe %}<span class="muted">{{ pagamento_status.detalhe }}</span>{% endif %}
+        {% endif %}
+        <span class="muted" style="font-size:12px; word-break:break-all">{{ conversa.stripe_ref }}</span>
+      </div>
+    {% endif %}
+    <form method="post" action="/painel/pagamentos/vincular/{{ conversa.id }}"
+          style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+      <input class="input" type="text" name="ref" style="flex:1; min-width:220px"
+             placeholder="Cole o ID (sub_..., cs_..., cus_...) ou a URL do link de pagamento"
+             value="{{ conversa.stripe_ref or '' }}">
+      <button class="btn btn-ghost" type="submit"><i class="bi bi-link-45deg"></i> Salvar</button>
+    </form>
+    <div class="muted" style="font-size:12px; margin-top:8px">
+      <a href="/painel/pagamentos/?aba=gerar&conversa_id={{ conversa.id }}&nome={{ ((conversa.dados_coletados or {}).get('nome_completo') or '') | urlencode }}">
+        Gerar link de pagamento pra este paciente
+      </a>
+      · salvar em branco desfaz o vínculo
+    </div>
+  </div>
+  {% endif %}
 
   <div class="card">
     <div id="mensagens" class="chat"
@@ -147,10 +201,12 @@
     }
     function limparCitacao() {
       campoId.value = '';
+      preview.textContent = '';
       barraCit.hidden = true;
     }
     function limparAnexo() {
       anexo.value = '';
+      nomeAnexo.textContent = '';
       barraAnexo.hidden = true;
     }
     // Chamado pelo hx-on::after-request do form.

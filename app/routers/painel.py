@@ -62,9 +62,18 @@ def _tamanho_legivel(bytes_: int) -> str:
     return f"{bytes_ / (1024 * 1024):.1f} MB".replace(".", ",")
 
 
+def _fmt_data_unix(ts):
+    """Timestamp do Stripe (SEGUNDOS, não ms) -> '18/07/2026'. None -> '—'."""
+    if not ts:
+        return "—"
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%d/%m/%Y")
+
+
 templates.env.filters["data"] = _fmt_data
+templates.env.filters["data_unix"] = _fmt_data_unix
 templates.env.filters["desde"] = _ha_quanto_tempo
 templates.env.filters["tamanho"] = _tamanho_legivel
+templates.env.filters["rotulo_estado"] = painel.rotulo_estado
 templates.env.filters["e_imagem"] = midia.e_imagem
 templates.env.filters["nome_anexo"] = midia.nome_para_download
 
@@ -89,14 +98,16 @@ async def pagina_lista(
     busca: str = "",
     ordem: str = "atualizada_em",
     dir: str = "desc",
+    feito: str = "",
     db: AsyncSession = Depends(get_db),
 ):
+    """`feito` é o aviso pós-ação (ex.: 'arquivada'), pra ação não sumir em silêncio."""
     conversas = await painel.listar_conversas(
         db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
     )
     return templates.TemplateResponse(
         "painel_lista.html",
-        _contexto_lista(request, conversas, filtro, busca, ordem, dir),
+        {**_contexto_lista(request, conversas, filtro, busca, ordem, dir), "feito": feito},
     )
 
 
@@ -180,7 +191,11 @@ async def pagina_acompanhamento(
     request: Request, feito: str = "", db: AsyncSession = Depends(get_db)
 ):
     """`feito` é o aviso pós-ação ('resolvido'/'reaberto'), pra não sumir em silêncio."""
+    from app.services import pagamentos as pagamentos_service
+
     dados = await acompanhamento.montar_acompanhamento(db)
+    # Status de pagamento (Stripe) na fila de cobrança — tolerante a falha.
+    await pagamentos_service.anotar_pagamentos(dados["cobranca"])
     return templates.TemplateResponse(
         "painel_acompanhamento.html",
         {"request": request, "feito": feito, **dados},
@@ -253,11 +268,24 @@ async def fragment_conversas(
 
 
 @router.get("/conversas/{conversa_id}/")
-async def pagina_conversa(request: Request, conversa_id: int, db: AsyncSession = Depends(get_db)):
+async def pagina_conversa(
+    request: Request, conversa_id: int, pagamento: str = "", db: AsyncSession = Depends(get_db)
+):
+    """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect)."""
+    from app.services import pagamentos as pagamentos_service
+    from app.services import stripe_client
+
     conversa = await painel.obter_conversa(db, conversa_id)
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     mensagens = await painel.carregar_mensagens(db, conversa_id)
+
+    # Status do pagamento vinculado, resolvido ao vivo no Stripe (tolerante:
+    # Stripe fora do ar ou sem chave vira estado "erro"/ausente, nunca 500).
+    pagamento_status = None
+    if conversa.stripe_ref and stripe_client.configurado():
+        pagamento_status = await pagamentos_service.status_da_referencia(conversa.stripe_ref)
+
     return templates.TemplateResponse(
         "painel_conversa.html",
         {
@@ -266,6 +294,9 @@ async def pagina_conversa(request: Request, conversa_id: int, db: AsyncSession =
             "mensagens": mensagens,
             "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
             "max_anexo": midia.TAMANHO_MAXIMO,
+            "stripe_configurado": stripe_client.configurado(),
+            "pagamento_status": pagamento_status,
+            "pagamento_invalido": pagamento == "invalido",
         },
     )
 
@@ -361,6 +392,26 @@ async def devolver_bot(
     return RedirectResponse(
         _destino_seguro(proximo, f"/painel/conversas/{conversa_id}/"), status_code=303
     )
+
+
+@router.post("/conversas/{conversa_id}/arquivar")
+async def arquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Arquiva a conversa (sai da lista padrão; nada é apagado)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await painel.arquivar(db, conversa)
+    return RedirectResponse("/painel/?feito=arquivada", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/desarquivar")
+async def desarquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Desfaz o arquivamento (clique por engano, ou o caso reabriu)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await painel.desarquivar(db, conversa)
+    return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/cadastrar")

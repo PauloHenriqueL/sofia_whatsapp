@@ -32,6 +32,17 @@
         navigator.serviceWorker.register('/sw.js').catch(function () {});
       });
     }
+
+    // Acessibilidade: linha clicável de tabela (tr[onclick] + tabindex) também
+    // abre com Enter/Espaço. Delegado no document porque o HTMX troca os
+    // fragmentos (lista a cada 15s) e um listener por linha se perderia.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const tr = e.target.closest('tr[tabindex][onclick]');
+      if (!tr || e.target !== tr) return;
+      e.preventDefault();
+      tr.click();
+    });
   </script>
 </body>
 </html>
