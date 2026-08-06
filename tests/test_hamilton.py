@@ -56,8 +56,10 @@ class TestMapearDados:
         assert payload["nome"] == "João"
         assert payload["telefone"] == "31977776666"
         assert "Mensalidade" in payload["observacao"]
+        # A mensalidade acordada vai sempre (quem sabe o valor é quem conversou).
+        assert payload["vlr_sessao"] == "200.00"
         # Nenhum outro campo opcional foi enviado.
-        assert set(payload) == {"nome", "telefone", "observacao"}
+        assert set(payload) == {"nome", "telefone", "observacao", "vlr_sessao"}
 
     def test_neuro_nao_anota_mensalidade(self):
         payload = hamilton_client.mapear_dados(

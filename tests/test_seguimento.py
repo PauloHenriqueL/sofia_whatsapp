@@ -170,3 +170,28 @@ class TestEndpoint:
             config.settings.tasks_token = original
         assert resp.status_code == 200
         assert resp.json() == {"enviados": 0}
+
+
+class TestPesquisaNaoRecebeFollowUp:
+    """Quem está respondendo a pesquisa não é lead sumido (Demanda C).
+
+    O follow-up pergunta "você ainda tem interesse?". Mandar isso pra quem já é
+    paciente, no meio de uma pesquisa de satisfação, seria constrangedor.
+    """
+
+    @pytest.mark.asyncio
+    async def test_conversa_em_pesquisa_fica_de_fora(self, session):
+        await _lead(
+            session,
+            numero="5531900001111",
+            horas_atras=21,
+            pesquisa_avaliacao_id=10,
+        )
+        assert await seguimento.buscar_leads_parados(session, AGORA) == []
+
+    @pytest.mark.asyncio
+    async def test_lead_normal_continua_recebendo(self, session):
+        """Contraprova: sem a pesquisa, o mesmo lead é elegível."""
+        await _lead(session, numero="5531900002222", horas_atras=21)
+        leads = await seguimento.buscar_leads_parados(session, AGORA)
+        assert [c.numero_whatsapp for c in leads] == ["5531900002222"]

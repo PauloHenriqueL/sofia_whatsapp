@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response
@@ -15,11 +16,13 @@ from app.config import settings
 from app.database import async_session
 from app.services import (
     cadastro,
+    captacao,
     config_negocio,
     conversation,
     escalation,
     llm_client,
     midia,
+    pesquisa,
     saida,
     serializacao,
     tools,
@@ -169,8 +172,13 @@ async def processar_turno_bot(session, conversa) -> str | None:
     Falha do LLM cai em resposta de degradação, sem derrubar a conversa.
     """
     historico = await conversation.carregar_historico(session, conversa)
+    # Origens do Hamilton: o modelo escolhe uma delas no cadastro em vez de
+    # descrever a origem por escrito (ver services/captacao.py).
+    captacoes = await captacao.listar()
     try:
-        resp = await llm_client.get_llm_client().gerar_resposta(historico, tools=tools.TOOLS)
+        resp = await llm_client.get_llm_client().gerar_resposta(
+            historico, tools=tools.TOOLS, captacoes=captacoes
+        )
     except llm_client.LLMError:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
         return FALLBACK_RESPOSTA
@@ -210,7 +218,8 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
     if tc.name == tools.CADASTRAR_PACIENTE:
         # Mescla os dados coletados e delega pro serviço de cadastro (que garante
         # um telefone válido e faz busca-antes-de-criar no Hamilton).
-        conversa.dados_coletados = {**(conversa.dados_coletados or {}), **tc.arguments}
+        argumentos = await _validar_captacao(tc.arguments)
+        conversa.dados_coletados = {**(conversa.dados_coletados or {}), **argumentos}
         resultado = await cadastro.cadastrar_paciente(session, conversa)
         # Avisa a Thainá: sem isto ela só descobre o cadastro se abrir o painel.
         # (Cadastro feito pelo botão do painel não alerta: ela mesma clicou.)
@@ -219,6 +228,34 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
 
     logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
     return {"status": "desconhecida"}
+
+
+async def _validar_captacao(argumentos: dict) -> dict:
+    """Confere a origem escolhida pelo modelo contra a lista real do Hamilton.
+
+    O `captacao_id` vem de um LLM. Um ID inventado (ou de uma captação que saiu
+    do ar) não pode virar cadastro: aqui ele é descartado e o paciente cai na
+    origem "não identificada", que a coordenação corrige no Hamilton. Captação
+    errada contamina relatório e prestação de contas; captação vazia é só
+    trabalho.
+
+    `is_parceria` também não é aceito na palavra do modelo: quem decide se o
+    atendimento é custeado por um parceiro é a flag que veio do Hamilton. Isso
+    importa porque parceria significa mensalidade zero.
+    """
+    argumentos = dict(argumentos or {})
+    escolhida = captacao.resolver(argumentos.get("captacao_id"), await captacao.listar())
+    if escolhida is None:
+        if argumentos.get("captacao_id"):
+            logger.warning(
+                "Captação %r não existe no Hamilton; cadastro segue sem origem",
+                argumentos.get("captacao_id"),
+            )
+        argumentos.pop("captacao_id", None)
+        argumentos["is_parceria"] = False
+    else:
+        argumentos["is_parceria"] = captacao.e_parceria(escolhida)
+    return argumentos
 
 
 async def _finalizar_apos_tools(historico, resp, resultados) -> str | None:
@@ -331,8 +368,11 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 )
             await session.commit()
 
-            # Modo humano: só persiste; a Thainá responde pelo painel.
+            # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
+            # mais, mas avisa UMA vez que a equipe já foi acionada — antes o
+            # paciente escrevia no vazio até alguém abrir o painel.
             if conversa.modo == "humano":
+                await _avisar_escalada_uma_vez(session, conversa, numero)
                 return
 
             if tipo_efetivo == "audio":
@@ -364,6 +404,22 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # Texto normal: (re)agenda o turno pra depois da janela; a rajada reseta o
     # timer, então só a última mensagem dispara uma única resposta.
     serializacao.agendar(numero, config_negocio.valor("debounce_segundos"), _turno_agendado)
+
+
+async def _avisar_escalada_uma_vez(session, conversa, numero: str) -> None:
+    """Depois de escalar, responde UMA vez que a equipe já foi acionada.
+
+    Escalar deixa a conversa com a Thainá e cala a Sofia — quem escrevia depois
+    disso não recebia nada até alguém abrir o painel. O aviso é texto fixo, sem
+    LLM: em modo humano a Sofia não pode retomar o fluxo nem escrever por cima
+    de quem assumiu a conversa. Sai uma vez só, porque repetir "já te avisei que
+    vão responder" a cada mensagem é pior que o silêncio.
+    """
+    if conversa.aviso_escalada_em is not None:
+        return
+    conversa.aviso_escalada_em = datetime.now(timezone.utc)
+    await session.commit()
+    await _enviar_em_bolhas(session, conversa, numero, escalation.AVISO_EM_ATENDIMENTO)
 
 
 async def _transcrever_audio_msg(mensagem: dict[str, Any]) -> str | None:
@@ -430,6 +486,13 @@ async def _turno_agendado(numero: str) -> None:
 
 async def _responder_turno(session, conversa, numero: str) -> None:
     """Gera a resposta do bot (uma chamada ao LLM) e envia em bolhas."""
+    # Pesquisa de satisfação em curso: a conversa roda com o prompt da pesquisa,
+    # não com o de acolhimento. A pessoa já é paciente — retomar o fluxo de
+    # qualificação e cadastro aqui seria absurdo pra ela.
+    if pesquisa.em_pesquisa(conversa):
+        await pesquisa.responder(session, conversa, numero)
+        return
+
     resposta = await processar_turno_bot(session, conversa)
     await session.commit()
     if resposta is None:  # ex.: round-trip pós-tool sem fala final
@@ -441,7 +504,7 @@ async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> No
     """Quebra a resposta em bolhas curtas e envia em ordem, persistindo cada uma.
 
     Sanitiza antes de tudo: este é o único ponto por onde a fala do bot sai, então
-    é aqui que a rede de proteção fica (ver `saida.limpar` e o P0 do BACKLOG.md).
+    é aqui que a rede de proteção fica (ver `saida.limpar` e o P0 do docs/demandas/99-backlog-entregue.md).
     Se uma bolha falhar, pára (não adianta mandar o resto fora de ordem).
     """
     resposta = saida.limpar(resposta)

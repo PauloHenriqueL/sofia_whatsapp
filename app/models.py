@@ -1,6 +1,6 @@
 """Modelos SQLAlchemy: Conversa, Mensagem, Escalada.
 
-Esquema conforme sofia_briefing.md. JSON portável (JSONB em Postgres,
+Esquema conforme docs/referencia/sofia_briefing.md. JSON portável (JSONB em Postgres,
 JSON em SQLite) e timestamps com timezone.
 """
 
@@ -46,6 +46,24 @@ class Conversa(Base):
     # sub_..., cs_..., cus_..., plink_... ou a URL do link (buy.stripe.com); o
     # painel resolve o status ao vivo na API do Stripe (nada é cacheado aqui).
     stripe_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Quando a Sofia já avisou, depois de escalar, que a equipe vai retornar.
+    # Escalar coloca a conversa em modo humano e a Sofia fica muda: quem escrevia
+    # "e aí, alguma novidade?" não recebia nada até a Thainá abrir o painel. O
+    # aviso sai UMA vez por escalada (repetir seria pior que o silêncio) e é
+    # zerado ao devolver a conversa pro bot.
+    aviso_escalada_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Pesquisa de satisfação em andamento nesta conversa (Avaliacao do Hamilton).
+    # NULL = nenhuma. Enquanto estiver preenchido, o turno do bot roda com o
+    # prompt da pesquisa em vez do prompt de acolhimento: a pessoa já é paciente,
+    # não é mais um lead a ser qualificado e cadastrado.
+    pesquisa_avaliacao_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Quando a pesquisa atual começou. Base pro lembrete (20h) e pro encerramento
+    # por prazo (44h) — os dois dentro/à volta da janela de 24h da Meta.
+    pesquisa_iniciada_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

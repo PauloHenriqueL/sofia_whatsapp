@@ -47,7 +47,14 @@ def _itens_intake(dados: dict[str, Any]) -> list[str]:
     if dados.get("cep"):
         itens.append(f"CEP: {dados['cep']}")
     if dados.get("como_conheceu"):
+        # Mantido mesmo com a captação estruturada: guarda o que a pessoa disse
+        # com as palavras dela, que é o que permite corrigir uma captação errada.
         itens.append(f"Origem: {dados['como_conheceu']}")
+    if dados.get("vinculo_parceria"):
+        # Elegibilidade de convênio é auto-declarada; esta linha é a única
+        # evidência disso se o parceiro questionar uma consulta na prestação
+        # de contas.
+        itens.append(f"Parceria: {dados['vinculo_parceria']}")
     if dados.get("observacoes"):
         itens.append(f"Obs: {dados['observacoes']}")
     return itens
@@ -80,21 +87,35 @@ def mapear_dados_update(dados: dict[str, Any], existente: dict) -> dict[str, Any
 def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
     """Converte `dados_coletados` da Sofia no payload de intake do Hamilton.
 
-    Campos que o Hamilton ainda não tem como nativos (CEP, captação/origem e o
-    valor da mensalidade) vão pela `observacao` (texto livre que a Thainá lê e
-    usa pra completar o cadastro no Hamilton). O Hamilton seta um valor padrão
-    de mensalidade que não bate com o nosso, então anotamos o valor configurado.
+    A origem do paciente vai em `fk_captacao` (ID real do Hamilton) e a
+    mensalidade acordada em `vlr_sessao` — antes os dois eram decididos lá
+    dentro, com a captação fixa "WhatsApp (Sofia)" (que é o canal, não a origem)
+    e um valor default desatualizado.
+
+    Paciente de parceria vai com valor zero: quem custeia é o parceiro. O
+    Hamilton também zera por conta própria ao ver uma captação de parceria — a
+    checagem dupla é de propósito, porque o dado que decide isso veio de uma
+    conversa.
+
+    O que o Hamilton não tem como campo nativo (CEP, o texto literal da origem,
+    o vínculo declarado com a parceria) continua indo pela `observacao`.
     """
     observacao = _itens_intake(dados)
-    # Mensalidade só faz sentido pra terapia (neuro é pagamento único/orçamento).
-    if "neuro" not in (dados.get("motivo_busca") or "").lower():
+    parceria = bool(dados.get("is_parceria"))
+    # Mensalidade só faz sentido pra terapia paga (neuro é orçamento à parte, e
+    # parceria não tem mensalidade nenhuma).
+    if not parceria and "neuro" not in (dados.get("motivo_busca") or "").lower():
         preco = config_negocio.valor("preco_terapia_mensal")
         observacao.append(f"Mensalidade: R$ {preco:,}".replace(",", "."))
 
     payload: dict[str, Any] = {
         "nome": dados.get("nome_completo"),
         "telefone": normalizar_telefone(dados.get("telefone_contato")),
+        "vlr_sessao": "0.00" if parceria else f"{config_negocio.valor('preco_terapia_mensal')}.00",
     }
+    captacao_id = dados.get("captacao_id")
+    if captacao_id:
+        payload["fk_captacao"] = captacao_id
     if dados.get("data_nascimento"):
         payload["dat_nascimento"] = dados["data_nascimento"]
     if dados.get("telefone_apoio"):
@@ -170,6 +191,52 @@ class HamiltonClient:
         if isinstance(data, dict) and "results" in data:  # caso paginado
             return data["results"]
         return data if isinstance(data, list) else []
+
+    async def listar_captacoes(self) -> list[dict]:
+        """Captações ativas do Hamilton (origem do paciente: Instagram, indicação...).
+
+        É a lista que a Sofia oferece ao modelo pra ele casar o que a pessoa
+        contou com uma origem real — e é contra ela que o ID escolhido é
+        validado antes de virar cadastro.
+        """
+        resp = await self._request("GET", "/api/v1/captacoes/")
+        if resp.status_code != 200:
+            raise HamiltonError(f"Listagem de captações falhou ({resp.status_code})")
+        data = resp.json()
+        if isinstance(data, dict) and "results" in data:  # caso paginado
+            data = data["results"]
+        if not isinstance(data, list):
+            return []
+        return [c for c in data if c.get("is_active", True)]
+
+    async def avaliacoes_pendentes(self, incluir_enviadas: bool = False) -> list[dict]:
+        """Pesquisas de satisfação a conduzir (fila criada pelos gatilhos do Hamilton).
+
+        Sem `incluir_enviadas`, só as que ainda não foram abordadas. Com, também
+        as já enviadas — é assim que se acha quem precisa de lembrete ou de
+        encerramento por prazo.
+        """
+        rota = "/api/v1/avaliacoes/pendentes/"
+        if incluir_enviadas:
+            rota += "?enviadas=1"
+        resp = await self._request("GET", rota)
+        if resp.status_code != 200:
+            raise HamiltonError(f"Busca de avaliações pendentes falhou ({resp.status_code})")
+        data = resp.json()
+        if isinstance(data, dict) and "results" in data:  # caso paginado
+            data = data["results"]
+        return data if isinstance(data, list) else []
+
+    async def atualizar_avaliacao(self, pk: int, payload: dict) -> dict:
+        """PATCH parcial de uma avaliação (respostas, marcação de envio, status)."""
+        if not pk or not payload:
+            return {}
+        resp = await self._request("PATCH", f"/api/v1/avaliacoes/{pk}/", json=payload)
+        if resp.status_code not in (200, 201):
+            raise HamiltonError(
+                f"Atualização de avaliação falhou ({resp.status_code}): {resp.text[:200]}"
+            )
+        return resp.json()
 
     async def status_primeira_consulta(self, ids: list[int]) -> dict[int, dict]:
         """Status da 1ª consulta de cada paciente (por pk_paciente).

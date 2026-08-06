@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_db
-from app.services import seguimento
+from app.services import pesquisa, seguimento
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -34,3 +34,17 @@ async def disparar_seguimentos(request: Request, db: AsyncSession = Depends(get_
         return JSONResponse({"error": "forbidden"}, status_code=403)
     enviados = await seguimento.rodar_seguimentos(db)
     return {"enviados": enviados}
+
+
+@router.post("/pesquisas")
+async def disparar_pesquisas(request: Request, db: AsyncSession = Depends(get_db)):
+    """Dispara as pesquisas de satisfação (chamado pelo cron externo).
+
+    Uma rodada: aborda quem tem avaliação pendente no Hamilton, manda o lembrete
+    de quem está em silêncio e encerra quem passou do prazo. A fila é do
+    Hamilton — se ele estiver fora do ar, a rodada não faz nada e tenta de novo
+    na próxima (nada se perde).
+    """
+    if not _token_valido(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return await pesquisa.rodar_pesquisas(db)

@@ -1,6 +1,6 @@
 """Definições das ferramentas (function calling) expostas ao LLM.
 
-Schemas conforme sofia_briefing.md. Os handlers ficam na orquestração do
+Schemas conforme docs/referencia/sofia_briefing.md. Os handlers ficam na orquestração do
 turno (router webhook) e nos serviços (escalation; Hamilton entra no Passo 6).
 """
 
@@ -73,6 +73,32 @@ TOOLS = [
                         "description": (
                             "Como a pessoa disse que conheceu a Allos, literal "
                             "(ex.: 'Instagram', 'indicação de uma amiga', 'Google'). Opcional."
+                        ),
+                    },
+                    "captacao_id": {
+                        "type": "integer",
+                        "description": (
+                            "ID da captação (origem) da lista de origens fornecida no "
+                            "system prompt, escolhido a partir do que a pessoa contou. "
+                            "OMITA este campo se nenhuma opção da lista corresponder "
+                            "claramente ao que ela disse: captação errada é pior que "
+                            "captação em branco. Nunca invente um ID."
+                        ),
+                    },
+                    "is_parceria": {
+                        "type": "boolean",
+                        "description": (
+                            "true somente quando a pessoa é funcionária de uma "
+                            "prefeitura/órgão conveniado e confirmou isso. Nesse caso o "
+                            "atendimento é custeado pelo parceiro e a pessoa não paga nada."
+                        ),
+                    },
+                    "vinculo_parceria": {
+                        "type": "string",
+                        "description": (
+                            "Registro da declaração de vínculo com o parceiro, quando "
+                            "houver (ex.: 'Declarou ser servidor da Prefeitura de "
+                            "Materlândia'). Opcional."
                         ),
                     },
                     "observacoes": {
