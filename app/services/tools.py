@@ -6,6 +6,30 @@ turno (router webhook) e nos serviços (escalation; Hamilton entra no Passo 6).
 
 CADASTRAR_PACIENTE = "cadastrar_paciente"
 ESCALAR_PARA_THAINA = "escalar_para_thaina"
+REGISTRAR_RESPOSTA_PESQUISA = "registrar_resposta_pesquisa"
+
+# Campos que a tool da pesquisa aceita gravar, e o tipo de cada um. É allowlist:
+# nome fora daqui é descartado, porque o modelo escolhe o `campo` e um typo dele
+# não pode virar 400 no Hamilton nem dado no lugar errado.
+#
+# Só numéricos e booleanos. Texto (`feedback_livre`, `motivo_encerramento`)
+# continua saindo da extração no fim: errar texto custa pouco, e forçar uma tool
+# pra texto longo atrapalha a conversa.
+CAMPOS_PESQUISA_NOTA = (
+    "individual",  # ORS 1 — bem-estar pessoal
+    "interpessoal",  # ORS 2 — relacionamentos próximos
+    "social",  # ORS 3 — convívio no dia a dia
+    "geral",  # ORS 4 — estado geral
+    "qualidade_geral",  # nota do TERAPEUTA (campo reusado no Hamilton)
+    "nota_indicacao",  # NPS Allos
+    "nota_sofia",  # acolhimento/encaminhamento feito pela Sofia
+)
+CAMPOS_PESQUISA_BOOLEANO = (
+    "continuar_terapeuta",  # encaixe com o terapeuta
+    "continuar_allos",  # reoferta no encerramento
+    "consentimento_paciente",
+)
+CAMPOS_PESQUISA = CAMPOS_PESQUISA_NOTA + CAMPOS_PESQUISA_BOOLEANO
 
 # Motivos válidos de escalada via LLM. 'audio_recebido' não entra aqui porque
 # é detectado em código (Passo 5+), não escolhido pelo modelo.
@@ -101,6 +125,19 @@ TOOLS = [
                             "Materlândia'). Opcional."
                         ),
                     },
+                    "quem_fala": {
+                        "type": "string",
+                        "enum": ["paciente", "acompanhante"],
+                        "description": (
+                            "Quem está escrevendo neste WhatsApp: 'paciente' se é a "
+                            "própria pessoa que vai ser atendida, 'acompanhante' se é "
+                            "mãe, pai, responsável, cônjuge ou outra pessoa cuidando "
+                            "do contato. Use o que ficou claro na conversa; OMITA se "
+                            "não ficou. Isso decide se a pesquisa pode perguntar à "
+                            "pessoa como ELA se sente — um acompanhante não tem como "
+                            "responder isso por ela."
+                        ),
+                    },
                     "observacoes": {
                         "type": "string",
                         "description": (
@@ -142,6 +179,45 @@ TOOLS = [
                     },
                 },
                 "required": ["motivo"],
+            },
+        },
+    },
+]
+
+# Ferramentas do MODO PESQUISA. Não entram em TOOLS: durante a pesquisa a pessoa
+# já é paciente, e oferecer `cadastrar_paciente` ali seria convidar o modelo a
+# recadastrar quem já está cadastrado.
+TOOLS_PESQUISA = [
+    {
+        "type": "function",
+        "function": {
+            "name": REGISTRAR_RESPOSTA_PESQUISA,
+            "description": (
+                "Registrar UMA resposta numérica ou de sim/não que o paciente "
+                "acabou de dar na pesquisa. Chame esta ferramenta assim que "
+                "receber cada resposta, antes de fazer a próxima pergunta. "
+                "Nunca chame para uma pergunta que o paciente ainda não "
+                "respondeu, e nunca invente um valor."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campo": {
+                        "type": "string",
+                        "enum": list(CAMPOS_PESQUISA),
+                        "description": "Qual pergunta do roteiro o paciente respondeu.",
+                    },
+                    "valor": {
+                        "type": ["integer", "boolean"],
+                        "description": (
+                            "Nota inteira de 0 a 10 para os campos de nota, ou "
+                            "true/false para os campos de sim/não. Se o paciente "
+                            "respondeu em palavras e não deu um número, NÃO chame "
+                            "esta ferramenta."
+                        ),
+                    },
+                },
+                "required": ["campo", "valor"],
             },
         },
     },

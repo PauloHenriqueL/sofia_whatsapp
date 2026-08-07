@@ -227,6 +227,27 @@ class HamiltonClient:
             data = data["results"]
         return data if isinstance(data, list) else []
 
+    async def criar_avaliacao_entrada(self, paciente_id: int) -> dict | None:
+        """Cria a avaliação de LINHA DE BASE do paciente (a única que a Sofia cria).
+
+        As outras três nascem de gatilho interno do Hamilton. Esta não pode:
+        um signal no `Paciente` dispararia pra todo mundo cadastrado lá, inclusive
+        quem nunca falou com a Sofia. **Quem sabe que houve encaminhamento pela
+        Sofia é a Sofia.**
+
+        O endpoint é idempotente do lado do Hamilton: repetir devolve a que já
+        existe (200) em vez de criar uma segunda (201). Por isso aqui não há
+        controle de "já criei" — chamar de novo é barato e seguro.
+        """
+        if not paciente_id:
+            return None
+        resp = await self._request("POST", "/api/v1/avaliacoes/", json={"fk_paciente": paciente_id})
+        if resp.status_code not in (200, 201):
+            raise HamiltonError(
+                f"Criação da avaliação de entrada falhou ({resp.status_code}): {resp.text[:200]}"
+            )
+        return resp.json()
+
     async def atualizar_avaliacao(self, pk: int, payload: dict) -> dict:
         """PATCH parcial de uma avaliação (respostas, marcação de envio, status)."""
         if not pk or not payload:

@@ -54,6 +54,14 @@ class Conversa(Base):
     aviso_escalada_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Quando o cadastro no Hamilton deu certo (inclusive reencontro). É a âncora
+    # da pesquisa de linha de base: ela sai a partir de 3h depois daqui (pra não
+    # emendar na conversa de acolhimento, que é onde mora a receita) e desiste
+    # depois de 5 dias — baseline velho demais deixa de ser baseline.
+    # NULL = ainda não cadastrou OU cadastrou antes desta coluna existir. Não há
+    # backfill de propósito: assim nenhuma conversa antiga entra na fila da
+    # pesquisa de entrada quando isto subir.
+    cadastrado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Pesquisa de satisfação em andamento nesta conversa (Avaliacao do Hamilton).
     # NULL = nenhuma. Enquanto estiver preenchido, o turno do bot roda com o
     # prompt da pesquisa em vez do prompt de acolhimento: a pessoa já é paciente,

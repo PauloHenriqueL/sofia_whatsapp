@@ -68,7 +68,14 @@ CAMPOS_INTERNOS = (
     "cep",
     "motivo",
     "contexto",
+    "captacao_id",
+    "is_parceria",
+    "vinculo_parceria",
+    "quem_fala",
 )
+# Deixados DE FORA de propósito: `campo` e `valor`, da tool da pesquisa. São
+# palavras comuns demais em português ("o valor: R$ 200") e cortar fala legítima
+# é pior que deixar passar um JSON sem dado sensível nenhum.
 
 _CAMPO_JSON = re.compile(
     r"[\"']({})[\"']\s*:".format("|".join(CAMPOS_INTERNOS)),

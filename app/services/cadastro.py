@@ -7,6 +7,7 @@ quando a IA não coletou um número de verdade) e faz busca-antes-de-criar.
 import logging
 import re
 import unicodedata
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +49,16 @@ def _garantir_telefone(conversa: Conversa, dados: dict) -> dict:
     return dados
 
 
+def _marcar_cadastro(conversa: Conversa) -> None:
+    """Carimba quando o cadastro deu certo (ancora da pesquisa de linha de base).
+
+    So na primeira vez: um reencontro meses depois nao pode reabrir a janela
+    de baseline de alguem que ja e paciente ha tempos.
+    """
+    if conversa.cadastrado_em is None:
+        conversa.cadastrado_em = datetime.now(timezone.utc)
+
+
 async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
     """Tenta cadastrar a conversa no Hamilton (busca antes de criar).
 
@@ -66,6 +77,7 @@ async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
             pid = mesmo.get("pk_paciente")
             conversa.paciente_hamilton_id = pid
             conversa.estado = "cadastrado"
+            _marcar_cadastro(conversa)
             atualizacao = hamilton_client.mapear_dados_update(dados, mesmo)
             if atualizacao:
                 try:
@@ -80,6 +92,7 @@ async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
         criado = await client.criar_paciente(dados)
         conversa.paciente_hamilton_id = criado.get("pk_paciente")
         conversa.estado = "cadastrado"
+        _marcar_cadastro(conversa)
         await db.flush()
         return {"status": "cadastrado", "paciente_id": conversa.paciente_hamilton_id}
     except hamilton_client.HamiltonError as exc:

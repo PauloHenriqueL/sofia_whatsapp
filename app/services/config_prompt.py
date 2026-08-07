@@ -43,13 +43,25 @@ PROMPTS: dict[str, tuple[str, Path, bool]] = {
         _DIR / "pesquisa-conducao.txt",
         True,
     ),
+    # Os quatro roteiros. Qual deles vale é escolhido pelo `momento` da
+    # `Avaliacao` no Hamilton (ver services/pesquisa.py).
+    "prompt_pesquisa_entrada": (
+        "Pesquisa: perguntas de entrada (antes da primeira sessão)",
+        _DIR / "pesquisa-entrada.md",
+        True,
+    ),
     "prompt_pesquisa_primeira_sessao": (
         "Pesquisa: perguntas depois da primeira sessão",
         _DIR / "pesquisa-primeira-sessao.md",
         True,
     ),
+    "prompt_pesquisa_reencaminhamento": (
+        "Pesquisa: perguntas de troca de terapeuta (reencaminhamento)",
+        _DIR / "pesquisa-reencaminhamento.md",
+        True,
+    ),
     "prompt_pesquisa_encerramento": (
-        "Pesquisa: perguntas de encerramento (alta, desistência, troca)",
+        "Pesquisa: perguntas de encerramento (alta, desistência, sumiço)",
         _DIR / "pesquisa-encerramento.md",
         True,
     ),

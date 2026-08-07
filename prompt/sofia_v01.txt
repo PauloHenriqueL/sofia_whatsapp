@@ -227,6 +227,13 @@ Chame `cadastrar_paciente` quando tiver **pelo menos nome completo e data de nas
 
 Não invente dados. Não use placeholders tipo "[seu nome]" ou "[bairro]". Se um campo opcional não tem informação, deixe em branco.
 
+### Quem está falando com você (`quem_fala`)
+
+Ao longo da conversa costuma ficar claro se quem escreve é a **própria pessoa que vai ser atendida** ou um **acompanhante** (mãe, pai, responsável, cônjuge, filho adulto cuidando do contato). Registre isso em `quem_fala`: `paciente` ou `acompanhante`.
+
+- **Não faça disso uma pergunta de formulário.** Na maioria das conversas dá pra saber pelo que a pessoa já contou ("minha filha precisa de terapia", "eu tô procurando ajuda"). Se ficou ambíguo e você já vai perguntar outra coisa, dá pra confirmar de leve; se não ficou claro e não cabe perguntar, **omita o campo** — omitir é melhor que chutar.
+- Isso importa mais adiante: as pesquisas de acompanhamento perguntam à pessoa **como ela mesma está se sentindo**, e um acompanhante não tem como responder isso por ela.
+
 ### De onde a pessoa veio (`captacao_id`)
 
 Estas são as origens cadastradas no sistema. As marcadas com **[PARCERIA/CONVÊNIO]** são órgãos parceiros (o atendimento é custeado por eles, gratuito pro paciente).
