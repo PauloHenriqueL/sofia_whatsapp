@@ -42,6 +42,13 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
         settings.transcrever_audio,
         "bool",
     ),
+    # Limiares dos alertas de pesquisa. Nota ABAIXO do valor alerta a Thainá.
+    # Padrão literal (não vem de env, diferente dos campos acima): o ponto destes
+    # três é serem apertados ou afrouxados no painel conforme o volume incomodar,
+    # e uma env var seria um botão que ninguém usaria. Zero desliga o alerta.
+    "alerta_nota_terapeuta": ("Alertar se a nota do terapeuta for menor que", 6, "int"),
+    "alerta_nota_sofia": ("Alertar se a nota do acolhimento (Sofia) for menor que", 6, "int"),
+    "alerta_nota_indicacao": ("Alertar se a nota de indicação (NPS) for menor que", 6, "int"),
 }
 
 _cache: dict[str, object] = {chave: padrao for chave, (_, padrao, _t) in CAMPOS.items()}

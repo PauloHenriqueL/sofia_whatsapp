@@ -85,6 +85,25 @@ ROTULOS_CADASTRO = {
 }
 
 
+async def alertar_pesquisa(conversa: Conversa, motivos: list[str]) -> bool:
+    """Avisa a Thainá que uma pesquisa terminou com sinal ruim.
+
+    **Um alerta por pesquisa, no fim, com todos os motivos juntos.** Uma pesquisa
+    ruim dispara vários gatilhos ao mesmo tempo (nota do terapeuta baixa + NPS
+    baixo + "não combinou"); mandar um template por gatilho viraria três
+    mensagens seguidas e o aviso perderia o efeito. Alertar no meio também não
+    ajudaria: a conversa está em modo pesquisa e a Thainá não pode entrar sem
+    atropelar a Sofia.
+
+    Diferente da escalada, isto **não** muda o modo da conversa: a pessoa já
+    terminou de responder e não está esperando ninguém. Quem decide se vira
+    conversa é a Thainá, pela fila do painel.
+    """
+    if not motivos:
+        return False
+    return await _enviar_alerta(conversa, f"pesquisa com sinal de alerta: {'; '.join(motivos)}")
+
+
 async def alertar_cadastro(conversa: Conversa, resultado: dict) -> bool:
     """Avisa a Thainá do desfecho de um cadastro (novo, reencontro ou falha).
 

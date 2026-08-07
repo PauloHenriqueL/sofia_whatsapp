@@ -45,6 +45,49 @@
     <i class="bi bi-arrow-counterclockwise"></i>
     Cobrança reaberta. O paciente voltou pra lista de <strong>Pronto pra cobrança</strong>.
   </div>
+  {% elif feito == 'alerta_resolvido' %}
+  <div class="aviso">
+    <i class="bi bi-check2-circle"></i>
+    Alerta tratado. A conversa e as respostas da pesquisa continuam onde estavam.
+  </div>
+  {% endif %}
+
+  {# Vem PRIMEIRO na página de propósito: é a fila em que alguém pode perder um
+     paciente ou a reputação da Allos, e o alerta do WhatsApp some na rolagem.
+     Só aparece quando há algo — fila vazia não ocupa espaço todo dia. #}
+  {% if alertas %}
+  <div class="card" style="margin-bottom:18px; border-left:4px solid var(--danger, #c0392b)">
+    <h2 style="font-size:16px; margin:0 0 4px">
+      <i class="bi bi-exclamation-octagon"></i> Pesquisas com alerta ({{ alertas|length }})
+    </h2>
+    <div class="subtitle" style="margin-bottom:12px">
+      Respostas que pedem um humano: nota baixa, falta de encaixe com o terapeuta,
+      reclamação, ou alguém que quer continuar na Allos com outro terapeuta.
+    </div>
+    <table class="table">
+      <thead>
+        <tr><th data-sort>Paciente</th><th data-sort>Número</th><th data-sort>O que aconteceu</th><th data-sort>Quando</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for a in alertas %}
+        <tr>
+          <td>{{ a.nome }}</td>
+          <td>{{ a.numero }}</td>
+          <td>{{ a.motivos }}</td>
+          <td>{{ a.quando.strftime('%d/%m %H:%M') if a.quando else '—' }}</td>
+          <td class="acoes">
+            {{ abrir(a) }}
+            <form method="post" action="/painel/conversas/{{ a.conversa_id }}/alerta-resolvido"
+                  class="acao-inline" onclick="event.stopPropagation()"
+                  data-nome="{{ a.nome }}" data-confirmar-resolvido>
+              <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-check2"></i> Marcar tratado</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 
   <div class="card" style="margin-bottom:18px">

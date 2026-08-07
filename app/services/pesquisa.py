@@ -22,12 +22,23 @@ A conversa entra em "modo pesquisa" (`conversa.pesquisa_avaliacao_id`) e o turno
 do bot passa a rodar com o prompt da pesquisa em vez do prompt de acolhimento —
 a pessoa já é paciente, não é mais um lead a ser qualificado e cadastrado.
 
-O modelo conduz e o modelo extrai: no fim, uma chamada separada transforma a
-transcrição no JSON das respostas, que vai pro Hamilton por PATCH. Isso é uma
-decisão consciente, com um custo conhecido: nada garante que todas as perguntas
-sejam feitas nem que cada resposta seja lida corretamente, e ninguém confere
-depois. Se aparecer dado incompleto ou impreciso na `Avaliacao`, é aqui que se
-mexe (o conserto é registrar cada resposta por tool, em vez de extrair no fim).
+O modelo conduz, mas **não é ele quem decide o que fica gravado**. Cada nota e
+cada sim/não vai pro Hamilton na hora, por tool (`registrar_resposta_pesquisa`),
+validada em `_validar_resposta`. A extração por LLM no fim continua existindo,
+mas só pros textos e como rede pro que a tool não gravou — ela relê a
+transcrição de fora e é onde mora o risco de trocar uma nota de lugar.
+
+Isso foi uma reversão consciente: extrair tudo no fim era aceitável quando eram
+11 perguntas soltas, mas o ORS é um bloco que **se invalida inteiro** se um dos
+quatro itens sair errado, e é o número que vai pra prefeitura.
+
+## O alerta é o que transforma isto em produto
+
+Não há time de qualidade além da Sofia. Sem alerta, o desenho seria coletar e
+arquivar: um `qualidade_geral = 2` entraria no banco e ninguém saberia. No fim
+de cada pesquisa, `_alertar_se_precisar` manda **um** aviso consolidado à Thainá
+e põe a conversa numa fila no painel. Os limiares são editáveis em
+`/painel/config`. O ORS nunca alerta (ver `motivos_de_alerta`).
 
 ## Prazos
 
@@ -46,8 +57,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada
 from app.services import (
+    config_negocio,
     config_prompt,
     conversation,
+    escalation,
     hamilton_client,
     llm_client,
     tools,
@@ -328,6 +341,7 @@ async def finalizar(
     # presentes", não do status.
     respondeu_algo = bool(_ja_gravados(conversa))
     payload: dict = {"status": "nao_respondeu" if (recusou and not respondeu_algo) else "avaliado"}
+    reclamacao = False
 
     # Quem respondeu alguma coisa e depois sumiu ainda tem texto a extrair.
     # Quem recusou de cara não: a transcrição são duas mensagens e a chamada
@@ -336,6 +350,8 @@ async def finalizar(
         historico = await conversation.carregar_historico(db, conversa, limite=60)
         try:
             extraido = await extrair_respostas(historico, avaliacao)
+            # Sinal só pro alerta: NÃO é campo da Avaliacao e não pode ir no PATCH.
+            reclamacao = bool(extraido.pop(CHAVE_RECLAMACAO, False))
             # A TOOL TEM PRECEDÊNCIA. Ela leu a resposta no turno em que ela foi
             # dada; a extração relê a transcrição inteira de fora e é onde mora o
             # risco de trocar uma nota de lugar. Aqui ela só preenche buraco.
@@ -359,7 +375,81 @@ async def finalizar(
     except hamilton_client.HamiltonError as exc:
         logger.error("Não consegui gravar a pesquisa %s no Hamilton: %s", pk, exc)
 
+    # O alerta vem DEPOIS de gravar: mesmo que o Hamilton esteja fora, a Thainá
+    # precisa saber que alguém deu nota 2 no terapeuta.
+    # O alerta olha o UNIÃO do que a tool gravou com o que a extração
+    # preencheu: a precedência da tool tira do payload justamente os campos
+    # do caminho principal, e sem isso o alerta ficaria cego pra eles.
+    await _alertar_se_precisar(db, conversa, {**_valores_gravados(conversa), **payload}, reclamacao)
     await _limpar(db, conversa)
+
+
+# --------------------------------------------------------------------------- #
+# Alertas pra Thainá
+# --------------------------------------------------------------------------- #
+
+# Chave que o modelo devolve na extração pra sinalizar reclamação. NÃO é campo da
+# `Avaliacao`: é retirada do payload antes do PATCH. Reclamação se detecta lendo
+# a conversa, não por palavra-chave — "foi ruim pra mim naquele período" não é
+# reclamação, e em português a lista de palavras erraria nos dois sentidos.
+CHAVE_RECLAMACAO = "alerta_reclamacao"
+
+# nota -> (chave do limiar em config_negocio, como descrever pra Thainá).
+_LIMIARES = {
+    "qualidade_geral": ("alerta_nota_terapeuta", "nota do terapeuta"),
+    "nota_sofia": ("alerta_nota_sofia", "nota do acolhimento"),
+    "nota_indicacao": ("alerta_nota_indicacao", "nota de indicação"),
+}
+
+
+def motivos_de_alerta(payload: dict, reclamacao: bool = False) -> list[str]:
+    """O que nesta pesquisa merece a atenção de um humano.
+
+    **O ORS não gera alerta nenhum**, de propósito: a Sofia não se intromete com
+    nota de bem-estar — ela segue o fluxo e o terapeuta competente cuida disso.
+    Crise se detecta pela descrição clara do paciente, com o modelo de crise que
+    já existe, nunca por nota de escala.
+    """
+    motivos: list[str] = []
+    for campo, (chave, rotulo) in _LIMIARES.items():
+        nota = payload.get(campo)
+        limiar = config_negocio.valor(chave)
+        # Limiar zero desliga o alerta daquela nota (ajustável no painel).
+        if isinstance(nota, int) and not isinstance(nota, bool) and limiar and nota < limiar:
+            motivos.append(f"{rotulo} {nota}")
+
+    if payload.get("continuar_terapeuta") is False:
+        # Sempre alerta: pegar match ruim na sessão 1 vale mais que qualquer nota.
+        motivos.append("não sentiu encaixe com o terapeuta")
+    if payload.get("continuar_allos") is True:
+        # Isto é boa notícia, mas exige ação: alguém tem que fazer o novo match.
+        motivos.append("QUER CONTINUAR na Allos com outro terapeuta")
+    if reclamacao:
+        motivos.append("RELATOU EXPERIÊNCIA RUIM / reclamação")
+    return motivos
+
+
+async def _alertar_se_precisar(
+    db: AsyncSession, conversa: Conversa, payload: dict, reclamacao: bool
+) -> None:
+    """Manda um alerta consolidado e põe a conversa na fila do painel.
+
+    Sem isto o desenho inteiro seria **coletar e arquivar**: as respostas
+    entrariam no banco e ninguém saberia. É o alerta que transforma a pesquisa de
+    custo em produto.
+    """
+    motivos = motivos_de_alerta(payload, reclamacao)
+    if not motivos:
+        return
+
+    conversa.alerta_pesquisa_em = _agora()
+    conversa.alerta_pesquisa_motivos = "; ".join(motivos)
+    # Alerta novo reabre a fila: a Thainá precisa ver este, mesmo tendo tratado
+    # o da pesquisa anterior desta mesma pessoa.
+    conversa.alerta_resolvido_em = None
+    await db.flush()
+    # Falha no envio não derruba nada: a fila do painel já registrou.
+    await escalation.alertar_pesquisa(conversa, motivos)
 
 
 async def extrair_respostas(historico: list[dict], avaliacao: dict) -> dict:
@@ -436,6 +526,11 @@ def _normalizar_extracao(bruto: str | None, avaliacao: dict) -> dict:
         valor = dados.get(campo)
         if isinstance(valor, bool):
             limpo[campo] = valor
+
+    # Sinal de alerta: não é campo da Avaliacao, mas atravessa a normalização
+    # pra chegar em `finalizar`, que o retira antes do PATCH.
+    if dados.get(CHAVE_RECLAMACAO) is True:
+        limpo[CHAVE_RECLAMACAO] = True
 
     # `motivo_encerramento` existe na saída E na troca de terapeuta (é um campo
     # só: o `momento` já diz qual dos dois foi). Nos outros dois questionários
@@ -730,25 +825,44 @@ async def _registrar_resposta(db: AsyncSession | None, conversa, tc) -> dict:
         logger.error("Não consegui gravar %s da pesquisa %s: %s", campo, pk, exc)
         return {"status": "erro", "motivo": "não consegui gravar agora"}
 
-    await _marcar_gravado(db, conversa, campo)
+    await _marcar_gravado(db, conversa, campo, valor)
     return {"status": "registrado", "campo": campo}
 
 
-async def _marcar_gravado(db: AsyncSession | None, conversa, campo: str) -> None:
-    """Anota que a tool já gravou este campo (a extração do fim não o toca)."""
+async def _marcar_gravado(db: AsyncSession | None, conversa, campo: str, valor) -> None:
+    """Anota o que a tool gravou: o campo **e o valor**.
+
+    O valor importa porque o alerta pra Thainá é decidido no fim, e o que a tool
+    gravou não passa pelo `payload` do PATCH final (a precedência da tool tira de
+    lá). Guardar só o nome do campo deixaria o alerta cego justamente para o
+    caminho principal — nota 2 no terapeuta não geraria aviso nenhum.
+    """
     dados = dict(getattr(conversa, "dados_coletados", None) or {})
-    gravados = list(dados.get(_CHAVE_GRAVADOS) or [])
-    if campo not in gravados:
-        gravados.append(campo)
+    gravados = dict(_valores_gravados(conversa))
+    gravados[campo] = valor
     dados[_CHAVE_GRAVADOS] = gravados
     conversa.dados_coletados = dados
     if db is not None:
         await db.flush()
 
 
-def _ja_gravados(conversa) -> set[str]:
+def _valores_gravados(conversa) -> dict:
+    """O que a tool gravou nesta pesquisa, como {campo: valor}.
+
+    Tolera o formato antigo (lista de nomes): uma pesquisa que já estava em curso
+    no momento do deploy não pode explodir aqui.
+    """
     dados = getattr(conversa, "dados_coletados", None) or {}
-    return set(dados.get(_CHAVE_GRAVADOS) or [])
+    bruto = dados.get(_CHAVE_GRAVADOS)
+    if isinstance(bruto, dict):
+        return bruto
+    if isinstance(bruto, list):
+        return {campo: None for campo in bruto}
+    return {}
+
+
+def _ja_gravados(conversa) -> set[str]:
+    return set(_valores_gravados(conversa))
 
 
 async def _enviar(db: AsyncSession, conversa: Conversa, texto: str | None) -> bool:

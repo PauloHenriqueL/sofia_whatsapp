@@ -39,6 +39,18 @@ As palavras do paciente, resumidas se forem muito longas:
 - `continuar_allos` — se ele quer continuar sendo atendido na Allos com outro
   terapeuta
 
+## Sinal de alerta (não é resposta do questionário)
+
+- `alerta_reclamacao` — `true` se o paciente **relatou uma experiência ruim,
+  fez uma reclamação ou descreveu algo que precisa da atenção de um humano**
+  sobre o atendimento, o terapeuta, a instituição ou o processo.
+
+  Este campo não é uma pergunta: você o deduz do que ele contou. Use `true` para
+  queixa concreta ("marcaram e não apareceram", "me senti julgada", "ninguém me
+  respondeu"). Use `false`, ou omita, para tristeza, sintoma ou dificuldade da
+  vida dela — **estar mal não é reclamar**. Também não é reclamação uma nota
+  baixa sem explicação: a nota já é tratada por conta própria.
+
 ## Regras
 
 1. **Omita o campo se a pergunta não foi respondida.** Nunca chute, nunca preencha
