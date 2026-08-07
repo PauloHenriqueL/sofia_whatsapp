@@ -70,7 +70,11 @@ alembic/versions/__pycache__/
 Thumbs.db
 
 # Claude Code
-.claude/
+.claude/*
+# As skills do projeto SAO versionadas: uma skill que so existe no laptop de
+# quem a escreveu nao e uma skill do projeto. O que fica de fora e o
+# settings.local.json, que e pessoal.
+!.claude/skills/
 
 # Node (se usar HTMX/frontend later)
 node_modules/

@@ -149,6 +149,11 @@ async def subir_midia(conteudo: bytes, mime: str, nome: str) -> str:
     Raises:
         WhatsAppError: se o upload falhar.
     """
+    if settings.envio_whatsapp_bloqueado:
+        # `_enviar` não cobre este: o upload de mídia tem endpoint próprio.
+        logger.warning("[DRY RUN] mídia NÃO subida (mime=%s, bytes=%d)", mime, len(conteudo))
+        return f"dryrun-media-{abs(hash(conteudo)):016x}"
+
     url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/media"
     headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
     dados = {"messaging_product": "whatsapp", "type": mime}
@@ -284,8 +289,28 @@ async def baixar_midia(media_id: str) -> tuple[bytes, str]:
         raise WhatsAppError(f"falha de rede ao baixar mídia {media_id}") from exc
 
 
+def _resumo_dry_run(payload: dict[str, Any]) -> str:
+    """O que teria sido enviado, sem o conteúdo da mensagem (LGPD).
+
+    Em dry run o texto interessa pra quem está testando — e quem está testando é
+    quem já vê a conversa inteira no painel. Mesmo assim, só o começo: log não é
+    lugar de transcrição de conversa de saúde.
+    """
+    tipo = payload.get("type") or payload.get("status") or "?"
+    corpo = (payload.get("text") or {}).get("body") or ""
+    trecho = corpo[:120] + ("…" if len(corpo) > 120 else "")
+    return f"tipo={tipo} para={mascarar_telefone(payload.get('to'))} texto={trecho!r}"
+
+
 async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:
     """Faz o POST para o endpoint de mensagens da Cloud API."""
+    if settings.envio_whatsapp_bloqueado:
+        # Único choke point de envio: cobre texto, template, mídia e read receipt.
+        logger.warning("[DRY RUN] NÃO enviado (%s): %s", descricao, _resumo_dry_run(payload))
+        # Devolve um wamid falso, mas com a MESMA forma da resposta da Meta: o
+        # resto do fluxo persiste esse id e o painel usa pra citar mensagem.
+        return {"messages": [{"id": f"dryrun.{abs(hash(str(payload))):016x}"}]}
+
     url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {settings.whatsapp_token}",

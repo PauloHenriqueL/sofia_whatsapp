@@ -37,6 +37,22 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str
     thaina_whatsapp_number: str
     alert_template_name: str = "alerta_thaina"
+    # DRY RUN: não chama a Meta, só loga o que teria sido enviado.
+    #
+    # O `.env` de desenvolvimento carrega o token REAL do número da Allos. Sem
+    # esta trava, `uvicorn app.main:app` no laptop de qualquer pessoa manda
+    # mensagem de verdade pra paciente de verdade, e o alerta cai no celular da
+    # Thainá — sem nenhum aviso de que aquilo não era um teste.
+    #
+    # `None` = decide pelo ambiente: liga sozinho fora de `production`. Seguro
+    # por omissão; quem precisa enviar de verdade em dev seta `false` de propósito.
+    whatsapp_dry_run: bool | None = None
+
+    @property
+    def envio_whatsapp_bloqueado(self) -> bool:
+        if self.whatsapp_dry_run is not None:
+            return self.whatsapp_dry_run
+        return self.environment.strip().lower() != "production"
 
     # OpenAI
     openai_api_key: str
