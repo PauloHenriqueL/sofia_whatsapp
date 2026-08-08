@@ -6,6 +6,7 @@ turno (router webhook) e nos serviços (escalation; Hamilton entra no Passo 6).
 
 CADASTRAR_PACIENTE = "cadastrar_paciente"
 ESCALAR_PARA_THAINA = "escalar_para_thaina"
+OFERECER_DESCONTO = "oferecer_desconto"
 REGISTRAR_RESPOSTA_PESQUISA = "registrar_resposta_pesquisa"
 
 # Campos que a tool da pesquisa aceita gravar, e o tipo de cada um. É allowlist:
@@ -175,6 +176,35 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "Resumo curto do que aconteceu pra Thainá saber o " "contexto"
+                        ),
+                    },
+                },
+                "required": ["motivo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": OFERECER_DESCONTO,
+            "description": (
+                "Pedir autorização pra oferecer um desconto na mensalidade da terapia, "
+                "quando o valor cheio é um impeditivo real pra pessoa começar. Chame "
+                "SÓ depois de já ter sustentado o valor, ou quando ela disser de forma "
+                "explícita que não tem como pagar. Você NÃO escolhe o valor: esta "
+                "ferramenta devolve quanto você pode oferecer. Nunca invente um valor "
+                "nem prometa desconto antes de chamá-la. Vale só pra terapia; na "
+                "avaliação neuropsicológica quem trata valor é a Amanda, na reunião."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "motivo": {
+                        "type": "string",
+                        "description": (
+                            "O que a pessoa disse que torna o valor inviável, nas "
+                            "palavras dela (ex.: 'está desempregada desde março'). "
+                            "Fica registrado pra coordenação."
                         ),
                     },
                 },

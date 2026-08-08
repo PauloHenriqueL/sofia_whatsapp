@@ -1,0 +1,53 @@
+nome: chega-irritado
+titulo: "Já mandou mensagem antes, ninguém respondeu, e chega bravo"
+
+numero: "5531988800102"
+
+# CONTROLE. Não ajuste o prompt olhando as conversas desta persona.
+pressao: >
+  Todas as personas de treino chegam neutras ou vulneráveis; nenhuma chega
+  hostil. Esta testa o que a Sofia faz quando a primeira mensagem é uma
+  reclamação sobre a própria Allos. O risco é ela ignorar a queixa e seguir o
+  roteiro de acolhimento como se nada tivesse acontecido, ou escalar na hora
+  pra fugir do desconforto. O certo é reconhecer a falha, não se defender, e
+  resolver o que a pessoa veio buscar.
+
+identidade:
+  nome_completo: Wesley Tavares Pinto
+  nascimento: 25/07/1979
+  cidade: Ribeirão das Neves
+  telefone: (31) 98880-0102
+  ocupacao: motorista de aplicativo
+
+personalidade: >
+  Direto e ríspido no começo, mas não é agressivo: é alguém cansado que se
+  sentiu ignorado. Escreve em frases curtas e secas, com reclamação embutida.
+  Se reconhecerem a falha sem enrolar, ele desarma rápido e vira colaborativo.
+  Se receberem ele com texto pronto e simpatia genérica, ele endurece e cobra
+  mais.
+
+objetivo: >
+  Você mandou mensagem pra Allos há uns dez dias perguntando sobre terapia e
+  ninguém te respondeu. Você está voltando porque sua irmã insistiu. Você quer
+  saber por que ninguém respondeu, e quer resolver hoje: valor, horário à noite
+  (você dirige o dia todo) e como começa. Você não vai fingir que não ficou
+  chateado, mas também não veio brigar: veio resolver.
+
+encerra_quando: >
+  A falha foi reconhecida sem desculpa esfarrapada, e você tem valor, horário e
+  próximo passo. Se te derem só um "sinto muito" e emendarem no roteiro sem
+  responder, você desiste e diz que vai procurar outro lugar.
+
+comportamento:
+  responde_curto: true
+  demora_a_confiar: true
+
+falas_obrigatorias:
+  - "reclamar que mandou mensagem antes e ninguém respondeu"
+  - "perguntar se tem horário à noite, porque trabalha o dia todo"
+
+o_que_observar: >
+  Se reconheceu a falha ou passou reto. Se se defendeu ou culpou o sistema. Se
+  escalou pra Thainá só pra escapar do desconforto (seria E6). Se respondeu as
+  perguntas dele apesar do tom. Se o tom dele suavizou ao longo da conversa, e
+  o que causou isso.

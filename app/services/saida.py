@@ -52,6 +52,25 @@ def zerar_bloqueios() -> None:
     _bloqueios = 0
 
 
+# Texto que foi removido, pra quando saber *o quê* importa mais que *quantos*.
+# `None` = desligado, e é o padrão: em produção o trecho removido pode conter nome,
+# endereço ou o que a pessoa contou (dado de saúde), e por isso nem o log guarda.
+# Só o laboratório liga, porque lá os pacientes são fictícios — e sem isso não dá
+# pra distinguir "o modelo degenerou" de "o sanitizador tirou um espaço em branco".
+_amostras: list[dict[str, str]] | None = None
+
+
+def gravar_amostras(ativo: bool) -> None:
+    """Liga/desliga o registro do texto removido. NUNCA ligue em produção (LGPD)."""
+    global _amostras
+    _amostras = [] if ativo else None
+
+
+def amostras() -> list[dict[str, str]]:
+    """O que a sanitização removeu, se o registro estiver ligado."""
+    return list(_amostras or ())
+
+
 # Chaves dos schemas em `tools.py`. Uma linha que traga qualquer uma delas em
 # formato de campo JSON ("chave":) é estrutura de dados, não fala.
 CAMPOS_INTERNOS = (
@@ -98,6 +117,19 @@ _TOKENS_INTERNOS = re.compile(
     r"""
       @endsection\b.*$        # '@endsection' e o que vier depois na linha
     | \bto=final\b            # literal que vazou (não `to=` genérico: comeria 'to=email@x')
+    | \w*assistant\s+to=functions\b.*$
+                              # (`\w*` e não `\S*`: `\S*` atravessaria a pontuação e comeria
+                              #  a fala legítima antes do lixo)
+    | \bto=functions\b.*$
+                              # irmão do `to=final`: o cabeçalho do canal de tool call
+                              # ('assistant to=functions.escalar_para_thaina') vazando no
+                              # texto. Quando isso acontece o modelo degenerou, e o que vem
+                              # depois na linha é lixo (spam CJK, 'json_schema', raciocínio
+                              # solto), então corta a linha inteira. `functions` é literal:
+                              # não come 'to=email@x', que o `to=` genérico comeria.
+    | [【】].*$                # colchete CJK. Não existe em fala pt-BR e nas duas vezes que
+                              # apareceu veio grudado no lixo acima ('…pra você.】【：】【').
+                              # Corta dele em diante.
     | \bcode\s+omitted\b
     | <\|[^>]*\|>             # <|im_end|> e afins
     | ^\s*```.*$              # cercas de bloco de código
@@ -168,10 +200,20 @@ def limpar(texto: str | None) -> str:
     limpo = re.sub(r"[ \t]+$", "", limpo, flags=re.MULTILINE)
     limpo = re.sub(r"\n{3,}", "\n\n", limpo).strip()
 
-    if removeu_estrutura or len(limpo) != len(texto.strip()):
+    # Colapsar espaço em branco NÃO é sanitização. Comparar o limpo com o texto cru
+    # contava "tirei dois espaços no fim da linha" como se fosse vazamento: na rodada
+    # de 27 conversas do laboratório (07/08/2026), 27 de 27 "bloqueios" eram só isso,
+    # e esse número aparece no painel como sinal de que o modelo regrediu. Compara-se
+    # com o original já normalizado, pra sobrar só o que de fato foi removido.
+    normalizado = re.sub(r"[ \t]+$", "", texto, flags=re.MULTILINE)
+    normalizado = re.sub(r"\n{3,}", "\n\n", normalizado).strip()
+
+    if removeu_estrutura or limpo != normalizado:
         global _bloqueios
         _bloqueios += 1
         motivo = "estrutura_de_dados" if removeu_estrutura else "token_interno"
+        if _amostras is not None:  # laboratório only; ver `gravar_amostras`
+            _amostras.append({"motivo": motivo, "antes": texto, "depois": limpo})
         # NUNCA logar o conteúdo removido (LGPD: pode conter dado de saúde).
         logger.warning(
             "Saída do modelo sanitizada (motivo=%s, antes=%d chars, depois=%d chars)",

@@ -1,0 +1,373 @@
+{
+  "_meta": {
+    "origem": "GET /api/v1/captacoes/ do Hamilton de produção (leitura, snapshot único)",
+    "atencao": "A produção NÃO devolve o campo is_parceria. Por isso captacao.e_parceria() é False até para as prefeituras (13 e 46) e um paciente de parceria seria cadastrado com valor cheio. Snapshot mantido fiel de propósito: o laboratório tem que ver o comportamento real.",
+    "total": 52
+  },
+  "captacoes": [
+    {
+      "pk_captacao": 1,
+      "nome": "@associacaoallos",
+      "is_active": true,
+      "created_at": "2025-06-19T10:11:08.823150-03:00",
+      "updated_at": "2025-06-19T10:11:08.823171-03:00"
+    },
+    {
+      "pk_captacao": 2,
+      "nome": "Indicação de terapeuta",
+      "is_active": true,
+      "created_at": "2025-06-28T00:38:28.109647-03:00",
+      "updated_at": "2025-06-28T00:38:28.109662-03:00"
+    },
+    {
+      "pk_captacao": 3,
+      "nome": "Familiar/amigo",
+      "is_active": true,
+      "created_at": "2025-06-28T00:40:12.627205-03:00",
+      "updated_at": "2025-06-28T00:40:12.627214-03:00"
+    },
+    {
+      "pk_captacao": 4,
+      "nome": "Não sei",
+      "is_active": true,
+      "created_at": "2025-06-28T00:44:40.807927-03:00",
+      "updated_at": "2025-06-28T00:44:40.807940-03:00"
+    },
+    {
+      "pk_captacao": 5,
+      "nome": "Thainá",
+      "is_active": true,
+      "created_at": "2025-06-28T00:47:58.992930-03:00",
+      "updated_at": "2025-06-28T00:47:58.992940-03:00"
+    },
+    {
+      "pk_captacao": 6,
+      "nome": "Angelo",
+      "is_active": true,
+      "created_at": "2025-06-28T00:50:43.954116-03:00",
+      "updated_at": "2025-06-28T00:50:43.954131-03:00"
+    },
+    {
+      "pk_captacao": 7,
+      "nome": "Indicação de paciente",
+      "is_active": true,
+      "created_at": "2025-06-28T00:51:51.813267-03:00",
+      "updated_at": "2025-06-28T00:51:51.813274-03:00"
+    },
+    {
+      "pk_captacao": 8,
+      "nome": "Refazenda",
+      "is_active": true,
+      "created_at": "2025-06-28T01:07:57.195794-03:00",
+      "updated_at": "2025-06-28T01:07:57.195804-03:00"
+    },
+    {
+      "pk_captacao": 9,
+      "nome": "WhatsApp",
+      "is_active": true,
+      "created_at": "2025-06-28T01:11:12.723424-03:00",
+      "updated_at": "2025-06-28T01:11:12.723432-03:00"
+    },
+    {
+      "pk_captacao": 10,
+      "nome": "@eidrian21",
+      "is_active": true,
+      "created_at": "2025-06-28T01:14:09.177677-03:00",
+      "updated_at": "2025-06-28T01:14:09.177685-03:00"
+    },
+    {
+      "pk_captacao": 11,
+      "nome": "Psicolin4",
+      "is_active": true,
+      "created_at": "2025-06-28T01:17:03.266061-03:00",
+      "updated_at": "2025-06-28T01:17:03.266068-03:00"
+    },
+    {
+      "pk_captacao": 12,
+      "nome": "MBL",
+      "is_active": true,
+      "created_at": "2025-06-28T02:27:35.863332-03:00",
+      "updated_at": "2025-06-28T02:27:35.863342-03:00"
+    },
+    {
+      "pk_captacao": 13,
+      "nome": "Prefeitura de Bela Vista de Minas",
+      "is_active": true,
+      "created_at": "2025-06-28T02:29:42.966733-03:00",
+      "updated_at": "2025-06-28T02:29:42.966743-03:00"
+    },
+    {
+      "pk_captacao": 14,
+      "nome": "Formulário antigo",
+      "is_active": true,
+      "created_at": "2025-06-28T03:14:28.711852-03:00",
+      "updated_at": "2025-06-28T03:14:28.711915-03:00"
+    },
+    {
+      "pk_captacao": 15,
+      "nome": "Google",
+      "is_active": true,
+      "created_at": "2025-06-28T03:59:52.272151-03:00",
+      "updated_at": "2025-06-28T03:59:52.272160-03:00"
+    },
+    {
+      "pk_captacao": 16,
+      "nome": "Associado da ALLOS",
+      "is_active": true,
+      "created_at": "2025-06-28T04:16:22.151170-03:00",
+      "updated_at": "2025-06-28T04:16:22.151180-03:00"
+    },
+    {
+      "pk_captacao": 17,
+      "nome": "UFMG",
+      "is_active": true,
+      "created_at": "2025-06-28T04:17:34.697728-03:00",
+      "updated_at": "2025-06-28T04:17:34.697744-03:00"
+    },
+    {
+      "pk_captacao": 18,
+      "nome": "Escola Tetonio Maré",
+      "is_active": true,
+      "created_at": "2025-06-28T04:23:06.574567-03:00",
+      "updated_at": "2025-06-28T04:23:06.574577-03:00"
+    },
+    {
+      "pk_captacao": 19,
+      "nome": "Alfapuc",
+      "is_active": true,
+      "created_at": "2025-06-28T04:40:10.810782-03:00",
+      "updated_at": "2025-06-28T04:40:10.810791-03:00"
+    },
+    {
+      "pk_captacao": 20,
+      "nome": "Amanda Vasconcellos IG",
+      "is_active": true,
+      "created_at": "2025-06-28T04:41:54.685678-03:00",
+      "updated_at": "2025-06-28T04:41:54.685694-03:00"
+    },
+    {
+      "pk_captacao": 21,
+      "nome": "Eduardo Vascurado",
+      "is_active": true,
+      "created_at": "2025-06-28T04:44:38.350007-03:00",
+      "updated_at": "2025-06-28T04:44:38.350018-03:00"
+    },
+    {
+      "pk_captacao": 22,
+      "nome": "Amanda Vasconcellos IG",
+      "is_active": true,
+      "created_at": "2025-06-28T04:56:14.787353-03:00",
+      "updated_at": "2025-06-28T04:56:14.787362-03:00"
+    },
+    {
+      "pk_captacao": 23,
+      "nome": "@amalluvasconcellos",
+      "is_active": true,
+      "created_at": "2025-06-28T04:58:02.298441-03:00",
+      "updated_at": "2025-06-28T04:58:02.298450-03:00"
+    },
+    {
+      "pk_captacao": 24,
+      "nome": "Discord",
+      "is_active": true,
+      "created_at": "2025-07-14T21:38:35.547762-03:00",
+      "updated_at": "2025-07-14T21:38:35.547777-03:00"
+    },
+    {
+      "pk_captacao": 25,
+      "nome": "@dabmar_",
+      "is_active": true,
+      "created_at": "2025-07-14T21:59:11.659341-03:00",
+      "updated_at": "2025-07-14T21:59:11.659361-03:00"
+    },
+    {
+      "pk_captacao": 26,
+      "nome": "Cedipro",
+      "is_active": true,
+      "created_at": "2025-07-14T22:01:44.270358-03:00",
+      "updated_at": "2025-07-14T22:01:44.270392-03:00"
+    },
+    {
+      "pk_captacao": 27,
+      "nome": "Projeto NEEM",
+      "is_active": true,
+      "created_at": "2025-07-14T22:01:51.046488-03:00",
+      "updated_at": "2025-07-14T22:01:51.046502-03:00"
+    },
+    {
+      "pk_captacao": 28,
+      "nome": "Rede Cidadã",
+      "is_active": true,
+      "created_at": "2025-07-14T22:02:00.878257-03:00",
+      "updated_at": "2025-07-14T22:02:00.878270-03:00"
+    },
+    {
+      "pk_captacao": 29,
+      "nome": "@daengenhariaufmg",
+      "is_active": true,
+      "created_at": "2025-07-14T22:02:58.784600-03:00",
+      "updated_at": "2025-07-14T22:02:58.784617-03:00"
+    },
+    {
+      "pk_captacao": 31,
+      "nome": "Engenharia PUC",
+      "is_active": true,
+      "created_at": "2025-07-30T15:59:25.293078-03:00",
+      "updated_at": "2025-07-30T15:59:25.293095-03:00"
+    },
+    {
+      "pk_captacao": 32,
+      "nome": "SSVP",
+      "is_active": true,
+      "created_at": "2025-08-08T10:38:35.572891-03:00",
+      "updated_at": "2025-08-08T10:38:35.572902-03:00"
+    },
+    {
+      "pk_captacao": 30,
+      "nome": "Atlética PUC",
+      "is_active": true,
+      "created_at": "2025-07-21T06:02:47.193658-03:00",
+      "updated_at": "2025-08-08T11:00:48.429682-03:00"
+    },
+    {
+      "pk_captacao": 33,
+      "nome": "Brayane",
+      "is_active": true,
+      "created_at": "2025-08-08T14:14:01.444974-03:00",
+      "updated_at": "2025-08-08T14:14:01.444989-03:00"
+    },
+    {
+      "pk_captacao": 34,
+      "nome": "CapsiFamerp",
+      "is_active": true,
+      "created_at": "2025-08-08T21:16:23.904127-03:00",
+      "updated_at": "2025-08-08T21:16:23.904145-03:00"
+    },
+    {
+      "pk_captacao": 35,
+      "nome": "Avaliação de Pacientes",
+      "is_active": true,
+      "created_at": "2025-08-11T20:31:27.241681-03:00",
+      "updated_at": "2025-08-11T20:31:27.241695-03:00"
+    },
+    {
+      "pk_captacao": 38,
+      "nome": "CA - Direito UFRR",
+      "is_active": true,
+      "created_at": "2025-08-23T14:30:25.325562-03:00",
+      "updated_at": "2025-08-23T14:30:25.325578-03:00"
+    },
+    {
+      "pk_captacao": 39,
+      "nome": "CAJA UFAM",
+      "is_active": true,
+      "created_at": "2025-08-27T10:32:16.667193-03:00",
+      "updated_at": "2025-08-27T10:32:16.667209-03:00"
+    },
+    {
+      "pk_captacao": 40,
+      "nome": "Saúde Território - Recife",
+      "is_active": true,
+      "created_at": "2025-09-05T17:07:01.532280-03:00",
+      "updated_at": "2025-09-05T17:07:01.532299-03:00"
+    },
+    {
+      "pk_captacao": 41,
+      "nome": "@erickalouisy_",
+      "is_active": true,
+      "created_at": "2025-09-24T22:07:51.569962-03:00",
+      "updated_at": "2025-09-24T22:07:51.569974-03:00"
+    },
+    {
+      "pk_captacao": 42,
+      "nome": "Recursos Humanos - TCS",
+      "is_active": true,
+      "created_at": "2025-09-30T09:56:58.792979-03:00",
+      "updated_at": "2025-09-30T09:56:58.792995-03:00"
+    },
+    {
+      "pk_captacao": 43,
+      "nome": "UNIFESP",
+      "is_active": true,
+      "created_at": "2025-10-18T12:45:52.970945-03:00",
+      "updated_at": "2025-10-18T12:45:52.970957-03:00"
+    },
+    {
+      "pk_captacao": 44,
+      "nome": "Bitly - Comunidade",
+      "is_active": true,
+      "created_at": "2025-10-27T08:35:49.576271-03:00",
+      "updated_at": "2025-10-27T08:35:49.576287-03:00"
+    },
+    {
+      "pk_captacao": 45,
+      "nome": "SIMATEC PAAPS",
+      "is_active": true,
+      "created_at": "2026-01-15T11:32:32.677408-03:00",
+      "updated_at": "2026-01-15T11:32:32.677419-03:00"
+    },
+    {
+      "pk_captacao": 46,
+      "nome": "Prefeitura Materlandia",
+      "is_active": true,
+      "created_at": "2026-02-04T10:05:35.342275-03:00",
+      "updated_at": "2026-02-04T10:05:35.342288-03:00"
+    },
+    {
+      "pk_captacao": 47,
+      "nome": "Famer",
+      "is_active": true,
+      "created_at": "2026-03-06T11:13:01.735161-03:00",
+      "updated_at": "2026-03-06T11:13:01.735172-03:00"
+    },
+    {
+      "pk_captacao": 48,
+      "nome": "Avaliação Neuropsicológica",
+      "is_active": true,
+      "created_at": "2026-04-06T11:18:08.341204-03:00",
+      "updated_at": "2026-04-06T11:18:08.341216-03:00"
+    },
+    {
+      "pk_captacao": 49,
+      "nome": "Categoria de Base",
+      "is_active": true,
+      "created_at": "2026-04-30T13:04:41.488683-03:00",
+      "updated_at": "2026-04-30T13:04:41.488703-03:00"
+    },
+    {
+      "pk_captacao": 50,
+      "nome": "Beatriz Pereira",
+      "is_active": true,
+      "created_at": "2026-05-21T17:54:35.828270-03:00",
+      "updated_at": "2026-05-21T17:54:35.828287-03:00"
+    },
+    {
+      "pk_captacao": 52,
+      "nome": "Flávia Moreira",
+      "is_active": true,
+      "created_at": "2026-06-11T19:39:43.231807-03:00",
+      "updated_at": "2026-06-11T19:39:43.231826-03:00"
+    },
+    {
+      "pk_captacao": 53,
+      "nome": "WhatsApp (Sofia)",
+      "is_active": true,
+      "created_at": "2026-06-23T13:51:16.022129-03:00",
+      "updated_at": "2026-06-23T13:51:16.022146-03:00"
+    },
+    {
+      "pk_captacao": 54,
+      "nome": "Laura Simões",
+      "is_active": true,
+      "created_at": "2026-07-30T13:05:00.684440-03:00",
+      "updated_at": "2026-07-30T13:05:00.684465-03:00"
+    },
+    {
+      "pk_captacao": 55,
+      "nome": "Amanda Soares",
+      "is_active": true,
+      "created_at": "2026-07-30T13:07:58.506189-03:00",
+      "updated_at": "2026-07-30T13:07:58.506215-03:00"
+    }
+  ]
+}

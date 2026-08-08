@@ -1,0 +1,50 @@
+nome: prefeitura
+titulo: "Servidora que vem pelo convênio da prefeitura"
+numero: "5531988800008"
+
+pressao: >
+  Testa a Demanda A: escolha de `captacao_id` da lista real, `is_parceria` e
+  `vlr_sessao = 0`.
+
+  ⚠️ ATENÇÃO AO LER O RESULTADO: o snapshot de produção (fixtures/captacoes.json)
+  NÃO traz o campo `is_parceria` — a migration se perdeu no `.gitignore` do
+  hamilton-api. Então `captacao.e_parceria()` devolve False até para as
+  prefeituras (IDs 13 e 46) e o payload vai com valor cheio. Isso é uma falha de
+  INFRAESTRUTURA já conhecida e documentada, não da conversa. Ao julgar esta
+  persona, julgue a comunicação; o valor errado no payload é sintoma do que já
+  está registrado no CLAUDE.md.
+
+identidade:
+  nome_completo: Eliane Rodrigues Batista
+  nascimento: 09/10/1987
+  cidade: Bela Vista de Minas
+  telefone: (31) 98880-0008
+  ocupacao: servidora da Prefeitura de Bela Vista de Minas, setor de assistência social
+
+personalidade: >
+  Direta e informada. Já sabe que existe um convênio porque o RH avisou, então
+  ela chega pressupondo que tem direito. Fica desconfortável se a tratarem como
+  paciente comum e tiver que explicar o convênio duas vezes. Se falarem de
+  cobrança, ela estranha e questiona na hora.
+
+objetivo: >
+  O RH da prefeitura onde você trabalha avisou que os servidores têm atendimento
+  psicológico por um convênio com essa ONG. Você anda sobrecarregada no trabalho
+  e resolveu procurar. Você já chega dizendo que é servidora e que vem pelo
+  convênio. Você espera não pagar nada. Se te cobrarem, você questiona, porque
+  não é isso que te falaram.
+
+encerra_quando: >
+  Ficou claro se você paga ou não paga, e o que você precisa fazer pra ser
+  atendida pelo convênio. Se sobrou dúvida sobre cobrança, não acabou.
+
+comportamento:
+  responde_curto: false
+
+falas_obrigatorias:
+  - "que você é servidora da prefeitura e vem pelo convênio"
+
+o_que_observar: >
+  Se conduziu o cadastro em vez de escalar. Qual `captacao_id` escolheu (13 é o
+  correto: Prefeitura de Bela Vista de Minas). Se falou em valor para ela. Se
+  perguntou duas vezes sobre o convênio.

@@ -54,6 +54,18 @@ class Conversa(Base):
     aviso_escalada_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Desconto que a Sofia ofereceu sozinha na mensalidade (tool `oferecer_desconto`).
+    # Existe pra ser AUDITÁVEL: desconto é decisão sobre dinheiro recorrente delegada
+    # a um modelo, e sem registro o primeiro sinal de que a regra não está sendo
+    # respeitada seria a receita do mês. NULL = nunca ofereceu.
+    desconto_oferecido_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Valor cheio em reais que a pessoa passaria a pagar (não o percentual): o
+    # percentual pode mudar no painel depois, e aí o histórico mentiria.
+    desconto_valor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # O que a pessoa disse que tornava o valor inviável, nas palavras dela.
+    desconto_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Quando o cadastro no Hamilton deu certo (inclusive reencontro). É a âncora
     # da pesquisa de linha de base: ela sai a partir de 3h depois daqui (pra não
     # emendar na conversa de acolhimento, que é onde mora a receita) e desiste

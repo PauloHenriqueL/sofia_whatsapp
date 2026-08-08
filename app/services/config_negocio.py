@@ -22,6 +22,11 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
     "preco_terapia_mensal": ("Mensalidade da terapia (R$)", settings.preco_terapia_mensal, "int"),
     "preco_neuro": ("Orçamento da neuroavaliação (R$)", settings.preco_neuro, "int"),
     "parcelas_max": ("Parcelas máximas no cartão", settings.parcelas_max, "int"),
+    "desconto_maximo_pct": (
+        "Desconto máximo que a Sofia pode oferecer sozinha na terapia (%) — 0 desliga",
+        settings.desconto_maximo_pct,
+        "int",
+    ),
     "followup_horas": (
         "Horas até o follow-up automático (menos de 24)",
         settings.followup_horas,

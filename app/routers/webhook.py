@@ -226,8 +226,60 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         await escalation.alertar_cadastro(conversa, resultado)
         return resultado
 
+    if tc.name == tools.OFERECER_DESCONTO:
+        return await _autorizar_desconto(session, conversa, tc.arguments.get("motivo"))
+
     logger.warning(f"Tool desconhecida pedida pelo modelo: {tc.name}")
     return {"status": "desconhecida"}
+
+
+async def _autorizar_desconto(session, conversa, motivo: str | None) -> dict:
+    """Diz ao modelo quanto ele pode oferecer, e registra que ofereceu.
+
+    O valor é calculado AQUI, nunca escolhido pelo modelo: desconto é dinheiro
+    recorrente, e um número inventado vira mensalidade errada por meses. Com o
+    percentual em 0 a ferramenta nega, e a objeção de preço segue pra Thainá.
+    """
+    mensalidade = int(config_negocio.valor("preco_terapia_mensal"))
+    pct = int(config_negocio.valor("desconto_maximo_pct"))
+    if pct <= 0:
+        return {
+            "autorizado": False,
+            "instrucao": (
+                "Você não pode oferecer desconto. Diga que quem vê valor é a Thainá "
+                "e ofereça chamá-la."
+            ),
+        }
+
+    valor = round(mensalidade * (100 - pct) / 100)
+    # Um desconto por conversa. Se ela já ofereceu e a pessoa recusou, insistir com
+    # o mesmo número é constrangedor, e baixar de novo é negociar sem teto.
+    ja_ofereceu = conversa.desconto_oferecido_em is not None
+    if not ja_ofereceu:
+        conversa.desconto_oferecido_em = datetime.now(timezone.utc)
+        conversa.desconto_valor = valor
+        conversa.desconto_motivo = (motivo or "").strip()[:500] or None
+        await session.commit()
+        logger.info(
+            "Desconto autorizado (conversa=%s, de=%s, para=%s)", conversa.id, mensalidade, valor
+        )
+
+    return {
+        "autorizado": True,
+        "valor_mensal": valor,
+        "valor_cheio": mensalidade,
+        "ja_oferecido_antes": ja_ofereceu,
+        "instrucao": (
+            f"Ofereça R$ {valor} por mês no lugar de R$ {mensalidade}. Este é o menor "
+            "valor que você pode fazer: se a pessoa pedir menos, diga que abaixo disso "
+            "você não consegue resolver por aqui e ofereça chamar a Thainá."
+            if not ja_ofereceu
+            else (
+                f"Você já ofereceu R$ {valor} nesta conversa. Não baixe mais nem repita "
+                "a oferta: se ela continua inviável, ofereça chamar a Thainá."
+            )
+        ),
+    }
 
 
 async def _validar_captacao(argumentos: dict) -> dict:

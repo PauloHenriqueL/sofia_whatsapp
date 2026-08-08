@@ -30,12 +30,26 @@ class TestDividirEmBolhas:
         assert dividir_em_bolhas(None) == []
         assert dividir_em_bolhas("   \n\n   ") == []
 
-    def test_reagrupa_excedente_na_ultima_bolha(self):
+    def test_junta_o_excedente_sem_empilhar_no_fim(self):
         texto = "\n\n".join(f"p{i}" for i in range(1, 8))  # 7 parágrafos
         bolhas = dividir_em_bolhas(texto, max_bolhas=5)
         assert len(bolhas) == 5
-        assert bolhas[:4] == ["p1", "p2", "p3", "p4"]
-        assert bolhas[4] == "p5\n\np6\n\np7"
+        # Nada se perde, e a ordem é preservada.
+        assert "\n\n".join(bolhas) == texto
+        # O antigo comportamento empilhava p5+p6+p7 na última. Agora a última não
+        # é maior que as outras só por ser a última.
+        assert len(bolhas[-1]) <= max(len(b) for b in bolhas)
+
+    def test_paredao_nao_se_forma_na_ultima_bolha(self):
+        # Caso real do laboratório (07/08/2026): a resposta tinha um parágrafo
+        # longo no fim e vários curtos antes. Reagrupar no fim produzia uma bolha
+        # de 677 caracteres ao lado de bolhas de 12 — o oposto do que o teto quer.
+        curtos = [f"frase curta {i}." for i in range(1, 7)]
+        longo = "A" * 400
+        bolhas = dividir_em_bolhas("\n\n".join(curtos + [longo]), max_bolhas=5)
+        assert len(bolhas) == 5
+        assert bolhas[-1] == longo  # o parágrafo longo não recebeu carona
+        assert max(len(b) for b in bolhas[:-1]) < 100
 
     def test_exatamente_no_limite_nao_reagrupa(self):
         texto = "\n\n".join(f"p{i}" for i in range(1, 6))  # 5 parágrafos

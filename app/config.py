@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     preco_terapia_mensal: int = 200
     preco_neuro: int = 1000
     parcelas_max: int = 5
+    # Desconto máximo que a Sofia pode oferecer sozinha na mensalidade da terapia,
+    # em %. Vale só pra terapia: na neuroavaliação quem negocia é a Amanda, na
+    # reunião. 0 desliga o desconto e toda objeção de preço vai pra Thainá.
+    desconto_maximo_pct: int = 10
     followup_horas: int = 20  # retorno automático de lead parado (Frente 2)
 
     # Database
@@ -95,6 +99,11 @@ class Settings(BaseSettings):
     hamilton_api_key: str = ""
     hamilton_username: str = ""
     hamilton_password: str = ""
+    # Conexão SQL direta com a branch de TESTE do banco do Hamilton. Nenhum
+    # código da app usa isto (a Sofia fala com o Hamilton por REST) — existe só
+    # pra inspecionar/alterar schema e dados de teste durante o desenvolvimento.
+    # Declarado aqui porque Settings rejeita chaves desconhecidas no .env.
+    database_hamilton_teste: str = ""
 
     # Stripe (links de pagamento gerados no painel). Vazio = feature desligada,
     # a tela de Pagamentos mostra um aviso em vez de quebrar.

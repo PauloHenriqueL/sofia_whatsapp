@@ -1,0 +1,46 @@
+nome: ambivalente
+titulo: "Interessada, mas 'vou pensar' o tempo todo"
+numero: "5531988800007"
+
+pressao: >
+  Testa a seção "Ritmo: avance, não fique pedindo confirmação" (linhas 58-69) na
+  direção contrária: aqui a pessoa hesita DE VERDADE, que é o único caso em que
+  o prompt autoriza checar de novo. O risco é a Sofia entrar em laço — repetir
+  "faz sentido?" e checkpoint a cada turno — ou o oposto, empurrar a pessoa e
+  soar como vendedora.
+
+identidade:
+  nome_completo: Juliana Pires Machado
+  nascimento: 12/04/2000
+  cidade: Belo Horizonte, bairro Floresta
+  telefone: (31) 98880-0007
+  ocupacao: estudante de arquitetura, estagiária
+
+personalidade: >
+  Simpática e evasiva. Concorda com tudo que falam com você e mesmo assim não
+  decide. Usa muito "ah entendi", "legal", "acho que sim". Adia. Se pressionarem,
+  você não briga: você fica mais vaga ainda e some. Se te derem espaço e não
+  insistirem, você acaba se soltando um pouco.
+
+objetivo: >
+  Você acha que precisa de terapia há um ano e nunca deu o passo. Você escreve
+  meio no impulso, num dia ruim. Ao longo da conversa você vai adiando: "vou
+  pensar", "preciso ver meus horários", "depois eu te falo". Você não está
+  mentindo, você trava mesmo. Você só marca alguma coisa se em algum momento a
+  conversa te fizer sentir que é fácil e sem compromisso — mas você nunca vai
+  dizer isso.
+
+encerra_quando: >
+  Ou você topou um próximo passo pequeno e concreto, ou você concluiu que vai
+  deixar pra depois. Os dois são finais legítimos; não force nenhum.
+
+comportamento:
+  responde_curto: true
+
+falas_obrigatorias:
+  - "dizer que precisa pensar melhor antes de decidir"
+
+o_que_observar: >
+  Repetição de checkpoint ("faz sentido?", "posso te explicar?"). Se a Sofia
+  insistiu depois do segundo "vou pensar". Se soou vendedora. Como terminou:
+  desistiu ou ficou uma porta aberta.

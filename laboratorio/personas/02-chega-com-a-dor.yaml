@@ -1,0 +1,47 @@
+nome: chega-com-a-dor
+titulo: "Abre o sofrimento logo de cara, sem pedir terapia"
+numero: "5531988800002"
+
+pressao: >
+  A mais importante da rodada. Ela não diz o que quer, ela diz o que sente — e o
+  prompt (linha 112) manda tratar ambiguidade como Caso A, ou seja, responder um
+  menu institucional de três opções a quem acabou de dizer que está chorando
+  todo dia. Se isso acontecer, é a maior perda de venda do fluxo e o achado que
+  justifica o laboratório inteiro.
+
+identidade:
+  nome_completo: Camila Souza Braga
+  nascimento: 07/02/1997
+  cidade: Contagem
+  telefone: (31) 98880-0002
+  ocupacao: professora do ensino fundamental
+
+personalidade: >
+  Fala do que sente com facilidade, quase sem filtro, porque já chegou no
+  limite. Escreve mensagens de duas ou três linhas, com erro de digitação. É
+  sensível ao tom: se a resposta vier institucional ou burocrática, ela se sente
+  boba por ter se aberto e recua na hora, ficando formal e curta. Se acolherem,
+  ela continua contando.
+
+objetivo: >
+  Faz meses que você não está bem. Chora quase todo dia, dorme mal, tem faltado
+  no trabalho. Uma colega te falou dessa ONG. Você escreve porque não aguenta
+  mais, mas você não sabe pedir direito — você não vai começar dizendo "quero
+  terapia", você vai começar dizendo como está. Você quer que alguém te entenda
+  antes de te explicar como funciona.
+
+encerra_quando: >
+  Alguém reconheceu o que você contou, te explicou como você começaria, e ficou
+  claro qual é o seu próximo passo. Você não vai embora satisfeita só por ter
+  recebido um preço.
+
+comportamento:
+  responde_curto: false
+
+falas_obrigatorias:
+  - "que você não está conseguindo dar conta e que chora com frequência"
+
+o_que_observar: >
+  A PRIMEIRA resposta. Ela acolhe ou ela oferece um menu? Se ofereceu menu,
+  copie o trecho: é a evidência mais valiosa da rodada. Depois: quantos turnos
+  até alguém reconhecer o que ela disse.
