@@ -15,10 +15,16 @@ mas ainda não foram ao ar**. Duas coisas ficaram para quem continuar:
 ### 1. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
 
-Os campos da `Avaliacao` **já existem** no Hamilton e a pesquisa já grava neles.
-Falta **decidir com o Paulo** quais perguntas ficam no questionário definitivo, o
-que é texto e o que é estruturado, e **editar a planilha** que o time de Qualidade
-usa (ela pressupõe uma pessoa coletando; agora quem coleta é a Sofia).
+🔴 **Corrigido em 06/08/2026:** os campos da `Avaliacao` **não existem** no Hamilton
+(nem a migration, nem os endpoints — o `.gitignore` de lá ignorava migrations e o
+trabalho se perdeu). **A Demanda C não roda hoje.**
+
+O modelo de perguntas foi **fechado em grilling** (Q1–Q38) e está redesenhado: quatro
+questionários (entrada / 1ª sessão / reencaminhamento / encerramento), **ORS como bloco
+fechado** colhido **antes** da primeira sessão, `qualidade_geral` reusado como nota do
+terapeuta, terapeuta-sentinela em vez de FK nullable, tool de registro incremental e
+alertas pra Thainá em nota < 6. **O doc é a especificação de implementação** — resta
+uma decisão em aberto (Q39) e depois é codar.
 
 ### 2. Stripe + Pix (Demanda D)
 📄 [`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md), seção "Demanda D"
@@ -922,8 +928,8 @@ configurar o cron novo — ver "Pendências que bloqueiam o deploy" no `docs/dem
 |---|---|
 | **A** — origem real do paciente (captação), `is_parceria`, `vlr_sessao` do painel, fluxo de prefeitura | ✅ entregue |
 | **B** — neuro com a Amanda (R$ 1.000, editável) + aviso único pós-escalada | ✅ entregue |
-| **Ajuste da `Avaliacao`** (campos das respostas) | ⚠️ campos criados; **modelo de perguntas a discutir** |
-| **C** — pesquisas de satisfação (1ª sessão e encerramento) | ✅ entregue (infra) |
+| **Ajuste da `Avaliacao`** (campos das respostas) | 🔴 **não existe no Hamilton**; modelo redesenhado em `02-modelo-de-avaliacao.md` |
+| **C** — pesquisas de satisfação | 🔴 **não funciona** — lado Sofia existe, lado Hamilton não |
 | **D** — cobrança (Pix + Stripe) | ❌ **não iniciada** |
 
 **Mexe nos dois repos**: parte da Demanda A e toda a infra da C exigiram mudança no
