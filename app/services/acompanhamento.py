@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa
+from app.services import cobranca as cobranca_mod
 from app.services import hamilton_client
 
 logger = logging.getLogger(__name__)
@@ -96,12 +97,29 @@ async def montar_acompanhamento(
         }
         if not st.get("primeira_consulta_realizada"):
             item["fora_da_meta"] = dias > META_DIAS
+            # A 1ª consulta só conta como realizada se o terapeuta marcar o
+            # checkbox `is_realizado` no Hamilton. Desmarcado, o paciente fica
+            # aqui pra sempre e a cobrança NUNCA dispara — sem sintoma nenhum.
+            # Passado o dobro da meta, é mais provável que a sessão tenha
+            # acontecido e ninguém marcou do que a pessoa estar esperando há
+            # 15 dias. Este aviso é o único lugar onde isso fica visível.
+            item["talvez_nao_marcada"] = dias > META_DIAS * 2
             espera.append(item)
         elif c.cobranca_resolvida_em is None:
             item["dat_primeira_consulta"] = st.get("dat_primeira_consulta")
             # Referência Stripe do paciente (se houver): o router anota o status
             # de pagamento ao vivo em cima dela (pagamentos.anotar_pagamentos).
             item["stripe_ref"] = c.stripe_ref
+            # O que a Sofia já fez de cobrança nesta conversa. Sem isso a Thainá
+            # não distingue "a Sofia cobrou e a pessoa sumiu" de "a Sofia nunca
+            # conseguiu falar" — e trataria os dois casos igual.
+            item["cobranca_status"] = c.cobranca_status
+            item["cobranca_status_label"] = cobranca_mod.STATUS_LABELS.get(c.cobranca_status or "")
+            item["cobranca_iniciada_em"] = c.cobranca_iniciada_em
+            # Parceria paga por fora (prefeitura/convênio custeia): a pessoa não
+            # deve nada, e a fila convidava a Thainá a cobrar. A cobrança
+            # automática já pulava; a tela não sinalizava.
+            item["is_parceria"] = bool((c.dados_coletados or {}).get("is_parceria"))
             cobranca.append(item)
         else:
             # Resolvido não é fim: fica visível, dá pra abrir a conversa e reabrir

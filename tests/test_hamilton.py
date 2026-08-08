@@ -48,6 +48,27 @@ class TestMapearDados:
         # Terapia (motivo não-neuro): anota o valor configurado da mensalidade.
         assert "Mensalidade" in payload["observacao"]
 
+    def test_parceria_vai_com_valor_zero_e_tipo_parceria(self):
+        """Parceria decide DINHEIRO: a prefeitura custeia, o paciente não deve nada.
+
+        `tipo_pagamento='parceria'` é o que tira a pessoa do dropdown de cobrança
+        manual do Hamilton — sem ele ela entra como 'manual' e reaparece na fila
+        de quem deve mensalidade.
+        """
+        payload = hamilton_client.mapear_dados(
+            {
+                "nome_completo": "Márcia",
+                "telefone_contato": "31977776666",
+                "is_parceria": True,
+                "captacao_id": 13,
+            }
+        )
+        assert payload["vlr_sessao"] == "0.00"
+        assert payload["tipo_pagamento"] == "parceria"
+        assert payload["fk_captacao"] == 13
+        # Paciente de parceria não recebe anotação de mensalidade nenhuma.
+        assert "Mensalidade" not in payload.get("observacao", "")
+
     def test_mensalidade_anotada_mesmo_sem_outros_dados(self):
         # Sem motivo de neuro, a observação carrega ao menos a mensalidade.
         payload = hamilton_client.mapear_dados(
@@ -58,8 +79,9 @@ class TestMapearDados:
         assert "Mensalidade" in payload["observacao"]
         # A mensalidade acordada vai sempre (quem sabe o valor é quem conversou).
         assert payload["vlr_sessao"] == "200.00"
+        assert payload["tipo_pagamento"] == "manual"
         # Nenhum outro campo opcional foi enviado.
-        assert set(payload) == {"nome", "telefone", "observacao", "vlr_sessao"}
+        assert set(payload) == {"nome", "telefone", "observacao", "vlr_sessao", "tipo_pagamento"}
 
     def test_neuro_nao_anota_mensalidade(self):
         payload = hamilton_client.mapear_dados(

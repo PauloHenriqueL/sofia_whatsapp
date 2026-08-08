@@ -21,12 +21,6 @@
     </div>
   </div>
 
-  <div class="tabs">
-    <a class="tab" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
-    <a class="tab active" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
-    <a class="tab" href="/painel/pagamentos/"><i class="bi bi-credit-card"></i> Pagamentos</a>
-  </div>
-
   {% if erro %}
   <div class="aviso aviso--erro">
     <i class="bi bi-exclamation-triangle"></i> {{ erro }}
@@ -112,6 +106,15 @@
             {% else %}
               {{ p.dias }} dias
             {% endif %}
+            {# Espera longa demais quase sempre é o checkbox "realizada" que o
+               terapeuta não marcou no Hamilton — e, sem ele, a cobrança nunca
+               dispara. É o único ponto onde isso aparece pra alguém. #}
+            {% if p.talvez_nao_marcada %}
+              <div class="subtitle" style="margin-top:2px">
+                <i class="bi bi-exclamation-triangle"></i>
+                A consulta pode ter acontecido sem ser marcada como realizada
+              </div>
+            {% endif %}
           </td>
           <td>{{ abrir(p) }}</td>
         </tr>
@@ -127,7 +130,14 @@
       <i class="bi bi-cash-coin"></i> Pronto pra cobrança ({{ cobranca|length }})
     </h2>
     <div class="subtitle" style="margin-bottom:12px">
-      Já tiveram a 1ª consulta. Envie o link de pagamento e marque como resolvido.
+      Já tiveram a 1ª consulta realizada.
+      {% if cobranca_automatica %}
+        <strong>A cobrança automática está ligada</strong> — a Sofia manda o link
+        e o Pix sozinha. A coluna Pagamento mostra o que ela já fez; só mande à
+        mão quem aparecer com aviso de falha.
+      {% else %}
+        Envie o link de pagamento e marque como resolvido.
+      {% endif %}
     </div>
     <table class="table">
       <thead>
@@ -136,9 +146,23 @@
       <tbody>
         {% for p in cobranca %}
         <tr tabindex="0" onclick="window.location='/painel/conversas/{{ p.conversa_id }}/'">
-          <td style="font-weight:600">{{ p.nome }}</td>
+          <td style="font-weight:600">
+            {{ p.nome }}
+            {# Parceria paga por fora (a prefeitura/convênio custeia): o paciente
+               não deve nada, e a fila convidava a cobrar. #}
+            {% if p.is_parceria %}
+              <span class="badge badge-cadastrado">parceria — não cobrar</span>
+            {% endif %}
+          </td>
           <td class="muted">{{ p.numero }}</td>
-          <td class="muted">{{ p.dat_primeira_consulta or '—' }}</td>
+          <td class="muted">
+            {{ p.dat_primeira_consulta or '—' }}
+            {% if p.cobranca_iniciada_em %}
+              <div class="subtitle" style="margin-top:2px">
+                Sofia cobrou {{ p.cobranca_iniciada_em | desde }}
+              </div>
+            {% endif %}
+          </td>
           <td>
             {% if p.pagamento %}
               {% if p.pagamento.estado in ('pago', 'ativa') %}
@@ -152,6 +176,19 @@
               {% endif %}
             {% else %}
               <span class="muted">—</span>
+            {% endif %}
+            {# O que a Sofia já fez de cobrança. Distingue "cobrou e a pessoa
+               sumiu" de "nunca conseguiu falar" — sem isso os dois casos parecem
+               iguais e a Thainá trataria igual. #}
+            {% if p.cobranca_status_label %}
+              <div class="subtitle" style="margin-top:2px">
+                {% if p.cobranca_status in ('sem_janela', 'erro_link') %}
+                  <i class="bi bi-exclamation-triangle"></i>
+                {% else %}
+                  <i class="bi bi-robot"></i>
+                {% endif %}
+                {{ p.cobranca_status_label }}
+              </div>
             {% endif %}
           </td>
           <td class="acoes">

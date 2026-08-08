@@ -93,6 +93,27 @@ def resolver(captacao_id, captacoes: list[dict]) -> dict | None:
     return None
 
 
+# Nome da captação usada quando a origem não foi identificada. Existe no Hamilton
+# (ID 4 hoje), mas é resolvida por NOME de propósito: o ID varia entre a base de
+# produção e a branch de teste, e cravá-lo aqui gravaria a captação errada em um
+# dos dois ambientes sem ninguém perceber.
+NOME_NAO_SEI = "Não sei"
+
+
+def nao_sei(captacoes: list[dict]) -> dict | None:
+    """A captação "Não sei" da lista do Hamilton, se existir.
+
+    É o destino de quem chegou sem origem identificada. Gravar isso é diferente
+    de deixar em branco: em branco não dá pra distinguir "a pessoa não soube
+    dizer" de "ninguém perguntou", e o relatório da ONG trata os dois igual.
+    """
+    alvo = NOME_NAO_SEI.strip().casefold()
+    for c in captacoes:
+        if str(c.get("nome") or "").strip().casefold() == alvo:
+            return c
+    return None
+
+
 def e_parceria(captacao: dict | None) -> bool:
     """Se a origem é de um órgão parceiro (o atendimento é custeado por ele)."""
     return bool(captacao and captacao.get("is_parceria"))

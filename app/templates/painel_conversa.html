@@ -50,6 +50,21 @@
     </div>
   </div>
 
+  {# ── A Sofia está conduzindo algo AGORA? ──────────────────────────────────
+     Pesquisa e cobrança furam o portão do modo humano (Demanda D): a Sofia
+     responde mesmo com a conversa escalada. Sem este aviso, "Assumir controle"
+     prometia um silêncio que não acontecia. #}
+  {% if em_pesquisa or em_cobranca %}
+  <div class="aviso" style="margin-top:14px">
+    <i class="bi bi-robot"></i>
+    <strong>A Sofia está conduzindo {{ 'uma pesquisa' if em_pesquisa else 'a cobrança da mensalidade' }}
+    nesta conversa.</strong>
+    Ela responde às mensagens do paciente mesmo se a conversa estiver em modo humano.
+    Pra falar você mesma, use <em>Interromper e assumir</em> abaixo — o que já foi
+    respondido fica gravado.
+  </div>
+  {% endif %}
+
   {% set d = conversa.dados_coletados or {} %}
   {# Nome e telefone já aparecem no cabeçalho; aqui é o checklist de intake. #}
   {% set campos = [
@@ -61,6 +76,8 @@
     ('preferencia_terapeuta', 'Preferência de terapeuta'),
     ('motivo_busca', 'Motivo da busca'),
     ('como_conheceu', 'Como conheceu a Allos'),
+    ('quem_fala', 'Quem escreve neste número'),
+    ('vinculo_parceria', 'Vínculo com o parceiro'),
     ('observacoes', 'Observações'),
   ] %}
   <div class="card datas-card" style="margin:14px 0; padding:16px 18px">
@@ -76,8 +93,151 @@
         {% endif %}
       </div>
       {% endfor %}
+      {# Parceria e captação decidem DINHEIRO (paciente de parceria paga R$ 0 e
+         nunca é cobrado) e prestação de contas — e não apareciam em lugar nenhum. #}
+      <div class="data-row">
+        <dt>Parceria (prefeitura/convênio)</dt>
+        {% if d.get('is_parceria') %}
+        <dd><span class="badge badge-cadastrado">sim — não é cobrado</span></dd>
+        {% else %}
+        <dd class="vazio">não</dd>
+        {% endif %}
+      </div>
+      <div class="data-row">
+        <dt>Origem (captação)</dt>
+        {% if d.get('captacao_id') %}
+        <dd>ID {{ d.get('captacao_id') }}{% if d.get('como_conheceu') %} · {{ d.get('como_conheceu') }}{% endif %}</dd>
+        {% else %}
+        <dd class="vazio">não identificada</dd>
+        {% endif %}
+      </div>
+      {% if conversa.paciente_hamilton_id %}
+      <div class="data-row">
+        <dt>Cadastro no Hamilton</dt>
+        <dd>
+          #{{ conversa.paciente_hamilton_id }}
+          {% if conversa.cadastrado_em %} · {{ conversa.cadastrado_em | data }}{% endif %}
+        </dd>
+      </div>
+      {% endif %}
     </dl>
   </div>
+
+  {# ── Pesquisa de satisfação ───────────────────────────────────────────────
+     Só aparece quando há pesquisa em curso ou alerta pendente. Antes disto, o
+     painel não dava NENHUM sinal de que a conversa estava em modo pesquisa. #}
+  {% if em_pesquisa or conversa.alerta_pesquisa_em %}
+  <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px
+       {% if conversa.alerta_pesquisa_em and not conversa.alerta_resolvido_em %}; border-left:4px solid var(--danger, #c0392b){% endif %}">
+    <h2 style="font-size:16px; margin:0 0 10px"><i class="bi bi-clipboard-heart"></i> Pesquisa de satisfação</h2>
+    <dl class="datas">
+      {% if em_pesquisa %}
+      <div class="data-row">
+        <dt>Em andamento</dt>
+        <dd>
+          avaliação #{{ conversa.pesquisa_avaliacao_id }}
+          {% if conversa.pesquisa_iniciada_em %} · começou {{ conversa.pesquisa_iniciada_em | desde }}{% endif %}
+        </dd>
+      </div>
+      {% endif %}
+      {% if conversa.alerta_pesquisa_em %}
+      <div class="data-row">
+        <dt>Alerta</dt>
+        <dd>
+          {{ conversa.alerta_pesquisa_motivos or 'sem motivo registrado' }}
+          <div class="subtitle" style="margin-top:2px">
+            {{ conversa.alerta_pesquisa_em | data }}
+            {% if conversa.alerta_resolvido_em %} · tratado em {{ conversa.alerta_resolvido_em | data }}{% endif %}
+          </div>
+        </dd>
+      </div>
+      {% endif %}
+    </dl>
+    {% if conversa.alerta_pesquisa_em %}
+      {% if conversa.alerta_resolvido_em %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/alerta-reabrir" style="margin-top:10px">
+        <button class="btn btn-ghost btn-sm" type="submit">
+          <i class="bi bi-arrow-counterclockwise"></i> Reabrir alerta
+        </button>
+      </form>
+      {% else %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/alerta-resolvido" style="margin-top:10px">
+        <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-check2"></i> Marcar alerta como tratado</button>
+      </form>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Cobrança da mensalidade (Demanda D) ─────────────────────────────────── #}
+  {% if conversa.cobranca_iniciada_em %}
+  <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">
+    <h2 style="font-size:16px; margin:0 0 10px"><i class="bi bi-cash-coin"></i> Cobrança da mensalidade</h2>
+    <dl class="datas">
+      <div class="data-row">
+        <dt>Situação</dt>
+        <dd>
+          {% if conversa.cobranca_status in ('sem_janela', 'erro_link') %}
+          <span class="badge badge-escalado">{{ cobranca_label }}</span>
+          {% else %}
+          <span class="badge">{{ cobranca_label or conversa.cobranca_status }}</span>
+          {% endif %}
+          {% if em_cobranca %}<span class="badge badge-humano">em andamento</span>{% endif %}
+        </dd>
+      </div>
+      <div class="data-row">
+        <dt>A Sofia cobrou</dt>
+        <dd>{{ conversa.cobranca_iniciada_em | data }} ({{ conversa.cobranca_iniciada_em | desde }})</dd>
+      </div>
+      {% if conversa.cobranca_lembrete_em %}
+      <div class="data-row">
+        <dt>Lembrete enviado</dt>
+        <dd>{{ conversa.cobranca_lembrete_em | data }}</dd>
+      </div>
+      {% endif %}
+      {% if conversa.cobranca_encerrada_em %}
+      <div class="data-row">
+        <dt>Encerrada</dt>
+        <dd>{{ conversa.cobranca_encerrada_em | data }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+    {% if conversa.cobranca_status == 'sem_janela' %}
+    <p class="muted" style="font-size:12px; margin:8px 0 0">
+      A mensagem não saiu porque passaram mais de 24h desde a última mensagem do
+      paciente (limite do WhatsApp). <strong>Precisa de contato manual.</strong>
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Histórico de escaladas ───────────────────────────────────────────────
+     `motivo` e `contexto` existem desde o Passo 3 e nunca eram exibidos: a
+     Thainá abria a conversa e tinha que ler todas as mensagens pra descobrir
+     por que aquilo tinha caído no colo dela. #}
+  {% if escaladas %}
+  <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">
+    <h2 style="font-size:16px; margin:0 0 10px">
+      <i class="bi bi-exclamation-triangle"></i> Escaladas ({{ escaladas|length }})
+    </h2>
+    <dl class="datas">
+      {% for e in escaladas %}
+      <div class="data-row">
+        <dt>{{ e.criada_em | data }}</dt>
+        <dd>
+          <strong>{{ e.motivo | rotulo_motivo }}</strong>
+          {% if e.resolvida_em %}
+            <span class="badge badge-cadastrado">resolvida</span>
+          {% else %}
+            <span class="badge badge-escalado">aberta</span>
+          {% endif %}
+          {% if e.contexto %}<div class="subtitle" style="margin-top:2px">{{ e.contexto }}</div>{% endif %}
+        </dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </div>
+  {% endif %}
 
   {# ── Desconto que a Sofia deu sozinha. Só aparece se houve: é exceção, e o
         ponto de mostrar aqui é a Thainá conseguir auditar sem abrir o banco. #}
@@ -162,9 +322,13 @@
 
   {# Pra digitar, a Thainá precisa assumir a conversa antes: enquanto o bot está
      no comando, o campo fica coberto pelo botão (senão ela escreve por cima da
-     Sofia, que continua respondendo). #}
+     Sofia, que continua respondendo).
+     Pesquisa/cobrança em curso contam como "o bot está no comando" MESMO em modo
+     humano — é o que a exceção do portão do webhook faz. Marcar a conversa como
+     humana não cala a Sofia nesses dois modos; só interromper cala. #}
+  {% set pode_digitar = conversa.modo == 'humano' and not em_pesquisa and not em_cobranca %}
   <div class="card compositor" style="margin-top:14px">
-    {% if conversa.modo == 'humano' %}
+    {% if pode_digitar %}
       {# Barra de citação (P4): aparece quando a Thainá clica no ícone de responder. #}
       <div id="barra-citacao" class="citacao-barra" hidden>
         <i class="bi bi-reply"></i>
@@ -198,6 +362,18 @@
                   placeholder="Escreva a resposta para o paciente..." style="flex:1"></textarea>
         <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar</button>
       </form>
+    {% elif em_pesquisa or em_cobranca %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir"
+            class="compositor-bloqueado"
+            onsubmit="return confirm('Interromper e assumir a conversa? A Sofia para de responder. O que o paciente já respondeu fica gravado.')">
+        <span>
+          <i class="bi bi-robot"></i>
+          A Sofia está conduzindo {{ 'uma pesquisa' if em_pesquisa else 'a cobrança' }} aqui.
+        </span>
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-person-raised-hand"></i> Interromper e assumir
+        </button>
+      </form>
     {% else %}
       <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir"
             class="compositor-bloqueado">
@@ -210,7 +386,7 @@
   </div>
 </div>
 
-{% if conversa.modo == 'humano' %}
+{% if pode_digitar %}
 {# Compositor: citar mensagem (P4) e anexar arquivo (P5). #}
 <script>
   (function () {

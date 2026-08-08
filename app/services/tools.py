@@ -8,6 +8,7 @@ CADASTRAR_PACIENTE = "cadastrar_paciente"
 ESCALAR_PARA_THAINA = "escalar_para_thaina"
 OFERECER_DESCONTO = "oferecer_desconto"
 REGISTRAR_RESPOSTA_PESQUISA = "registrar_resposta_pesquisa"
+REGISTRAR_FORMA_PAGAMENTO = "registrar_forma_pagamento"
 
 # Campos que a tool da pesquisa aceita gravar, e o tipo de cada um. É allowlist:
 # nome fora daqui é descartado, porque o modelo escolhe o `campo` e um typo dele
@@ -58,7 +59,9 @@ MOTIVO_LABELS = {
     "presencial": "quer atendimento presencial",
     "menor_11": "paciente menor de 11 anos (online inviável)",
     "crise": "CRISE / risco — prioridade máxima",
-    "audio_recebido": "mandou um áudio (a Sofia não transcreve)",
+    # Não diz mais "a Sofia não transcreve": com `transcrever_audio` ligado ela
+    # transcreve e responde em texto, e só cai aqui quando a transcrição falha.
+    "audio_recebido": "mandou um áudio que não deu pra entender",
     "anexo_recebido": "mandou uma imagem ou documento (veja no painel)",
     "outro": "outro (ver contexto)",
 }
@@ -214,10 +217,21 @@ TOOLS = [
     },
 ]
 
+# A escalada é a única ferramenta compartilhada pelos três modos (acolhimento,
+# pesquisa e cobrança). Definida uma vez e reusada: são regras de segurança, e
+# duplicar o schema abriria espaço pros modos divergirem no que é escalável.
+_TOOL_ESCALAR = TOOLS[1]
+
 # Ferramentas do MODO PESQUISA. Não entram em TOOLS: durante a pesquisa a pessoa
 # já é paciente, e oferecer `cadastrar_paciente` ali seria convidar o modelo a
 # recadastrar quem já está cadastrado.
+#
+# `escalar_para_thaina` está aqui por causa de um bug real: o prompt da pesquisa
+# manda a Sofia dizer "vou avisar a Thainá agora" diante de sinal de crise, mas
+# sem a ferramenta **nenhuma escalada era registrada e nenhum alerta era
+# disparado** — ela prometia acionar um humano e ninguém era acionado.
 TOOLS_PESQUISA = [
+    _TOOL_ESCALAR,
     {
         "type": "function",
         "function": {
@@ -248,6 +262,42 @@ TOOLS_PESQUISA = [
                     },
                 },
                 "required": ["campo", "valor"],
+            },
+        },
+    },
+]
+
+# Ferramentas do MODO COBRANÇA (Demanda D). `oferecer_desconto` NÃO entra: negociar
+# preço no meio de uma cobrança é exatamente o que os prompts proíbem, e deixar a
+# ferramenta disponível seria convidar o modelo a fazer isso. Quem não pode pagar
+# vira escalada (`gratuidade`), que é uma decisão humana.
+TOOLS_COBRANCA = [
+    _TOOL_ESCALAR,
+    {
+        "type": "function",
+        "function": {
+            "name": REGISTRAR_FORMA_PAGAMENTO,
+            "description": (
+                "Registrar como a pessoa decidiu pagar, assim que ela disser. Serve "
+                "pra Thainá saber, no painel, de quem esperar comprovante (Pix) e "
+                "quem já resolveu no cartão. Chame uma vez, quando a escolha ficar "
+                "clara; se ela mudar de ideia depois, chame de novo com o valor novo. "
+                "Não chame antes de a pessoa escolher — 'vou ver' não é escolha."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "forma": {
+                        "type": "string",
+                        "enum": ["cartao", "pix", "indefinido"],
+                        "description": (
+                            "'cartao' se ela vai pagar pelo link, 'pix' se vai fazer "
+                            "o Pix e mandar o comprovante, 'indefinido' se ela ficou "
+                            "de decidir depois."
+                        ),
+                    },
+                },
+                "required": ["forma"],
             },
         },
     },

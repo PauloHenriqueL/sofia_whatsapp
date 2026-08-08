@@ -6,42 +6,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # ⏭️ ESTADO ATUAL E PRÓXIMO PASSO (leia primeiro)
 
-**Data deste registro:** 06/08/2026.
+**Data deste registro:** 08/08/2026.
 
-O sistema está **em produção** e o MVP (P0–P6) foi entregue há tempos. O último
-ciclo de trabalho implementou 3 demandas novas, que estão **prontas e testadas
-mas ainda não foram ao ar**. Duas coisas ficaram para quem continuar:
+O sistema está **em produção** e o MVP (P0–P6) foi entregue há tempos. As Demandas
+A, B, C e D estão **implementadas e testadas**. O que falta é **ligar** e conferir
+o ambiente — nenhuma delas exige código novo.
 
-### 1. Modelo da tabela de avaliação + planilha de qualidade
+> ⚠️ **Aviso de leitura.** As seções de status deste arquivo já ficaram velhas duas
+> vezes (diziam "Demanda D não iniciada" com o Stripe inteiro implementado, e
+> "a Demanda C não roda" com o Hamilton pronto). **Antes de acreditar em qualquer
+> "não existe" aqui, confira no código.** As seções de arquitetura são confiáveis;
+> as de status envelhecem.
+
+### 1. Ligar a pesquisa e a cobrança (nenhuma linha de código)
+- `SOFIA_PESQUISAS_ATIVAS=true` nas env vars do **Hamilton**. Default é `false`, e
+  com ela desligada `GET /api/v1/avaliacoes/pendentes/` devolve **lista vazia** —
+  o cron roda e não sai pesquisa nenhuma. Há mais duas travas lá
+  (`SOFIA_PESQUISAS_IDADE_MAXIMA_DIAS=7`, `SOFIA_PESQUISAS_LIMITE=5`).
+- **`cobranca_ativa`** em `/painel/config`. Mesmo desenho: nasce desligada.
+- **Crons** no cron-job.org, mesmo `TASKS_TOKEN`: `POST /tasks/pesquisas` e
+  `POST /tasks/cobrancas`. **Sem cron, nada sai.**
+- `alembic upgrade head` (head atual: **`a7b8c9d0e1f2`**).
+
+### 2. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
 
-🔴 **Corrigido em 06/08/2026:** os campos da `Avaliacao` **não existem** no Hamilton
-(nem a migration, nem os endpoints — o `.gitignore` de lá ignorava migrations e o
-trabalho se perdeu). **A Demanda C não roda hoje.**
-
-O modelo de perguntas foi **fechado em grilling** (Q1–Q38) e está redesenhado: quatro
-questionários (entrada / 1ª sessão / reencaminhamento / encerramento), **ORS como bloco
-fechado** colhido **antes** da primeira sessão, `qualidade_geral` reusado como nota do
-terapeuta, terapeuta-sentinela em vez de FK nullable, tool de registro incremental e
-alertas pra Thainá em nota < 6. **O doc é a especificação de implementação** — resta
-uma decisão em aberto (Q39) e depois é codar.
-
-### 2. Stripe + Pix (Demanda D)
-📄 [`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md), seção "Demanda D"
-
-**Nada foi feito** — nenhuma linha de Stripe foi tocada, nem aqui nem no Hamilton.
-O desenho já está **fechado** e não precisa ser rediscutido: a Sofia fala **direto
-com o Stripe** (chave própria), a chave Pix é fixa e editável no painel, a cobrança
-é **encadeada no fim da pesquisa** com transição adequada, comprovante **escala pra
-Thainá** (a Sofia não confirma vaga sozinha) e paciente de parceria **nunca** é
-cobrado.
+O modelo de perguntas foi fechado em grilling (Q1–Q38) e **está implementado nos
+dois lados**: quatro questionários (entrada / 1ª sessão / reencaminhamento /
+encerramento), ORS como bloco fechado colhido antes da primeira sessão,
+`qualidade_geral` reusado como nota do terapeuta, tool de registro incremental e
+alertas pra Thainá em nota < 6. O que resta é **decisão de negócio, não código**:
+revisar o conteúdo das perguntas com o Paulo e decidir o destino da planilha que
+o time de Qualidade usa hoje.
 
 ### ⚠️ Antes de qualquer deploy
-Leia **"Pendências que bloqueiam o deploy"** em
-[`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md). A mais
-grave: o `.gitignore` do `hamilton-api` **ignora as migrations**, então as duas
-criadas neste ciclo não chegam ao GitHub sozinhas — e sem elas as Demandas A e C
-quebram com erro de coluna inexistente.
+1. **Migrations do Hamilton no `.gitignore`.** O `.gitignore` do `hamilton-api`
+   ignora `**/migrations/**`. Elas **existem no repo local** (até a `0007`), mas
+   confirme que chegaram ao GitHub antes de subir — sem elas as Demandas A e C
+   quebram com erro de coluna inexistente.
+2. 🔴 **`SOFIA_API_DATABASE_URL` no serviço do Hamilton no Render.** Se estiver
+   setada lá, **todo cadastro vindo da Sofia — inclusive paciente real — vai pro
+   banco de teste** (ver "Ambientes e bancos" abaixo). Confira o dashboard.
+3. Resto em **"Pendências que bloqueiam o deploy"** no
+   [`01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md).
 
 ### Onde está o resto
 - **O que foi feito, bugs corrigidos e riscos aceitos:** [`docs/demandas/01-EM-ANDAMENTO.md`](docs/demandas/01-EM-ANDAMENTO.md)
@@ -147,14 +154,21 @@ Skills do projeto: **`/test`** (suite) e **`/security-review`** (audit antes de 
 5. Painel web simples pra Thainá responder
 
 ### ❌ Fora de escopo (não implementar)
-- NPS
-- Transcrição de áudio
+
+> ⚠️ Esta lista é o escopo **do MVP**, congelada. Quatro itens **saíram** dela
+> desde então (marcados abaixo) — não use este bloco pra concluir que algo "não
+> deve existir". O escopo atual está nas demandas.
+
+- ~~NPS~~ → **existe** (`nota_indicacao`, Demanda C)
+- ~~Transcrição de áudio~~ → **existe** (`transcricao.py`, toggle no painel)
 - Match automático terapeuta-paciente
-- Detecção avançada de crise
-- Cobrança/Stripe/Mercado Pago
-- Lembretes (sessão em 2h, cobrança mensal)
+- Detecção avançada de crise *(há só a heurística de palavras do debounce)*
+- ~~Cobrança/Stripe~~ → **existe** (`pagamentos.py` no painel, `cobranca.py` no bot)
+- ~~Lembretes~~ → **existe** parcialmente (follow-up de lead, lembrete de pesquisa
+  e de cobrança). Lembrete de sessão em 2h continua fora.
+- Mercado Pago (o gateway é Stripe; Pix é chave fixa, sem API)
 - Comunicação em grupo
-- Cardápio editável de respostas
+- Cardápio editável de respostas *(mas os prompts são editáveis em `/painel/prompts`)*
 
 ---
 
@@ -302,6 +316,7 @@ peça que eu te lembro onde fica cada uma.
    ├─ Painel: Jinja2 + HTMX pra Thainá responder (login por sessão/cookie assinado)
    └─ Tasks: POST /tasks/seguimentos (cron → follow-up de lead parado)
              POST /tasks/pesquisas   (cron → pesquisa de satisfação)
+             POST /tasks/cobrancas   (cron → mensalidade pós-1ª sessão)
       ↕
 [Thainá: PC ou celular]
 ```
@@ -320,10 +335,16 @@ conversa
 ├─ aviso_escalada_em (NULL = ainda não avisou; 1 aviso por escalada — Demanda B)
 ├─ pesquisa_avaliacao_id (NULL = sem pesquisa; pk da Avaliacao no Hamilton — Demanda C)
 ├─ pesquisa_iniciada_em (base do lembrete de 20h e do encerramento de 44h)
+├─ cobranca_iniciada_em (NUNCA limpo: garante 1 cobrança por pessoa — Demanda D)
+├─ cobranca_encerrada_em (preenchido + iniciada = modo cobrança DESLIGADO)
+├─ cobranca_lembrete_em, cobranca_status (rótulo na fila do acompanhamento)
+├─ stripe_ref (vínculo paciente ↔ Stripe; sub_/cs_/cus_/plink_/URL)
+├─ desconto_oferecido_em, desconto_valor, desconto_motivo (auditoria)
 └─ criada_em, atualizada_em
 
 configuracao  (chave/valor — valores editáveis no painel /painel/config)
-├─ id, chave (unique), valor (texto; int OU "true"/"false" conforme o tipo do campo)
+├─ id, chave (unique), valor (Text; int, "true"/"false" OU texto livre —
+│                             conforme o tipo declarado em config_negocio.CAMPOS)
 └─ atualizada_em
 
 mensagem
@@ -656,6 +677,128 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
   a API. Timestamps do Stripe são em SEGUNDOS (filtro Jinja `data_unix`); valores em
   CENTAVOS (`fmt_centavos`).
 
+### Cobrança da mensalidade (`cobranca.py` + `/tasks/cobrancas`) — Demanda D
+A Sofia cobra a mensalidade sozinha depois da primeira sessão. Exige ler
+`cobranca.py` + `pesquisa.finalizar` + o portão do `webhook` juntos:
+- **O gatilho é `is_realizado`, não a pesquisa.** `status-primeira-consulta` (Hamilton)
+  só devolve `primeira_consulta_realizada=True` com o checkbox marcado. O signal que
+  cria a pesquisa dispara na **criação** da consulta e **ignora** `is_realizado` — quem
+  **faltou** recebe a pesquisa e **não** pode ser cobrado. Os dois sinais divergem no
+  mesmo registro; usar o da pesquisa cobraria quem não foi atendido.
+- **A pesquisa vem antes por sequência, não por dependência.** Quem está em pesquisa é
+  pulado no tick; `pesquisa.finalizar` chama `cobranca.encadear()` nos **três** desfechos
+  (respondida / recusada / expirada), que revalida tudo no Hamilton. Sem pesquisa, o cron
+  cobra direto.
+- **A Sofia retoma o controle mesmo em modo humano** (decisão do Paulo, contra
+  recomendação). O portão de `webhook.ingerir_mensagem` abre exceção pra pesquisa **e**
+  cobrança — sem isso ela perguntaria e ignoraria a resposta. O `modo` **não** é
+  alterado: a escalada aberta continua valendo pra Thainá no painel. Por isso os dois
+  modos **têm** `escalar_para_thaina`: é a rede que trata o caso de borda (cobrar quem
+  escalou por `gratuidade`).
+- **Entrada = mensalidade cheia, sem pro-rata, idêntica no Pix e no cartão.**
+  `criar_assinatura_mensalidade` é a **única** função de mensalidade: a Sofia e o
+  painel usam a mesma, senão o mesmo paciente pagaria valores diferentes conforme
+  quem gerou o link. Assinatura mensal simples, **sem dia fixo** — renova no dia em
+  que a pessoa assinou. O dia 10 vale só pro **Pix**, onde é uma data que alguém
+  precisa lembrar; no cartão a cobrança é automática e a data não muda nada.
+  Duas alternativas foram descartadas e é bom não redescobrir: **`billing_cycle_anchor`**
+  só aceita datas dentro de um ciclo e, com `proration_behavior: none`, não cobra
+  nada na entrada (`no_payment_required`); **`trial_end` + item avulso** cobra certo
+  mas faz o checkout exibir **"avaliação gratuita"**, texto não customizável.
+- **Comprovante só no Pix** — no cartão o Stripe confirma sozinho. Anexo em cobrança
+  marca `cobranca_status='comprovante'` e **escala pra Thainá**: a Sofia nunca confirma
+  vaga ao receber uma imagem que não leu.
+- **Janela de 24h da Meta.** Fora dela a mensagem não sai e **não há template aprovado**:
+  marca `sem_janela` e aparece na fila "Pronto pra cobrança" que já existe (não há fila
+  nova). Vale pro lembrete também.
+- **Desligada por padrão** (`cobranca_ativa`), igual às travas `SOFIA_PESQUISAS_*` do
+  Hamilton: fluxo automático que fala de dinheiro com paciente sobe dark.
+- `oferecer_desconto` **não** entra em `TOOLS_COBRANCA`. Quem não pode pagar vira
+  escalada `gratuidade` — decisão humana.
+
+### Painel: o que cada tela mostra (revisão de 08/08)
+O painel tinha ficado dois ciclos atrás do bot. O que foi corrigido, e o porquê —
+os pontos que voltam a quebrar se alguém mexer sem saber:
+- **Navegação vive no `_topbar.html`**, não nos templates de página. As abas eram
+  **três cópias** do mesmo HTML (lista/acompanhamento/pagamentos), e por isso
+  "Resultados" nunca entrou em nenhuma e conversa/config/prompts eram becos sem
+  saída. Aba nova = uma linha; `aba_ativa` vem do contexto de cada router.
+- **A lista é paginada** (`POR_PAGINA = 50`, `?pagina=`). Antes o router chamava
+  `listar_conversas` sem `limite`, pegava o default 50 e **não havia paginação**:
+  da 51ª conversa em diante o resto sumia em silêncio. O polling HTMX repassa
+  `pagina` junto de filtro/busca/ordem, senão a tela volta pra página 1 a cada 15s.
+- **`min="0"` nos campos numéricos do config.** Quatro campos documentam "0
+  desliga" (`desconto_maximo_pct` + os três `alerta_nota_*`) e eram
+  **inatingíveis**: `min="1"` no form e `if n > 0` no servidor. Hoje é `n >= 0`
+  (negativo continua descartado).
+- **A conversa mostra pesquisa, cobrança e escaladas.** Nada disso aparecia: dava
+  pra ter uma cobrança em curso e a tela dizer só "modo bot". O histórico de
+  escaladas (`motivo`/`contexto`/`resolvida_em`) nunca foi exibido em lugar nenhum.
+- **"Assumir controle" interrompe de verdade.** Pesquisa e cobrança furam o portão
+  do modo humano, então marcar a conversa como humana **não calava a Sofia** — o
+  botão mentia e o único jeito de pará-la era esperar as 44h. Agora
+  `painel.assumir` chama `cobranca.finalizar`/`pesquisa.finalizar` (o que já foi
+  respondido fica gravado) e o compositor só libera quando ninguém mais está
+  conduzindo (`pode_digitar` no template).
+- **`cadastradas_hoje` usa `cadastrado_em`**, não `atualizada_em` — esta tem
+  `onupdate`, então qualquer mensagem nova de um paciente antigo o ressuscitava
+  como "cadastrado hoje".
+- **`parcelas_max` vem do `/painel/config`**, não da constante: a Sofia dizia "até
+  5x" (token do prompt) e a tela oferecia 6x.
+- **Parceria é marcada na fila "Pronto pra cobrança"** — a fila convidava a Thainá
+  a cobrar quem paga R$ 0.
+- **Métricas**: `escaladas_por_motivo` conta só as **abertas** (`resolvida_em` só
+  passou a ser preenchido agora); há KPIs de pesquisa e de cobrança por status,
+  com destaque pra `sem_janela`/`erro_link` (falha silenciosa: a Sofia não
+  conseguiu cobrar e ninguém sabe); e **tempo da 1ª mensagem até a 1ª sessão**
+  (`_tempo_ate_primeira_sessao`) — **a única métrica que chama o Hamilton**, com
+  mediana em vez de média e ignorando delta negativo (paciente antigo que só
+  depois falou com a Sofia). Hamilton fora → o card some, o resto continua.
+  ⚠️ Testes que renderizam `/painel/metricas` **precisam mockar o Hamilton**,
+  senão fazem chamada de rede real (~2,3s por teste).
+
+### 🔴 Demanda A estava furada no Hamilton (descoberto e corrigido em 08/08)
+Um dry run de ponta a ponta mostrou que **toda a captação da Sofia era descartada
+no intake**. Três pacientes de teste, com origens diferentes, entraram os três como
+"WhatsApp (Sofia)" e `vlr_sessao = 50,00`. Duas causas independentes:
+
+1. **`PacienteIntakeSerializer` sobrescrevia tudo.** O `create` fazia
+   `validated_data["fk_captacao"] = defaults["captacao"]` (= `get_or_create("WhatsApp
+   (Sofia)")`) e o mesmo com `vlr_sessao`/`tipo_pagamento`. Pior: `fk_captacao` nem
+   estava em `Meta.fields`, então o valor da Sofia era descartado antes do `create`.
+   **Corrigido:** os três campos são aceitos e o default virou fallback. O ID é
+   resolvido à mão no alias certo (`IntegerField` cru, não `PrimaryKeyRelatedField`
+   — um queryset de FK leria o banco `default` e o router recusaria a relação).
+2. **`Captacao.is_parceria` NÃO EXISTIA.** Nem o campo, nem a migration —
+   `acessorios/migrations/` parava na `0001`. A Sofia lia `c.get("is_parceria")` de
+   um payload onde a chave nunca vinha, e `e_parceria` devolvia `False` **pra todo
+   mundo, sempre**. Nenhum paciente de convênio era detectado; com a Demanda D
+   ligada, todos seriam cobrados. **Corrigido:** campo + `0002` (schema) + `0003`
+   (marca as prefeituras existentes, com log do que casou).
+
+⚠️ **Lição:** é o mesmo acidente do `.gitignore` que já tinha comido migrations
+antes — e passou despercebido porque a Sofia **degrada em silêncio** (chave ausente
+vira `False`). O `CLAUDE.md` afirmava as duas coisas como prontas. **Um teste de
+ponta a ponta com dado real é o que pega isso; a suite dos dois repos passava.**
+
+Validação (banco `sofia-teste`): Google → captação 15, R$ 200, `manual`;
+Prefeitura → captação 13 `[PARCERIA]`, **R$ 0,00**, `parceria`.
+
+### Ambientes e bancos (`sofia-teste`) — ⚠️ não estava documentado
+- **Não existe staging.** Um único serviço no Render. O "ambiente de teste" é **local**:
+  Sofia local + Hamilton local apontando pra branch **`sofia-teste`** do Neon (cópia da
+  produção do Hamilton, PII anonimizada em 06/08).
+- **Confirme o banco pelo `timeline_id`, nunca pelo nome do arquivo de env:**
+  `d816d0c2…` = teste (pode escrever) · `fdb211ba…` = **PRODUÇÃO (aborte)**.
+- 🔴 **`SOFIA_API_DATABASE_URL` é do serviço do Hamilton.** Setada, os endpoints da
+  Sofia leem/gravam nela — **em produção isso manda paciente real pro banco de teste**.
+  O `render.yaml:87` avisa; o `DEPLOY.md` que ele referencia não fala disso.
+- Travas do runbook (`.claude/skills/testar-conversa`): `envio_whatsapp_bloqueado=True`
+  e `HAMILTON_API_URL` no localhost. O `.env` local carrega credenciais **reais** do
+  WhatsApp — sem as travas, um teste manda mensagem pra paciente de verdade.
+- `scripts/anonimizar_hamilton_teste.py` **tem que rodar** depois de todo "Reset from
+  parent" no Neon (o reset traz a PII real de volta).
+
 ### LGPD / logs
 - **Nunca logar conteúdo de mensagem** (dado de saúde sensível) — só metadados
   (qtd, tipos, ids). Telefones em log passam por `utils.mascarar_telefone` (`***8888`).
@@ -776,6 +919,7 @@ sofia/
 │   ├── pesquisa-primeira-sessao.md # Pesquisa: roteiro pós-1ª sessão
 │   ├── pesquisa-encerramento.md    # Pesquisa: roteiro de alta/desistência/troca
 │   ├── pesquisa-extracao.txt       # Pesquisa: conversa → JSON (NÃO vai pro paciente)
+│   ├── cobranca.md                 # Cobrança: como falar da mensalidade — load-bearing
 │   └── contrato-terapeutico-allos.md  # Contrato: referência interna (NÃO carregado em runtime)
 │
 ├── app/
@@ -794,7 +938,7 @@ sofia/
 │   │   ├── auth.py           # GET/POST /login, /logout (sessão)
 │   │   ├── api.py            # API JSON do painel
 │   │   ├── painel.py         # /painel, /painel/config, /painel/metricas, conversas
-│   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas} (cron, X-Tasks-Token)
+│   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas,cobrancas} (cron, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
 │   ├── services/
@@ -811,6 +955,9 @@ sofia/
 │   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
 │   │   ├── captacao.py       # Origem do paciente: lista do Hamilton + validação do ID
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
+│   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
+│   │   ├── pagamentos.py     # Regra do Stripe (links, assinaturas, status unificado)
+│   │   ├── stripe_client.py  # Wrapper REST do Stripe (httpx puro, form-encoded)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
 │   │
 │   ├── templates/            # Jinja2 (HTMX via CDN)
@@ -835,6 +982,7 @@ sofia/
 │   ├── test_cadastro.py, test_hamilton.py, test_llm.py
 │   ├── test_painel.py, test_metricas.py, test_seguimento.py
 │   ├── test_captacao.py, test_pesquisa.py   # Demandas A e C
+│   ├── test_cobranca.py, test_pagamentos.py # Demanda D + painel de pagamentos
 │   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)
@@ -919,52 +1067,44 @@ Cada passo é **testável** antes do próximo. Use `/test` regularmente.
 - **Opcionais na fila**: Demanda 1 (observabilidade de duplicatas — a duplicação em si já foi
   resolvida pela Demanda 2) e KPI distribuição terapia×neuro.
 
-### Ciclo atual (06/08/2026) — ver [demandas.md](docs/demandas/01-EM-ANDAMENTO.md)
-
-Fechado em grilling e implementado. **Ainda não foi ao ar** (falta rodar migrations e
-configurar o cron novo — ver "Pendências que bloqueiam o deploy" no `docs/demandas/01-EM-ANDAMENTO.md`).
+### Ciclo atual (08/08/2026) — ver [demandas.md](docs/demandas/01-EM-ANDAMENTO.md)
 
 | Demanda | Status |
 |---|---|
 | **A** — origem real do paciente (captação), `is_parceria`, `vlr_sessao` do painel, fluxo de prefeitura | ✅ entregue |
 | **B** — neuro com a Amanda (R$ 1.000, editável) + aviso único pós-escalada | ✅ entregue |
-| **Ajuste da `Avaliacao`** (campos das respostas) | 🔴 **não existe no Hamilton**; modelo redesenhado em `02-modelo-de-avaliacao.md` |
-| **C** — pesquisas de satisfação | 🔴 **não funciona** — lado Sofia existe, lado Hamilton não |
-| **D** — cobrança (Pix + Stripe) | ❌ **não iniciada** |
+| **Ajuste da `Avaliacao`** (campos das respostas) | ✅ no Hamilton (migrations até a `0007`) |
+| **C** — pesquisas de satisfação | ✅ implementada — **desligada** por `SOFIA_PESQUISAS_ATIVAS` |
+| **D** — cobrança da mensalidade (Pix + Stripe) | ✅ implementada — **desligada** por `cobranca_ativa` |
 
-**Mexe nos dois repos**: parte da Demanda A e toda a infra da C exigiram mudança no
-`hamilton-api` (migrations, endpoints e um bug nos signals). Ver `docs/demandas/01-EM-ANDAMENTO.md` §"O que foi
-implementado".
+**Mexe nos dois repos**: a Demanda A e a infra da C exigiram mudança no `hamilton-api`
+(migrations, endpoints e um bug nos signals). **A Demanda D não toca o Hamilton** — só
+consome o `status-primeira-consulta`, que já existia.
 
-### ➡️ PRÓXIMA DEMANDA (quem pegar o projeto começa aqui)
+### ➡️ PRÓXIMO PASSO (quem pegar o projeto começa aqui)
 
-São **duas coisas**, e a ordem importa — a segunda define onde a primeira começa:
+**1. Ligar e validar em produção.** Nada disso é código: `SOFIA_PESQUISAS_ATIVAS`,
+`cobranca_ativa`, os dois crons e `alembic upgrade head`. Detalhes no topo deste
+arquivo. Antes, confira o `SOFIA_API_DATABASE_URL` do Hamilton no Render.
 
-**1. Modelo da tabela de avaliação + planilha de qualidade**
-   → `docs/demandas/02-modelo-de-avaliacao.md` e `docs/demandas/01-EM-ANDAMENTO.md` §D.0
-   Os campos já existem no banco e a pesquisa já grava neles. **Falta decidir com
-   o Paulo** quais perguntas ficam no questionário definitivo, o que é texto e o
-   que é estruturado, e **editar a planilha** que o time de Qualidade usa (hoje
-   ela pressupõe uma pessoa coletando; agora quem coleta é a Sofia). Também é
-   preciso decidir se a planilha vira um export do Hamilton ou segue em paralelo.
+**2. Modelo da tabela de avaliação + planilha de qualidade**
+   → `docs/demandas/02-modelo-de-avaliacao.md`. O código está pronto; falta **decidir
+   com o Paulo** quais perguntas ficam no questionário definitivo e **editar a planilha**
+   que o time de Qualidade usa (hoje pressupõe uma pessoa coletando; agora quem coleta é
+   a Sofia). Decidir também se a planilha vira export do Hamilton ou segue em paralelo.
 
-**2. Stripe + Pix (Demanda D)**
-   → `docs/demandas/01-EM-ANDAMENTO.md` §"Demanda D"
-   **Nada foi feito** — nenhuma linha de Stripe foi tocada, nem na Sofia nem no
-   Hamilton. O desenho está **fechado no grilling** e não precisa ser rediscutido:
-   a Sofia fala **direto com o Stripe** (chave própria, sem passar pelo Hamilton),
-   a chave Pix é fixa e editável no painel, a cobrança é **encadeada no fim da
-   pesquisa** com transição adequada, comprovante **escala pra Thainá** (a Sofia
-   não confirma vaga sozinha) e paciente de parceria **nunca** é cobrado.
+**3. Cobrança recorrente (não feita, e é uma demanda inteira).** A Sofia cobra **só a
+entrada**; do 2º mês em diante o cartão roda sozinho e **o Pix é manual** — quem paga
+por Pix precisa lembrar todo dia 10, e é o terapeuta que acompanha. Automatizar isso
+exige régua de inadimplência e **template aprovado na Meta** (dia 10 quase ninguém está
+dentro da janela de 24h).
 
-   ⚠️ Contexto que o desenho assume: o **webhook do Stripe no Hamilton está
-   quebrado desde sempre** (21 assinaturas, 0 faturas — ver
-   `hamilton-api/docs/pagamentos-cartao-stripe.md`). Está **fora** deste escopo,
-   mas é o motivo de a Sofia ter integração própria.
-
-**Antes de subir qualquer coisa**, ler "Pendências que bloqueiam o deploy" no
-`docs/demandas/01-EM-ANDAMENTO.md` — em especial a das **migrations do Hamilton, que o `.gitignore`
-ignora** e por isso não chegam ao GitHub sozinhas.
+⚠️ **Contexto que o desenho da D assume**: o **webhook do Stripe no Hamilton está
+quebrado desde sempre** (21 assinaturas, 0 faturas — ver
+`hamilton-api/docs/pagamentos-cartao-stripe.md`). Fora do escopo, mas é o motivo de a
+Sofia ter integração própria — e a consequência aceita é que a Allos tem **duas
+integrações Stripe**, e as assinaturas criadas pela Sofia **não aparecem no Hamilton**,
+onde moram a contabilidade e a NFS-e.
 
 ### 🚩 Backlog priorizado: [BACKLOG.md](docs/demandas/99-backlog-entregue.md)
 
@@ -1032,6 +1172,15 @@ SIMULAR_DIGITACAO=false            # "digitando…" + visto (tiques azuis). Edit
 > **Editáveis no painel** (`/painel/config`, tabela `configuracao`): `PRECO_*`, `PARCELAS_MAX`,
 > `FOLLOWUP_HORAS`, `DEBOUNCE_SEGUNDOS`, `SIMULAR_DIGITACAO`, `TRANSCREVER_AUDIO`. O env define
 > só o **default inicial**; o valor salvo no painel manda. Segredos ficam **só** no Render.
+>
+> **Só no painel** (não têm env var, padrão literal no `config_negocio.CAMPOS`):
+> `desconto_maximo_pct`, `alerta_nota_*`, e os da cobrança — **`cobranca_ativa`**
+> (nasce desligada), **`chave_pix`** (vazia = não oferece Pix),
+> `cobranca_lembrete_horas`.
+>
+> ⚠️ **`SOFIA_PESQUISAS_ATIVAS`, `SOFIA_PESQUISAS_LIMITE`, `SOFIA_PESQUISAS_IDADE_MAXIMA_DIAS`
+> e `SOFIA_API_DATABASE_URL` são env vars do HAMILTON, não da Sofia** — e a última,
+> setada em produção, manda paciente real pro banco de teste.
 
 ---
 

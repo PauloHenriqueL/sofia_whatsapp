@@ -1,7 +1,8 @@
 """Endpoint de tarefas agendadas, disparadas por um cron externo.
 
 Protegido por token (settings.tasks_token), via header X-Tasks-Token ou query
-?token=. Hoje só tem o follow-up de lead parado (Frente 2).
+?token=. São três rodadas independentes: follow-up de lead parado (Frente 2),
+pesquisas de satisfação (Demanda C) e cobrança da mensalidade (Demanda D).
 """
 
 import hmac
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_db
-from app.services import pesquisa, seguimento
+from app.services import cobranca, pesquisa, seguimento
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -48,3 +49,20 @@ async def disparar_pesquisas(request: Request, db: AsyncSession = Depends(get_db
     if not _token_valido(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     return await pesquisa.rodar_pesquisas(db)
+
+
+@router.post("/cobrancas")
+async def disparar_cobrancas(request: Request, db: AsyncSession = Depends(get_db)):
+    """Dispara as cobranças da mensalidade (chamado pelo cron externo).
+
+    Uma rodada: aborda quem já teve a primeira consulta **realizada** e ainda não
+    foi cobrado, manda o lembrete único de quem está em silêncio e encerra quem
+    passou do prazo. Desligada em `/painel/config` (`cobranca_ativa`), a rodada
+    não aborda ninguém — o endpoint continua respondendo 200.
+
+    Pode rodar no mesmo cron das pesquisas; quem está em pesquisa é pulado aqui e
+    cobrado por `pesquisa.finalizar` quando ela terminar.
+    """
+    if not _token_valido(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return await cobranca.rodar_cobrancas(db)

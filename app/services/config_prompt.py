@@ -70,6 +70,15 @@ PROMPTS: dict[str, tuple[str, Path, bool]] = {
         _DIR / "pesquisa-extracao.txt",
         False,
     ),
+    # Cobrança da mensalidade (Demanda D): substitui o prompt principal enquanto a
+    # conversa está em modo cobrança. Os valores concretos (mensalidade, chave Pix,
+    # link do cartão) são injetados em runtime por `cobranca.montar_prompt` — este
+    # arquivo é só a condução, e é o que a Thainá edita.
+    "prompt_cobranca": (
+        "Cobrança: como falar da mensalidade depois da primeira sessão",
+        _DIR / "cobranca.md",
+        True,
+    ),
 }
 
 # Só as chaves customizadas (override do arquivo). Ausência = usa o padrão do arquivo.

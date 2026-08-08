@@ -1,7 +1,8 @@
 """Tela de pagamentos do painel (Stripe) + páginas públicas de retorno.
 
 Três partes na mesma página (`?aba=`): gerar link avulso/parcelado (neuro),
-assinatura mensal da terapia (dia 10) e a listagem das assinaturas ao vivo.
+mensalidade da terapia (a mesma cobrança que a Sofia faz sozinha) e a listagem
+das assinaturas ao vivo.
 A regra de negócio mora em `services/pagamentos.py`; aqui é só orquestração.
 
 As páginas /pagamento-sucesso e /pagamento-cancelado são PÚBLICAS (o paciente
@@ -46,6 +47,7 @@ async def _contexto(
 ) -> dict:
     ctx = {
         "request": request,
+        "aba_ativa": "pagamentos",
         "aba": aba if aba in ABAS else "gerar",
         "configurado": stripe_client.configurado(),
         "pacientes": await painel.opcoes_de_pacientes(db),
@@ -55,7 +57,11 @@ async def _contexto(
         "limites": {
             "valor_min": pagamentos.VALOR_MIN,
             "valor_max": pagamentos.VALOR_MAX,
-            "parcelas_max": pagamentos.PARCELAS_MAX,
+            # Do painel de config, não da constante: a Sofia informa esse
+            # número ao paciente (token {{PARCELAS_MAX}} no prompt), e a tela
+            # oferecia 6x enquanto ela dizia "até 5x". O teto duro do serviço
+            # continua valendo como limite superior.
+            "parcelas_max": min(int(config_negocio.valor("parcelas_max")), pagamentos.PARCELAS_MAX),
             "desconto_max": pagamentos.DESCONTO_MAX,
             "terapia_min": pagamentos.TERAPIA_MIN,
             "terapia_max": pagamentos.TERAPIA_MAX,
@@ -144,7 +150,13 @@ async def criar_assinatura(
 ):
     form = {"nome": nome, "email": email, "valor_mensal": valor_mensal, "conversa_id": conversa_id}
     try:
-        resultado = await pagamentos.criar_assinatura_terapia(nome, email, valor_mensal)
+        # Mesma função que a Sofia usa na cobrança automática (Demanda D): valor
+        # cheio hoje, renova no mesmo dia todo mês. Antes o painel tinha uma versão
+        # própria com pro-rata ancorado no dia 10, e um paciente cobrado pelo painel
+        # pagava valor diferente do cobrado pela Sofia.
+        resultado = await pagamentos.criar_assinatura_mensalidade(
+            nome=nome, valor_mensal=valor_mensal, email=email
+        )
         await _vincular(db, conversa_id, resultado["ref"])
         ctx = await _contexto(request, db, "terapia", resultado=resultado)
     except pagamentos.ErroValidacao as exc:

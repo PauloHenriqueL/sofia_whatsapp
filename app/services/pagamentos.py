@@ -10,8 +10,11 @@ Três operações:
   ASSINATURA mensal do valor da parcela que se cancela sozinha após N cobranças
   (o Stripe não tem parcelamento de cartão nativo no Brasil — explicar ao
   paciente que são "N cobranças mensais", não "parcelado em N vezes").
-- **Assinatura terapia:** recorrente sem fim, cobrança ancorada no dia 10
-  (quem assina no meio do mês paga pro-rata até lá).
+- **Mensalidade da terapia:** assinatura recorrente sem fim, valor cheio no ato
+  e renovação no mesmo dia todo mês — **sem pro-rata e sem dia fixo** (o porquê
+  está no bloco de decisão acima de `criar_assinatura_mensalidade`). Usada pelo
+  painel E pela cobrança automática da Sofia: se cada um cobrasse do seu jeito,
+  o mesmo paciente pagaria valores diferentes conforme quem gerou o link.
 - **Status por referência:** dado um `sub_`/`cs_`/`cus_`/`plink_`/URL do link,
   resolve na API do Stripe em que pé está o pagamento daquele paciente.
 """
@@ -194,27 +197,51 @@ async def criar_link_neuro(
     }
 
 
-# ── Assinatura terapia (dia 10) ───────────────────────────────────────────────
+# ── Mensalidade da terapia (Sofia e painel usam ESTA) ─────────────────────────
+#
+# Assinatura mensal simples: paga o valor cheio hoje e renova no mesmo dia todo
+# mês. **Sem pro-rata e sem dia fixo.**
+#
+# Havia uma versão ancorada no dia 10 com pro-rata na entrada
+# (`billing_cycle_anchor` + `create_prorations`). Foi removida: o valor saía
+# diferente pra cada paciente — R$ 6,67 pra quem entrava dia 9 (e R$ 200 no dia
+# seguinte), R$ 206,67 pra quem entrava dia 10. Isso passava no painel, onde a
+# Thainá via o número antes de mandar; automatizado ninguém corrige. E como no Pix
+# não existe pro-rata, a Sofia teria que anunciar um valor no Pix diferente do que
+# o Stripe cobra no cartão.
+#
+# Alinhar ao dia 10 SEM pro-rata também foi descartado. As duas formas que o Stripe
+# oferece não servem:
+#   - `billing_cycle_anchor` só aceita datas dentro de UM ciclo (≤ ~31 dias num
+#     plano mensal) e, com `proration_behavior: "none"`, **não cobra nada** na
+#     entrada — a Session sai `no_payment_required`. O Stripe ainda proíbe item
+#     avulso nessa combinação.
+#   - `trial_end` + item avulso cobra certo, mas faz o checkout exibir **"avaliação
+#     gratuita"** e uma linha de R$ 0,00 na fatura. Texto não customizável, e numa
+#     cobrança de terapia é onde menos se pode confundir.
+#
+# O dia 10 continua valendo pra quem paga por **Pix** — lá é uma data que a pessoa
+# precisa lembrar. No cartão a cobrança é automática e a data não muda nada.
 
 
-def _proximo_dia_10(agora: datetime) -> datetime:
-    """Próximo dia 10: este mês se ainda não passou, senão o mês que vem."""
-    if agora.day >= 10:
-        ano, mes = (agora.year + 1, 1) if agora.month == 12 else (agora.year, agora.month + 1)
-        return datetime(ano, mes, 10, tzinfo=timezone.utc)
-    return datetime(agora.year, agora.month, 10, tzinfo=timezone.utc)
-
-
-async def criar_assinatura_terapia(
-    nome: str, email: str, valor_mensal: float, agora: datetime | None = None
+async def criar_assinatura_mensalidade(
+    nome: str,
+    valor_mensal: float,
+    email: str = "",
+    agora: datetime | None = None,
 ) -> dict:
-    """Assinatura recorrente com cobrança ancorada no dia 10 (pro-rata até lá).
+    """Assinatura mensal da terapia: valor cheio hoje, valor cheio todo mês.
 
-    O pro-rata exibido usa mês fixo de 30 dias; o Stripe cobra pelo número real
-    de dias do mês — diferença de centavos, mas existe.
+    `email` é OPCIONAL de propósito. A Sofia nunca coletou e-mail (não está na tool
+    `cadastrar_paciente`), e pedir mais um dado por WhatsApp pra pré-preencher um
+    campo que o Stripe coleta de qualquer jeito só adiciona atrito. Sem e-mail, o
+    Checkout pergunta — e o que a pessoa digita lá é mais confiável que um e-mail
+    ditado numa conversa. O painel continua mandando (a Thainá tem o dado).
     """
     nome = _validar_nome(nome)
-    email = _validar_email(email)
+    email = (email or "").strip().lower()
+    if email and not _EMAIL_RE.match(email):
+        raise ErroValidacao("E-mail inválido.")
     if not isinstance(valor_mensal, (int, float)) or not (
         TERAPIA_MIN <= valor_mensal <= TERAPIA_MAX
     ):
@@ -222,54 +249,47 @@ async def criar_assinatura_terapia(
 
     from app.config import settings
 
-    agora = agora or datetime.now(timezone.utc)
-    dia10 = _proximo_dia_10(agora)
-    dias_ate_ancora = max(1, (dia10 - agora).days)
     valor_centavos = round(valor_mensal * 100)
-    pro_rata_centavos = round(valor_mensal * 100 / 30 * dias_ate_ancora)
 
-    # Preço do catálogo (STRIPE_PRECO_MENSAL_ID): quando a mensalidade pedida
-    # bate com o valor dele, reusa — relatórios unificados com o site da Allos.
-    # Valor diferente (bolsa, ajuste) cai pro preço inline, como antes.
-    line_item: dict = {
+    recorrente: dict = {
         "price_data": {
             "currency": "brl",
-            "product_data": {"name": f"Assinatura Terapia - {nome}"},
+            "product_data": {"name": f"Mensalidade Terapia - {nome}"},
             "unit_amount": valor_centavos,
             "recurring": {"interval": "month"},
         },
         "quantity": 1,
     }
+    # Reusa o preço do catálogo quando o valor bate, pros relatórios do Stripe não
+    # ficarem com um produto novo por paciente. Valor diferente (desconto, bolsa)
+    # cai no inline. Falha de leitura não bloqueia a cobrança.
     if settings.stripe_preco_mensal_id:
         try:
             preco_catalogo = await stripe_client.obter_preco(settings.stripe_preco_mensal_id)
             if preco_catalogo.get("unit_amount") == valor_centavos:
-                line_item = {"price": settings.stripe_preco_mensal_id, "quantity": 1}
+                recorrente = {"price": settings.stripe_preco_mensal_id, "quantity": 1}
         except StripeError:
             logger.warning("Não li o preço do catálogo; usando preço inline")
 
-    session = await stripe_client.criar_checkout_session(
-        {
-            "mode": "subscription",
-            "locale": "pt-BR",
-            "customer_email": email,
-            "line_items": [line_item],
-            "subscription_data": {
-                "billing_cycle_anchor": int(dia10.timestamp()),
-                "proration_behavior": "create_prorations",
-                "metadata": {"nome_cliente": nome, "email_cliente": email, "tipo": "clinica"},
-            },
-            "success_url": f"{settings.base_url}/pagamento-sucesso",
-            "cancel_url": f"{settings.base_url}/pagamento-cancelado",
-        }
-    )
+    payload: dict = {
+        "mode": "subscription",
+        "locale": "pt-BR",
+        "line_items": [recorrente],
+        "subscription_data": {
+            "metadata": {"nome_cliente": nome, "email_cliente": email, "tipo": "clinica"},
+        },
+        "success_url": f"{settings.base_url}/pagamento-sucesso",
+        "cancel_url": f"{settings.base_url}/pagamento-cancelado",
+    }
+    if email:
+        payload["customer_email"] = email
+
+    session = await stripe_client.criar_checkout_session(payload)
     return {
         "link": session["url"],
         "ref": session["id"],
-        "valor_mensal": fmt_centavos(round(valor_mensal * 100)),
-        "pro_rata": fmt_centavos(pro_rata_centavos),
-        "dias_ate_dia10": dias_ate_ancora,
-        "proximo_dia10": dia10.strftime("%d/%m/%Y"),
+        "valor_mensal": fmt_centavos(valor_centavos),
+        "valor_entrada": fmt_centavos(valor_centavos),
     }
 
 

@@ -5,7 +5,9 @@ registrar a escalada e alertar a Thainá pelo template aprovado na Meta.
 """
 
 import logging
+from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -46,6 +48,40 @@ async def registrar_escalada(
     await session.flush()
     logger.info(f"Conversa {conversa.id} escalada (motivo={motivo})")
     return escalada
+
+
+async def resolver_abertas(session: AsyncSession, conversa: Conversa) -> int:
+    """Fecha as escaladas abertas desta conversa. Devolve quantas fechou.
+
+    `Escalada.resolvida_em` existia no modelo desde o Passo 3 mas **nunca era
+    preenchido em código de produção**. Como `pesquisa._criar_entradas` exclui
+    conversas com escalada aberta, o efeito era silencioso e permanente: quem foi
+    escalado uma vez — por áudio, anexo, preço, gratuidade ou pedido de humano —
+    ficava fora da pesquisa de linha de base **pra sempre**. Como praticamente
+    toda conversa escala em algum momento, isso é a maioria dos pacientes.
+
+    Chamado quando a Thainá devolve a conversa ao bot ou arquiva: é o momento em
+    que ela terminou de tratar o que a fez assumir.
+    """
+    abertas = (
+        (
+            await session.execute(
+                select(Escalada).where(
+                    Escalada.conversa_id == conversa.id,
+                    Escalada.resolvida_em.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    agora = datetime.now(timezone.utc)
+    for escalada in abertas:
+        escalada.resolvida_em = agora
+    if abertas:
+        await session.flush()
+        logger.info("Conversa %s: %d escalada(s) resolvida(s)", conversa.id, len(abertas))
+    return len(abertas)
 
 
 async def _enviar_alerta(conversa: Conversa, rotulo: str) -> bool:

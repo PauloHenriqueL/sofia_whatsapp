@@ -383,6 +383,22 @@ async def finalizar(
     await _alertar_se_precisar(db, conversa, {**_valores_gravados(conversa), **payload}, reclamacao)
     await _limpar(db, conversa)
 
+    # Encadeia a cobrança da mensalidade (Demanda D). Os três desfechos passam por
+    # aqui — respondida, recusada e expirada por prazo —, então é o único ponto que
+    # precisa da chamada. Vem DEPOIS do `_limpar` porque `cobranca._elegivel` recusa
+    # conversa em pesquisa: com o modo ainda ligado, ela nunca cobraria ninguém.
+    #
+    # Não é dependência técnica, é sequência: quem não tem pesquisa é cobrado pelo
+    # cron. E `encadear` revalida tudo no Hamilton, porque a pesquisa dispara pra
+    # quem só teve a consulta LANÇADA e a cobrança exige REALIZADA — quem faltou à
+    # primeira sessão responde a pesquisa e não pode ser cobrado.
+    from app.services import cobranca
+
+    try:
+        await cobranca.encadear(db, conversa)
+    except Exception as exc:  # noqa: BLE001 — cobrança nunca derruba a pesquisa
+        logger.error("Falha ao encadear a cobrança da conversa %s: %s", conversa.id, exc)
+
 
 # --------------------------------------------------------------------------- #
 # Alertas pra Thainá
@@ -572,7 +588,11 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
             # janela de 24h da Meta não dá pra iniciar uma com texto livre.
             # Fica pra equipe abordar (exigiria um template aprovado).
             continue
-        if em_pesquisa(conversa) or conversa.modo == "humano":
+        # Modo humano NÃO bloqueia mais: a pesquisa e a cobrança acontecem mesmo
+        # com escalada aberta (decisão do Paulo — "se teve primeira sessão
+        # realizada, essa conversa TEM que acontecer"). O portão do webhook abre
+        # exceção pros dois modos, então a resposta da pessoa não cai no vazio.
+        if em_pesquisa(conversa):
             continue  # já tem pesquisa em curso, ou a conversa está com a Thainá
         if await iniciar(db, conversa, avaliacao, agora):
             resumo["enviadas"] += 1
@@ -938,3 +958,11 @@ async def _limpar(db: AsyncSession, conversa: Conversa) -> None:
     if dados.pop(_CHAVE_GRAVADOS, None) is not None:
         conversa.dados_coletados = dados
     await db.commit()
+
+
+# Aliases públicos: o painel precisa destes dois quando a Thainá **interrompe** uma
+# pesquisa em curso pra assumir a conversa (`painel.assumir`). São o mesmo código
+# usado internamente — expostos com nome público em vez de o painel alcançar um
+# `_privado` de outro módulo.
+buscar_avaliacao = _buscar_avaliacao
+limpar = _limpar

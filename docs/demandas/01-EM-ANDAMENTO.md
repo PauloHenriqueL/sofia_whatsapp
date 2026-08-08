@@ -4,31 +4,41 @@
 > Substitui o `00-ORIGINAL-com-premissas-erradas.md`, que foi escrito por quem não
 > conhecia o fluxo real e errou várias premissas (registradas abaixo).
 
-## Status (06/08/2026)
+## Status (08/08/2026)
 
 | # | Entrega | Status |
 |---|---|---|
 | 1 | **Demanda A** — origem real do paciente + parceria + fluxo de prefeitura | ✅ **entregue** |
 | 2 | **Demanda B** — neuro/Amanda + aviso único pós-escalada | ✅ **entregue** |
-| 3 | **Ajuste da tabela `Avaliacao`** | 🔴 **não existe no Hamilton** — modelo redesenhado, ver abaixo |
-| 4 | **Demanda C** — pesquisas de satisfação | 🔴 **não funciona** — o lado Sofia existe, o lado Hamilton não |
-| 5 | **Demanda D** — cobrança (Pix + Stripe) | ❌ **não iniciada** |
+| 3 | **Ajuste da tabela `Avaliacao`** | ✅ **no Hamilton** (migrations até a `0007`) |
+| 4 | **Demanda C** — pesquisas de satisfação | ✅ implementada — **desligada** por `SOFIA_PESQUISAS_ATIVAS` |
+| 5 | **Demanda D** — cobrança da mensalidade | ✅ implementada — **desligada** por `cobranca_ativa` |
 
-> 🔴 **Correção de 06/08/2026.** Este documento afirmava que os campos da `Avaliacao`,
-> a migration `0005` e os endpoints de avaliação estavam prontos e testados no Hamilton.
-> **Nada disso existe no repositório** (verificado em `../hamilton-api`, `main`, working
-> tree limpo — sem `nota_sofia`/`nota_terapeuta`/`sofia_enviada_em`, migrations param na
-> `0004`, sem rota `avaliacoes/`). Provável causa: o `.gitignore` do Hamilton ignorava as
-> migrations. **Consequência: a Demanda C não roda hoje**, mesmo com o cron ligado — o
-> `pesquisa.py` da Sofia fala com uma API que não existe.
+> ✅ **Correção de 08/08/2026 — a de 06/08 estava errada.** Aquela nota dizia que os
+> campos da `Avaliacao` e os endpoints "não existem no repositório". **Existem.**
+> Verificado em `../hamilton-api`: `nota_sofia` e `nota_indicacao` na migration `0006`,
+> junto de `feedback_livre`, `motivo_encerramento`, `sofia_enviada_em`,
+> `sofia_lembrete_em` e o `momento` com `LINHA_DE_BASE`; permissão `acessar_api_sofia`
+> na `0007`; as três rotas no ar (`POST /avaliacoes/`, `GET /avaliacoes/pendentes/`,
+> `PATCH /avaliacoes/<pk>/`). **Sem drift entre modelo e migrations.**
 >
-> O modelo de perguntas foi **inteiramente redesenhado** em grilling (06/08/2026, Q1–Q38):
-> quatro questionários, ORS como bloco fechado, baseline **antes** da primeira sessão,
-> tool de registro incremental e alertas pra Thainá. **Fonte de verdade:**
+> **A Demanda C não estava quebrada — estava desligada.** `SOFIA_PESQUISAS_ATIVAS` tem
+> default `false` e, com ela desligada, o endpoint de pendentes devolve **lista vazia**
+> (`views.py:4268-4272`). Há mais duas travas: `SOFIA_PESQUISAS_IDADE_MAXIMA_DIAS=7` e
+> `SOFIA_PESQUISAS_LIMITE=5`.
+>
+> ⚠️ **Lição, porque já aconteceu duas vezes:** este documento errou o status em ambas
+> as direções — deu como pronto o que não existia (06/08) e como inexistente o que
+> estava pronto (08/08). **Confira no código antes de acreditar em qualquer status
+> aqui.** As seções de desenho envelhecem melhor que as de status.
+>
+> O modelo de perguntas foi **inteiramente redesenhado** em grilling (06/08/2026, Q1–Q38)
+> **e implementado**: quatro questionários, ORS como bloco fechado, baseline **antes** da
+> primeira sessão, tool de registro incremental e alertas pra Thainá. **Fonte de verdade:**
 > [`02-modelo-de-avaliacao.md`](02-modelo-de-avaliacao.md). As seções C.2, C.5 e C.6
 > abaixo descrevem o desenho **antigo** e foram substituídas por ele.
 
-**Testes:** Sofia **375** passando; Hamilton **23** passando
+**Testes:** Sofia **570** passando (08/08); Hamilton **23** passando
 (`principais.tests_sofia_api`). Lint (ruff/black/isort) limpo nos dois.
 
 Cobertura nova deste ciclo: `tests/test_captacao.py` (23), `tests/test_pesquisa.py`
@@ -37,16 +47,20 @@ Cobertura nova deste ciclo: `tests/test_captacao.py` (23), `tests/test_pesquisa.
 **validado por sabotagem**: revertendo o fix, ele falha com o mesmo
 `ForeignKeyViolation` do bug original — um teste que nunca falhou não protege nada.
 
-**O que falta, e é o que outra pessoa vai continuar:**
+**O que falta — e nada disso é código:**
 
-1. **Demanda D (Stripe/Pix)** — nada foi feito. Nenhuma linha de Stripe foi
-   tocada, nem na Sofia nem no Hamilton. Ver a seção "Demanda D" abaixo, que
-   tem o desenho fechado no grilling.
-2. **Modelo de avaliação / planilha de qualidade** — os campos novos da
-   `Avaliacao` **já existem no banco** e a pesquisa já grava neles, mas o
-   **modelo de perguntas ainda vai ser discutido** com o Paulo (quais perguntas
-   ficam, o que é texto e o que é estruturado, e como isso se reflete na
-   planilha que o time de Qualidade usa). Ver `02-modelo-de-avaliacao.md`.
+1. **Ligar.** `SOFIA_PESQUISAS_ATIVAS=true` (env do Hamilton), `cobranca_ativa`
+   (`/painel/config`), e os crons `POST /tasks/pesquisas` e `POST /tasks/cobrancas`
+   no cron-job.org com o `TASKS_TOKEN`. **Sem cron, nada sai.**
+2. **Modelo de avaliação / planilha de qualidade** — os campos existem nos dois
+   lados e a pesquisa já grava neles, mas o **modelo de perguntas ainda vai ser
+   discutido** com o Paulo (quais perguntas ficam, o que é texto e o que é
+   estruturado, e como isso se reflete na planilha que o time de Qualidade usa).
+   Ver `02-modelo-de-avaliacao.md`.
+3. **Cobrança recorrente (2º mês em diante)** — a Sofia cobra **só a entrada**. O
+   cartão renova sozinho; o **Pix é manual todo mês** e quem acompanha é o
+   terapeuta. Automatizar exige régua de inadimplência e **template aprovado na
+   Meta** (dia 10 quase ninguém está dentro da janela de 24h).
 
 Os detalhes do que mudou em cada arquivo estão em **"O que foi implementado"**,
 no fim deste documento.
@@ -85,11 +99,15 @@ Cada passo é entregável e testável sozinho. A ordem respeita dependências re
 | 2 | **Demanda B** — neuro/Amanda + aviso único pós-escalada | — |
 | 3 | **Ajuste da tabela `Avaliacao`** (ver `02-modelo-de-avaliacao.md`) | — |
 | 4 | **Demanda C** — pesquisa de primeira sessão + pesquisa de encerramento | passo 3 |
-| 5 | **Demanda D** — cobrança (Pix + Stripe) | passo 4 |
+| 5 | **Demanda D** — cobrança da mensalidade | ~~passo 4~~ — **desacoplada** (ver D.6) |
 
 > ⚠️ O **passo 3 sobe antes do 4**: sem os campos novos, a pesquisa não tem onde
 > gravar as respostas. A discussão do modelo de qualidade foi deixada pro fim,
 > mas a *implementação* da tabela precede as pesquisas.
+>
+> ⚠️ **A dependência D→C caiu no grilling de 08/08.** A cobrança tem gatilho próprio
+> (`is_realizado`) e roda com ou sem pesquisa; quando há pesquisa, ela vem antes por
+> **sequência de conversa**, não por dependência técnica. Ver D.6.
 
 ---
 
@@ -107,8 +125,10 @@ Cada passo é entregável e testável sozinho. A ordem respeita dependências re
       do `is_parceria`). O comentário do código diz "Prefeitura de Bela Vista de
       Minas" (13) e "Prefeitura de Materlândia" (46). Atenção: **Materlândia/MG**
       (com "r"), não Matelândia/PR — o documento original escreveu errado.
-- [ ] **Chave Pix** da Allos (vai pro `/painel/config`).
+- [x] ~~**Chave Pix** da Allos~~ — `50.990.346/0001-52`, já é o padrão do campo
+      `chave_pix` em `/painel/config`. Vazio ali = a Sofia não oferece Pix.
 - [ ] **Credenciais Stripe da Sofia** (chave própria, nas Env Vars do Render).
+      A do `.env` local é **`sk_live`** — não dá pra prototipar checkout com ela.
 
 ---
 
@@ -471,31 +491,34 @@ pesquisa.
 
 # Demanda D — Cobrança (Pix + Stripe)
 
-> **Última entrega da sequência**, por ser a mais complexa (decisão do Paulo).
+> ✅ **IMPLEMENTADA em 08/08/2026** e **desligada por padrão** (`cobranca_ativa`
+> em `/painel/config`). 29 testes em `tests/test_cobranca.py`; suite inteira em
+> 570. **Não toca o Hamilton** — só consome o `status-primeira-consulta`, que já
+> existia.
 >
-> ❌ **NÃO INICIADA.** Nenhuma linha de Stripe foi escrita, nem na Sofia nem no
-> Hamilton. O que está abaixo é o desenho fechado no grilling, não código
-> existente. Quem pegar esta demanda começa do zero — e o desenho já está
-> decidido, não precisa ser rediscutido.
+> ⚠️ **O desenho abaixo foi REVISADO no grilling de 08/08.** As seções D.0 a D.5
+> descrevem o desenho de 06/08 e **três decisões mudaram**; o que vale está em
+> **"D.6 — O que foi realmente implementado"**, no fim desta seção. Os fatos que
+> derrubaram o desenho antigo estão registrados lá.
 
-## D.0 — Discutir junto: modelo de avaliação e planilha de qualidade
+## D.0 — Modelo de avaliação e planilha de qualidade *(pendente, mas NÃO bloqueia)*
 
-Esta demanda é o momento de fechar **também** o que ficou em aberto sobre
-qualidade, porque as duas coisas acontecem no mesmo ponto da jornada (a
-cobrança é encadeada no fim da pesquisa):
+O desenho antigo dizia "fechar isso **antes** de codar a cobrança, porque a
+transição depende de saber onde a pesquisa termina". **Isso caiu**: a cobrança
+foi desacoplada da pesquisa (ver D.6), então o conteúdo do questionário pode
+mudar à vontade sem tocar na cobrança.
+
+Continua pendente, como **decisão de negócio**:
 
 - **O modelo de avaliação** — quais perguntas ficam no questionário definitivo,
   quais viram campo estruturado e quais ficam como texto livre. Os campos já
-  existem no banco (ver `02-modelo-de-avaliacao.md`), mas o **conteúdo** da
-  pesquisa ainda vai ser revisto com o Paulo.
+  existem no banco **e nos dois lados** (ver `02-modelo-de-avaliacao.md`); o
+  **conteúdo** ainda vai ser revisto com o Paulo.
 - **A planilha de avaliação** que o time de Qualidade usa hoje — precisa ser
   editada pra refletir o modelo novo e o fato de que quem coleta agora é a
   Sofia, não uma pessoa. Como as respostas passam a viver na `Avaliacao` do
   Hamilton, é preciso decidir se a planilha vira um relatório/export a partir de
   lá ou se continua existindo em paralelo.
-
-**Fechar isso antes de codar a cobrança**, porque a transição da pesquisa pra
-cobrança (D.1) depende de saber onde a pesquisa termina.
 
 ## D.1 — Gatilho
 
@@ -558,6 +581,114 @@ ser qualquer imagem, ou um comprovante de R$ 5.
 | "achei caro", quer negociar | escala `preco` |
 | "não posso pagar" | escala `gratuidade` |
 | não respondeu no prazo | **um único lembrete**, sem pressão |
+
+---
+
+## D.6 — O que foi realmente implementado (grilling de 08/08/2026)
+
+**Esta seção tem precedência sobre D.0–D.5.** Três decisões mudaram, e cada uma
+mudou por um fato levantado durante o grilling — não por preferência.
+
+### O que mudou, e por quê
+
+**1. O gatilho deixou de ser a pesquisa. Passou a ser `is_realizado`.**
+Os dois sinais **divergem no mesmo registro**: o signal que cria a `Avaliacao`
+dispara no `post_save` da `Consulta` com `created=True` e **ignora `is_realizado`**
+(`principais/signals.py:72-91`, provado por `tests_sofia_api.py:191-210`), enquanto
+`status-primeira-consulta` exige `is_realizado=True` (`views.py:4101`). Encadear a
+cobrança na pesquisa **cobraria quem faltou à primeira sessão** — a pessoa recebe a
+pesquisa perguntando "como foi sua primeira sessão" sem ter sido atendida.
+
+A pesquisa continua vindo antes, mas por **sequência, não dependência**:
+`pesquisa.finalizar` chama `cobranca.encadear()` nos três desfechos, e `encadear`
+revalida tudo no Hamilton. Quem não tem pesquisa é cobrado direto pelo cron.
+
+**2. Nada de pro-rata. A entrada é a mensalidade cheia.**
+O desenho de 06/08 não dizia nada sobre isso; a ideia de pro-rata + dia 10 surgiu
+no pedido e **foi descartada em cima dos números reais** do `criar_assinatura_terapia`
+que já existia: quem entra dia 9 pagaria **R$ 6,67** e levaria **R$ 200 no dia
+seguinte**; quem entra dia 10 pagaria **R$ 206,67** de entrada. Funciona no painel
+(a Thainá vê o valor antes de mandar); automatizado, ninguém corrige. Pior: **no Pix
+não existe pro-rata**, então a Sofia teria que anunciar um valor no Pix diferente do
+que o Stripe cobra no cartão.
+
+Alinhar ao dia 10 **sem** pro-rata também foi descartado, e é bom não redescobrir:
+**`billing_cycle_anchor`** só aceita datas dentro de um ciclo (≤ ~31 dias) e, com
+`proration_behavior: "none"`, **não cobra nada** na entrada (a Session sai
+`no_payment_required`); o Stripe ainda proíbe item avulso nessa combinação. A única
+alternativa que cobra certo é **`trial_end` + preço one-time**, mas ela faz o checkout
+exibir **"avaliação gratuita"** e uma linha de R$ 0,00 na fatura — texto não
+customizável, e numa cobrança de terapia é onde menos se pode confundir.
+
+**Ficou: assinatura mensal simples, sem dia fixo.** Paga o valor cheio hoje e renova
+no mesmo dia todo mês. O dia 10 continua valendo pro **Pix**, onde é uma data que a
+pessoa precisa lembrar; no cartão a cobrança é automática e a data não muda nada.
+
+**O painel foi unificado (08/08).** `criar_assinatura_terapia` (pro-rata + dia 10) foi
+**removida**; `/painel/pagamentos` agora chama a mesma `criar_assinatura_mensalidade`.
+Antes, o mesmo paciente pagava valor diferente conforme quem gerasse o link.
+
+**3. A Sofia retoma o controle mesmo em modo humano.**
+Foi recomendado abrir exceção pra escalada aberta de `gratuidade`/`preco`/`crise` —
+cobrar quem acabou de dizer "não consigo pagar" é o único cenário em que a cobrança
+automática causa dano real. **Recusado pelo Paulo**: *"se o paciente teve primeira
+sessão registrada/realizada TEM que acontecer a avaliação e a cobrança; se
+eventualmente uma pessoa ficar esquisita, o bot escala pra Thainá e ela resolve no
+caso de borda"*. Implementado assim — e é por isso que `TOOLS_COBRANCA` e
+`TOOLS_PESQUISA` **têm** `escalar_para_thaina`: sem ela essa rede não existe.
+
+### Decisões que se mantiveram
+
+Comprovante **escala pra Thainá** (D.4) — mas **só no Pix**: no cartão o Stripe
+confirma sozinho, e pedir comprovante a quem pagou no cartão é trabalho inútil.
+Parceria **nunca** é cobrada. Objeções escalam `preco`/`gratuidade` (D.5). Um único
+lembrete, sem pressão. Chave Pix fixa e editável no painel. A Sofia fala **direto**
+com o Stripe.
+
+### Decisões novas
+
+- **A Sofia cobra só a entrada.** Cartão renova sozinho; **Pix é manual todo mês**, e
+  quem acompanha é o terapeuta. A Sofia **explica essa diferença** ao paciente — sem
+  isso a pessoa acha que o Pix é automático e some no mês 2.
+- **A cobrança vai em todos os ramos** (respondeu / recusou / sumiu a pesquisa), com
+  transições diferentes. Se só quem ignorasse a pesquisa fosse cobrado, a mensagem
+  leria como punição e a pesquisa viraria pedágio — os dados de qualidade ficariam
+  viciados.
+- **Nunca ameaçar interromper o tratamento.** O mais longe que a Sofia vai é *"pra
+  manter sua vaga na agenda, o pagamento precisa entrar antes da próxima sessão"*.
+- **E-mail é opcional** no checkout. A Sofia nunca coletou e-mail (não está na tool
+  `cadastrar_paciente`); o Stripe coleta na tela, e o que a pessoa digita lá é mais
+  confiável que um e-mail ditado por WhatsApp.
+- **Sem template da Meta por ora.** Fora da janela de 24h a cobrança não sai: marca
+  `cobranca_status='sem_janela'` e cai na fila "Pronto pra cobrança" que já existe.
+  Decisão do Paulo: testar dentro da janela primeiro, aprovar o template depois.
+
+### Riscos aceitos (novos)
+
+1. **Cobrar quem escalou por gratuidade/crise.** Consequência direta da decisão 3.
+   Mitigação: a tool de escalada nos dois modos, e o prompt manda parar de falar de
+   dinheiro diante de sinal sensível.
+2. **`is_realizado` é um checkbox humano.** Desmarcado, a cobrança **nunca** dispara e
+   não há sintoma. Mitigação: aviso na fila de espera do `/painel/acompanhamento` quando
+   alguém passa do dobro da meta (14 dias) — é o único lugar onde isso fica visível.
+3. **Cobrança duplicada pelo painel.** Painel e Sofia agora cobram o mesmo valor
+   (unificado em 08/08), mas nada impede a Thainá de gerar uma assinatura à mão pra
+   quem a Sofia já cobrou — seriam duas assinaturas ativas no Stripe pro mesmo
+   paciente. Mitigação: aviso no formulário e o `cobranca_status` visível na fila do
+   acompanhamento. Não há trava técnica.
+
+### Bugs pré-existentes corrigidos junto
+
+1. **Crise silenciosa na pesquisa.** `TOOLS_PESQUISA` não tinha `escalar_para_thaina`,
+   mas o prompt manda a Sofia dizer *"vou avisar a Thainá agora"* diante de sinal de
+   crise. **Nenhuma escalada era registrada e nenhum alerta era disparado** — ela
+   prometia acionar um humano e ninguém era acionado.
+2. **`Escalada.resolvida_em` nunca era preenchido** em código de produção. Como
+   `pesquisa._criar_entradas` exclui conversa com escalada aberta, **quem foi escalado
+   uma vez ficava fora da pesquisa de linha de base pra sempre** — e praticamente toda
+   conversa escala em algum momento. Agora `devolver_ao_bot` e `arquivar` fecham.
+3. **`arquivar` não zerava `aviso_escalada_em`.** Numa escalada posterior, o paciente
+   ficaria em silêncio **total**: nem a Sofia, nem o aviso.
 
 ---
 

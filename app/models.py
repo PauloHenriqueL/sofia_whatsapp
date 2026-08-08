@@ -102,6 +102,29 @@ class Conversa(Base):
     pesquisa_iniciada_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # --- Cobrança da mensalidade (Demanda D) ---
+    # Quando a Sofia abordou a cobrança. NUNCA é limpo: é o que garante que ela
+    # aborde uma vez só. Diferente da pesquisa (onde quem lembra é o
+    # `sofia_enviada_em` da Avaliacao, no Hamilton), aqui não há registro do outro
+    # lado — a memória tem que ser local. Também é a base do lembrete.
+    cobranca_iniciada_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Quando a conversa de cobrança terminou (pagou, escalou, desistiu ou venceu o
+    # prazo). Preenchida + `cobranca_iniciada_em` = modo cobrança DESLIGADO; é o
+    # par que decide se o turno roda com o prompt de cobrança ou com o de acolhimento.
+    cobranca_encerrada_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Lembrete único da cobrança. NULL = ainda não lembrou.
+    cobranca_lembrete_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Último estado conhecido da cobrança, em texto curto, pra aparecer na fila
+    # "Pronto pra cobrança" do /painel/acompanhamento. Existe porque essa fila é a
+    # única coisa que a Thainá olha: sem isso ela não distingue "a Sofia já cobrou
+    # e a pessoa sumiu" de "a Sofia nunca conseguiu falar" — e trataria as duas igual.
+    cobranca_status: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

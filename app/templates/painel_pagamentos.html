@@ -10,12 +10,6 @@
     </div>
   </div>
 
-  <div class="tabs">
-    <a class="tab" href="/painel/"><i class="bi bi-chat-dots"></i> Todas as conversas</a>
-    <a class="tab" href="/painel/acompanhamento"><i class="bi bi-hourglass-split"></i> Acompanhamento</a>
-    <a class="tab active" href="/painel/pagamentos/"><i class="bi bi-credit-card"></i> Pagamentos</a>
-  </div>
-
   {% if not configurado %}
   <div class="aviso aviso--erro">
     <i class="bi bi-exclamation-triangle"></i>
@@ -57,8 +51,8 @@
         </span>
       {% else %}
         <span class="muted">
-          {{ resultado.valor_mensal }}/mês todo dia 10 · 1ª fatura ≈ {{ resultado.pro_rata }}
-          (pro-rata de {{ resultado.dias_ate_dia10 }} dias até {{ resultado.proximo_dia10 }})
+          {{ resultado.valor_entrada }} hoje, depois {{ resultado.valor_mensal }}/mês
+          no mesmo dia. Sem pro-rata.
         </span>
       {% endif %}
     </div>
@@ -121,7 +115,7 @@
   </form>
   {% endif %}
 
-  {# ── Aba: assinatura terapia (dia 10) ────────────────────────────────── #}
+  {# ── Aba: mensalidade da terapia (mesma cobrança que a Sofia faz) ────── #}
   {% if aba == 'terapia' %}
   <form class="card" style="padding:18px; max-width:560px" method="post" action="/painel/pagamentos/assinatura">
     <div class="login-field">
@@ -129,8 +123,11 @@
       <input class="input" type="text" id="as-nome" name="nome" required value="{{ form.get('nome', '') }}">
     </div>
     <div class="login-field">
-      <label for="as-email">E-mail</label>
-      <input class="input" type="email" id="as-email" name="email" required value="{{ form.get('email', '') }}">
+      <label for="as-email">E-mail <span class="muted">(opcional)</span></label>
+      <input class="input" type="email" id="as-email" name="email" value="{{ form.get('email', '') }}">
+      <div class="muted" style="font-size:12px; margin-top:4px">
+        Se deixar em branco, o próprio Stripe pede na tela de pagamento.
+      </div>
     </div>
     <div class="login-field">
       <label for="as-valor">Mensalidade (R$)</label>
@@ -153,7 +150,9 @@
       <i class="bi bi-arrow-repeat"></i> Criar assinatura
     </button>
     <div class="muted" style="font-size:12px; margin-top:10px">
-      Cobrança todo dia 10. Quem assina no meio do mês paga o proporcional até lá na 1ª fatura.
+      Paga a mensalidade cheia hoje e renova no mesmo dia todo mês. Sem valor
+      proporcional. É exatamente a mesma cobrança que a Sofia faz sozinha depois da
+      primeira sessão — se ela já cobrou este paciente, não gere outra aqui.
     </div>
   </form>
   {% endif %}

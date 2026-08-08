@@ -112,6 +112,10 @@ def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
         "nome": dados.get("nome_completo"),
         "telefone": normalizar_telefone(dados.get("telefone_contato")),
         "vlr_sessao": "0.00" if parceria else f"{config_negocio.valor('preco_terapia_mensal')}.00",
+        # `parceria` tira o paciente do dropdown de cobrança manual do Hamilton.
+        # Sem isso ele entra como 'manual' e reaparece na fila de quem deve
+        # mensalidade — justamente quem não deve nada.
+        "tipo_pagamento": "parceria" if parceria else "manual",
     }
     captacao_id = dados.get("captacao_id")
     if captacao_id:

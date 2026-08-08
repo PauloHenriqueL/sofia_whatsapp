@@ -4,6 +4,7 @@ Compartilhado pelos routers de API (JSON) e de painel (HTML/HTMX) para não
 duplicar a lógica de listar, responder, assumir e devolver ao bot.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,7 +14,9 @@ from sqlalchemy.orm import undefer
 
 from app.config import settings
 from app.models import Conversa, Escalada, Mensagem, Midia
-from app.services import conversation, whatsapp_client
+from app.services import conversation, escalation, whatsapp_client
+
+logger = logging.getLogger(__name__)
 
 
 def url_hamilton_paciente(paciente_hamilton_id: int | None) -> str | None:
@@ -51,10 +54,11 @@ FILTROS = {
 }
 
 # Rótulo amigável de cada estado da conversa (o valor cru vai pro banco).
+# Só os quatro que o código realmente grava. `qualificando` e `coletando_dados`
+# eram letra morta: nenhum caminho de produção os escrevia (nem havia CSS pros
+# badges), então prometiam uma granularidade que a lista nunca teve.
 ESTADOS = {
     "novo": "Novo",
-    "qualificando": "Qualificando",
-    "coletando_dados": "Coletando dados",
     "cadastrado": "Cadastrado",
     "cadastro_pendente": "Cadastro pendente",
     "escalado": "Escalado",
@@ -64,6 +68,13 @@ ESTADOS = {
 def rotulo_estado(estado: str) -> str:
     """Rótulo legível do estado; estado desconhecido volta cru (nunca esconde)."""
     return ESTADOS.get(estado, estado)
+
+
+def rotulo_motivo(motivo: str) -> str:
+    """Rótulo legível do motivo da escalada (reusa o mapa do alerta da Thainá)."""
+    from app.services import tools
+
+    return tools.MOTIVO_LABELS.get(motivo, motivo)
 
 
 def _aplicar_filtro(q, filtro: str):
@@ -79,7 +90,11 @@ def _aplicar_filtro(q, filtro: str):
         return q.where(Conversa.estado == "escalado")
     if filtro == "cadastradas_hoje":
         inicio = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        return q.where(Conversa.estado == "cadastrado", Conversa.atualizada_em >= inicio)
+        # `cadastrado_em`, não `atualizada_em`: esta última tem `onupdate`, então
+        # qualquer mensagem nova de um paciente antigo o fazia reaparecer como
+        # "cadastrado hoje". Conversas anteriores à coluna têm `cadastrado_em`
+        # NULL e ficam de fora — o que é correto: não dá pra saber a data delas.
+        return q.where(Conversa.cadastrado_em >= inicio)
     if filtro == "cadastrados":
         # Pacientes que já entraram no Hamilton (têm pk lá).
         return q.where(Conversa.paciente_hamilton_id.isnot(None))
@@ -207,6 +222,21 @@ async def carregar_mensagens(db: AsyncSession, conversa_id: int) -> list[Mensage
     return list(result.scalars().all())
 
 
+async def listar_escaladas(db: AsyncSession, conversa_id: int) -> list[Escalada]:
+    """Escaladas da conversa, mais recentes primeiro.
+
+    Nunca eram mostradas em lugar nenhum do painel, apesar de `motivo` e `contexto`
+    existirem desde o Passo 3. A Thainá abria a conversa e tinha que ler todas as
+    mensagens pra descobrir por que aquilo tinha caído no colo dela.
+    """
+    result = await db.execute(
+        select(Escalada)
+        .where(Escalada.conversa_id == conversa_id)
+        .order_by(Escalada.criada_em.desc(), Escalada.id.desc())
+    )
+    return list(result.scalars().all())
+
+
 async def _citada(
     db: AsyncSession, conversa: Conversa, responde_a_id: int | None
 ) -> Mensagem | None:
@@ -298,8 +328,32 @@ async def enviar_anexo_como_thaina(
 
 
 async def assumir(db: AsyncSession, conversa: Conversa) -> None:
-    """Thainá assume a conversa: passa para modo humano (bot para de responder)."""
+    """Thainá assume a conversa: passa para modo humano (bot para de responder).
+
+    **Interrompe pesquisa e cobrança em curso.** Sem isso o botão mentia: os dois
+    modos furam o portão do modo humano no webhook (decisão da Demanda D — a Sofia
+    retoma o controle mesmo escalada), então "Assumir controle" deixava a conversa
+    marcada como humana e a Sofia continuava respondendo por cima da Thainá. O
+    único jeito de calá-la era esperar as 44h de prazo.
+
+    A pesquisa interrompida grava o que já foi respondido (`finalizar` com
+    `recusou=True` vira `avaliado` se houver resposta parcial) em vez de sumir.
+    """
+    from app.services import cobranca, pesquisa
+
     conversa.modo = "humano"
+
+    if cobranca.em_cobranca(conversa):
+        await cobranca.finalizar(db, conversa, "assumida")
+
+    if pesquisa.em_pesquisa(conversa):
+        avaliacao = await pesquisa.buscar_avaliacao(conversa)
+        try:
+            await pesquisa.finalizar(db, conversa, avaliacao or {}, recusou=True)
+        except Exception as exc:  # noqa: BLE001 — assumir não pode falhar por isso
+            logger.error("Não consegui encerrar a pesquisa da conversa %s: %s", conversa.id, exc)
+            await pesquisa.limpar(db, conversa)
+
     await db.commit()
 
 
@@ -309,6 +363,10 @@ async def devolver_ao_bot(db: AsyncSession, conversa: Conversa) -> None:
     # Zera o aviso de "a Thainá já foi avisada": se a conversa for escalada de
     # novo lá na frente, o paciente precisa receber o aviso outra vez.
     conversa.aviso_escalada_em = None
+    # Devolver ao bot é o momento em que a Thainá terminou de tratar o que a fez
+    # assumir. Sem fechar a escalada, a conversa fica excluída da pesquisa de
+    # linha de base pra sempre (ver escalation.resolver_abertas).
+    await escalation.resolver_abertas(db, conversa)
     await db.commit()
 
 
@@ -321,6 +379,12 @@ async def arquivar(db: AsyncSession, conversa: Conversa) -> None:
     """
     conversa.arquivada_em = datetime.now(timezone.utc)
     conversa.modo = "bot"
+    # Mesmo tratamento do `devolver_ao_bot`: arquivar também tira a conversa das
+    # mãos da Thainá. Sem zerar o aviso, uma escalada futura cairia no
+    # early-return de `_avisar_escalada_uma_vez` e o paciente ficaria em silêncio
+    # TOTAL — nem a Sofia nem o aviso.
+    conversa.aviso_escalada_em = None
+    await escalation.resolver_abertas(db, conversa)
     await db.commit()
 
 

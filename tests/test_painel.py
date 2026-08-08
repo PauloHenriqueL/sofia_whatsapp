@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Mensagem, Midia
-from app.services import config_negocio, config_prompt
+from app.services import config_negocio, config_prompt, hamilton_client
 from app.services import midia as midia_service
 from app.services import painel as painel_service
 
@@ -191,9 +191,27 @@ class TestListaEDetalhe:
         client, maker = ambiente
         await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/painel/metricas")
+        # A métrica de tempo até a 1ª sessão consulta o Hamilton; sem o mock o
+        # teste faria chamada de rede real.
+        cliente = AsyncMock()
+        cliente.status_primeira_consulta.return_value = {}
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resp = await client.get("/painel/metricas")
         assert resp.status_code == 200
         assert "Resultados da Sofia" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_metricas_sobrevivem_ao_hamilton_fora_do_ar(self, ambiente):
+        """O card de tempo some, o resto da página continua."""
+        client, maker = ambiente
+        await _login(client)
+        await _seed_conversa(maker)
+        cliente = AsyncMock()
+        cliente.status_primeira_consulta.side_effect = hamilton_client.HamiltonError("fora")
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resp = await client.get("/painel/metricas")
+        assert resp.status_code == 200
+        assert "Da primeira mensagem até a primeira sessão" not in resp.text
 
     @pytest.mark.asyncio
     async def test_pagina_prompts_renderiza(self, ambiente):
@@ -303,6 +321,75 @@ class TestAcoes:
                 .all()
             )
             assert msgs == []
+
+
+class TestPaginacaoDaLista:
+    """A lista parava na 50ª conversa em silêncio: o router chamava
+    `listar_conversas` sem `limite`, ficava com o default 50, e não havia
+    paginação em template nenhum."""
+
+    @pytest.mark.asyncio
+    async def test_mostra_navegacao_quando_passa_da_pagina(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        for i in range(55):
+            await _seed_conversa(maker, numero=f"55319{i:07d}")
+        resp = await client.get("/painel/")
+        assert resp.status_code == 200
+        assert "Próximas" in resp.text
+        assert "pagina=2" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_pagina_2_traz_o_resto(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        for i in range(55):
+            await _seed_conversa(maker, numero=f"55319{i:07d}")
+        resp = await client.get("/painel/?pagina=2")
+        assert resp.status_code == 200
+        assert "Anteriores" in resp.text
+        assert "Próximas" not in resp.text  # 55 conversas = 2 páginas
+
+    @pytest.mark.asyncio
+    async def test_sem_navegacao_com_poucas_conversas(self, ambiente):
+        client, maker = ambiente
+        await _login(client)
+        await _seed_conversa(maker)
+        resp = await client.get("/painel/")
+        assert "Próximas" not in resp.text
+        assert "Anteriores" not in resp.text
+
+
+class TestConfigZeroDesliga:
+    """Quatro campos documentam "0 desliga" e eram INATINGÍVEIS: o form tinha
+    `min="1"` e o servidor descartava com `if n > 0`."""
+
+    @pytest.mark.asyncio
+    async def test_salva_zero_no_desconto_maximo(self, ambiente):
+        client, _ = ambiente
+        await _login(client)
+        original = config_negocio.valor("desconto_maximo_pct")
+        try:
+            campos = {c: "1" for c, v in config_negocio.CAMPOS.items() if v[2] == "int"}
+            campos["desconto_maximo_pct"] = "0"
+            resp = await client.post("/painel/config", data=campos)
+            assert resp.status_code == 303
+            assert config_negocio.valor("desconto_maximo_pct") == 0
+        finally:
+            config_negocio._cache["desconto_maximo_pct"] = original
+
+    @pytest.mark.asyncio
+    async def test_negativo_continua_descartado(self, ambiente):
+        client, _ = ambiente
+        await _login(client)
+        original = config_negocio.valor("alerta_nota_sofia")
+        try:
+            campos = {c: "1" for c, v in config_negocio.CAMPOS.items() if v[2] == "int"}
+            campos["alerta_nota_sofia"] = "-5"
+            await client.post("/painel/config", data=campos)
+            assert config_negocio.valor("alerta_nota_sofia") != -5
+        finally:
+            config_negocio._cache["alerta_nota_sofia"] = original
 
 
 class TestCSRF:

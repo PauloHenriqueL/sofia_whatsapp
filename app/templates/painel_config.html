@@ -26,10 +26,18 @@
                {% if valores[chave] %}checked{% endif %} style="width:auto; margin:0">
         <label for="{{ chave }}" style="margin:0">{{ campo[0] }}</label>
       </div>
+      {% elif campo[2] == 'texto' %}
+      <div class="login-field" style="margin-bottom:16px">
+        <label for="{{ chave }}">{{ campo[0] }}</label>
+        <input class="input" type="text" id="{{ chave }}" name="{{ chave }}"
+               value="{{ valores[chave] }}" autocomplete="off">
+      </div>
       {% else %}
       <div class="login-field" style="margin-bottom:16px">
         <label for="{{ chave }}">{{ campo[0] }}</label>
-        <input class="input" type="number" min="1" id="{{ chave }}" name="{{ chave }}"
+        {# min="0": há campos em que 0 é o valor que DESLIGA (desconto máximo e
+           os três limiares de alerta). Com min="1" eles eram insalváveis. #}
+        <input class="input" type="number" min="0" id="{{ chave }}" name="{{ chave }}"
                value="{{ valores[chave] }}" required>
       </div>
       {% endif %}
@@ -46,9 +54,25 @@
   </div>
 
   <div class="subtitle" style="margin-top:14px">
-    "Mostrar digitando/visto" liga os indicadores de presença no WhatsApp. O
-    follow-up precisa ser menos de 24 horas (limite do WhatsApp). O preço da
-    neuroavaliação só é informado pra quem recusa a reunião com a diretora.
+    <p style="margin:0 0 8px">
+      <strong>Prazos:</strong> o follow-up e o lembrete da cobrança precisam ser
+      menos de 24 horas — passado esse tempo sem o paciente escrever, o WhatsApp
+      não deixa mais mandar mensagem livre. Valores maiores viram 23 automaticamente.
+    </p>
+    <p style="margin:0 0 8px">
+      <strong>Zero desliga:</strong> desconto máximo em 0 impede a Sofia de oferecer
+      desconto sozinha; cada limiar de alerta em 0 desliga aquele aviso.
+    </p>
+    <p style="margin:0 0 8px">
+      <strong>Cobrança automática:</strong> ligada, a Sofia fala de mensalidade
+      sozinha com quem já teve a primeira sessão <em>realizada</em> no Hamilton.
+      Apagar a chave Pix faz ela oferecer só o cartão.
+    </p>
+    <p style="margin:0">
+      "Mostrar digitando/visto" liga os indicadores de presença. "Ouvir áudios"
+      transcreve o que o paciente manda (tem custo por minuto); desligado, áudio
+      vira escalada pra você.
+    </p>
   </div>
 </div>
 {% endblock %}

@@ -463,6 +463,37 @@ class TestProcessarPayload:
         assert fake.historicos == []  # o LLM não é consultado em modo humano
 
     @pytest.mark.asyncio
+    async def test_cobranca_em_curso_fura_o_portao_do_modo_humano(self, db_em_memoria):
+        """Cobrança e pesquisa respondem MESMO com a conversa escalada.
+
+        As duas são iniciadas pelo cron, que fala com o paciente sem passar pelo
+        webhook. Sem a exceção, a Sofia perguntaria e depois ignoraria a resposta
+        — pior que não ter perguntado. Decisão do Paulo (Demanda D, Q10/Q16); o
+        `modo` NÃO é alterado, então a escalada aberta continua valendo no painel.
+        """
+        from datetime import datetime, timezone
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531911113333")
+            conversa.modo = "humano"
+            conversa.cobranca_iniciada_em = datetime.now(timezone.utc)
+            await s.commit()
+
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch(
+            "app.routers.webhook.cobranca.responder", new_callable=AsyncMock
+        ) as mock_responder:
+            await _rodar(
+                _payload_texto(numero="5531911113333", texto="pode ser no pix", msg_id="wamid.c1")
+            )
+
+        mock_responder.assert_awaited_once()
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_conversa_por_numero(s, "5531911113333")
+            assert conversa.modo == "humano"  # a escalada continua aberta pra Thainá
+
+    @pytest.mark.asyncio
     async def test_mensagem_duplicada_e_ignorada(self, db_em_memoria):
         """Mesmo wamid duas vezes: só responde uma vez (idempotência)."""
         payload = _payload_texto(msg_id="wamid.dup")

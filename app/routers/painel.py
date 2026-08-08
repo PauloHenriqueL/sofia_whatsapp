@@ -74,21 +74,51 @@ templates.env.filters["data_unix"] = _fmt_data_unix
 templates.env.filters["desde"] = _ha_quanto_tempo
 templates.env.filters["tamanho"] = _tamanho_legivel
 templates.env.filters["rotulo_estado"] = painel.rotulo_estado
+templates.env.filters["rotulo_motivo"] = painel.rotulo_motivo
 templates.env.filters["e_imagem"] = midia.e_imagem
 templates.env.filters["nome_anexo"] = midia.nome_para_download
 
 
-def _contexto_lista(request: Request, conversas, filtro, busca, ordem, dir_) -> dict:
+def _contexto_lista(
+    request: Request, conversas, filtro, busca, ordem, dir_, pagina=1, tem_proxima=False
+) -> dict:
     return {
         "request": request,
         "conversas": conversas,
+        "pagina": pagina,
+        "tem_proxima": tem_proxima,
         "filtro": filtro,
         "busca": busca,
         "ordem": ordem,
         "dir": dir_,
-        "ordens": painel.ORDENS,
         "filtros": painel.FILTROS,
+        "aba_ativa": "conversas",
     }
+
+
+POR_PAGINA = 50
+
+
+async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int):
+    """Uma página da lista + se existe próxima.
+
+    Antes o router chamava `listar_conversas` sem `limite` e ficava com o default
+    de 50 — **sem paginação em lugar nenhum**. Da 51ª conversa em diante o resto
+    simplesmente sumia da tela, sem aviso. Pede-se um a mais que o necessário pra
+    saber se há próxima sem uma segunda query de COUNT.
+    """
+    pagina = max(1, pagina)
+    conversas = await painel.listar_conversas(
+        db,
+        filtro=filtro,
+        busca=busca,
+        ordem=ordem,
+        descendente=(dir_ != "asc"),
+        limite=POR_PAGINA + 1,
+        offset=(pagina - 1) * POR_PAGINA,
+    )
+    tem_proxima = len(conversas) > POR_PAGINA
+    return conversas[:POR_PAGINA], tem_proxima
 
 
 @router.get("/")
@@ -99,15 +129,19 @@ async def pagina_lista(
     ordem: str = "atualizada_em",
     dir: str = "desc",
     feito: str = "",
+    pagina: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
     """`feito` é o aviso pós-ação (ex.: 'arquivada'), pra ação não sumir em silêncio."""
-    conversas = await painel.listar_conversas(
-        db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
-    )
+    conversas, tem_proxima = await _pagina_de_conversas(db, filtro, busca, ordem, dir, pagina)
     return templates.TemplateResponse(
         "painel_lista.html",
-        {**_contexto_lista(request, conversas, filtro, busca, ordem, dir), "feito": feito},
+        {
+            **_contexto_lista(
+                request, conversas, filtro, busca, ordem, dir, max(1, pagina), tem_proxima
+            ),
+            "feito": feito,
+        },
     )
 
 
@@ -120,6 +154,7 @@ async def pagina_config(request: Request, salvo: int = 0):
             "campos": config_negocio.CAMPOS,
             "valores": config_negocio.valores(),
             "salvo": salvo,
+            "aba_ativa": "config",
         },
     )
 
@@ -132,15 +167,29 @@ async def salvar_config(request: Request, db: AsyncSession = Depends(get_db)):
         if campo[2] == "bool":
             novos[chave] = chave in form  # checkbox marcado = presente no form
             continue
+        if campo[2] == "texto":
+            bruto = form.get(chave)
+            if bruto is None:  # campo ausente do form != campo apagado
+                continue
+            # String vazia É um valor válido: apagar a chave Pix desliga a oferta
+            # de Pix. Por isso não há filtro de "vazio" aqui, ao contrário do int.
+            novos[chave] = str(bruto).strip()
+            continue
         try:
             n = int(form.get(chave))
         except (TypeError, ValueError):
             continue
-        if n > 0:
+        # `>= 0`, não `> 0`: quatro campos documentam "0 desliga"
+        # (`desconto_maximo_pct` e os três `alerta_nota_*`) e o filtro antigo
+        # tornava esses desligamentos INATINGÍVEIS pelo painel — nem forçando o
+        # POST. Negativo continua descartado (não significa nada em nenhum campo).
+        if n >= 0:
             novos[chave] = n
-    # Follow-up tem que caber na janela de 24h da Meta.
-    if "followup_horas" in novos:
-        novos["followup_horas"] = min(int(novos["followup_horas"]), 23)
+    # Os dois prazos que falam com o paciente têm que caber na janela de 24h da
+    # Meta: passada ela, texto livre não sai e só template resolve.
+    for chave_horas in ("followup_horas", "cobranca_lembrete_horas"):
+        if chave_horas in novos:
+            novos[chave_horas] = min(int(novos[chave_horas]), 23)
     await config_negocio.salvar(db, novos)
     return RedirectResponse("/painel/config?salvo=1", status_code=303)
 
@@ -150,7 +199,7 @@ async def pagina_metricas(request: Request, db: AsyncSession = Depends(get_db)):
     m = await metricas.calcular_metricas(db)
     return templates.TemplateResponse(
         "painel_metricas.html",
-        {"request": request, "m": m},
+        {"request": request, "m": m, "aba_ativa": "metricas"},
     )
 
 
@@ -168,7 +217,7 @@ async def pagina_prompts(request: Request, salvo: str = ""):
     ]
     return templates.TemplateResponse(
         "painel_prompts.html",
-        {"request": request, "prompts": prompts, "salvo": salvo},
+        {"request": request, "prompts": prompts, "salvo": salvo, "aba_ativa": "config"},
     )
 
 
@@ -201,7 +250,13 @@ async def pagina_acompanhamento(
     dados["alertas"] = await acompanhamento.listar_alertas_pesquisa(db)
     return templates.TemplateResponse(
         "painel_acompanhamento.html",
-        {"request": request, "feito": feito, **dados},
+        {
+            "request": request,
+            "feito": feito,
+            "aba_ativa": "acompanhamento",
+            "cobranca_automatica": bool(config_negocio.valor("cobranca_ativa")),
+            **dados,
+        },
     )
 
 
@@ -252,6 +307,21 @@ async def alerta_resolvido(conversa_id: int, db: AsyncSession = Depends(get_db))
     return RedirectResponse("/painel/acompanhamento?feito=alerta_resolvido", status_code=303)
 
 
+@router.post("/conversas/{conversa_id}/alerta-reabrir")
+async def alerta_reabrir(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Devolve o alerta de pesquisa à fila (clique por engano, ou o assunto voltou).
+
+    O serviço `acompanhamento.reabrir_alerta` existia desde a Demanda C mas não
+    tinha rota nem botão — era código morto, e a cobrança tinha o par
+    resolver/reabrir enquanto o alerta só tinha "resolver".
+    """
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await acompanhamento.reabrir_alerta(db, conversa)
+    return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
+
+
 @router.post("/conversas/{conversa_id}/cobranca-reabrir")
 async def cobranca_reabrir(conversa_id: int, db: AsyncSession = Depends(get_db)):
     """Desfaz o "marcar resolvido" (clique por engano, ou a cobrança voltou)."""
@@ -269,14 +339,15 @@ async def fragment_conversas(
     busca: str = "",
     ordem: str = "atualizada_em",
     dir: str = "desc",
+    pagina: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
-    conversas = await painel.listar_conversas(
-        db, filtro=filtro, busca=busca, ordem=ordem, descendente=(dir != "asc")
-    )
+    """O polling repassa a página junto do filtro/busca/ordem — sem isso a tela
+    pularia de volta pra página 1 a cada 15 segundos."""
+    conversas, tem_proxima = await _pagina_de_conversas(db, filtro, busca, ordem, dir, pagina)
     return templates.TemplateResponse(
         "_conversas_fragment.html",
-        _contexto_lista(request, conversas, filtro, busca, ordem, dir),
+        _contexto_lista(request, conversas, filtro, busca, ordem, dir, max(1, pagina), tem_proxima),
     )
 
 
@@ -285,6 +356,7 @@ async def pagina_conversa(
     request: Request, conversa_id: int, pagamento: str = "", db: AsyncSession = Depends(get_db)
 ):
     """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect)."""
+    from app.services import cobranca as cobranca_service
     from app.services import pagamentos as pagamentos_service
     from app.services import stripe_client
 
@@ -305,11 +377,18 @@ async def pagina_conversa(
             "request": request,
             "conversa": conversa,
             "mensagens": mensagens,
+            "escaladas": await painel.listar_escaladas(db, conversa_id),
             "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
             "max_anexo": midia.TAMANHO_MAXIMO,
             "stripe_configurado": stripe_client.configurado(),
             "pagamento_status": pagamento_status,
             "pagamento_invalido": pagamento == "invalido",
+            # A Sofia conduzindo pesquisa ou cobrança RESPONDE mesmo em modo humano
+            # (exceção no portão do webhook). Sem isto na tela, "Assumir controle"
+            # promete um silêncio que não acontece.
+            "em_pesquisa": conversa.pesquisa_avaliacao_id is not None,
+            "em_cobranca": cobranca_service.em_cobranca(conversa),
+            "cobranca_label": cobranca_service.STATUS_LABELS.get(conversa.cobranca_status or ""),
         },
     )
 

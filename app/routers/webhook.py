@@ -17,6 +17,7 @@ from app.database import async_session
 from app.services import (
     cadastro,
     captacao,
+    cobranca,
     config_negocio,
     conversation,
     escalation,
@@ -296,14 +297,34 @@ async def _validar_captacao(argumentos: dict) -> dict:
     importa porque parceria significa mensalidade zero.
     """
     argumentos = dict(argumentos or {})
-    escolhida = captacao.resolver(argumentos.get("captacao_id"), await captacao.listar())
+    captacoes = await captacao.listar()
+    escolhida = captacao.resolver(argumentos.get("captacao_id"), captacoes)
+
     if escolhida is None:
+        # Os dois casos caem em "Não sei", mas são logados SEPARADOS de propósito:
+        # ID inválido é o modelo alucinando um número; ausência é ele ter pulado a
+        # pergunta. Depois de gravados viram a mesma captação e a diferença some —
+        # o log é o único lugar onde dá pra medir qual dos dois está acontecendo.
         if argumentos.get("captacao_id"):
             logger.warning(
-                "Captação %r não existe no Hamilton; cadastro segue sem origem",
+                "Captação %r não existe no Hamilton; cadastro vai como 'Não sei'",
                 argumentos.get("captacao_id"),
             )
-        argumentos.pop("captacao_id", None)
+        else:
+            logger.info("Cadastro sem origem informada; vai como 'Não sei'")
+
+        # "Não sei" é uma resposta, não a ausência de uma. Deixar em branco fazia
+        # "a pessoa não soube dizer" ficar indistinguível de "ninguém perguntou",
+        # e a origem é de onde sai a prestação de contas da ONG.
+        padrao = captacao.nao_sei(captacoes)
+        if padrao is not None:
+            argumentos["captacao_id"] = captacao._id(padrao)
+        else:
+            # Sem a lista (Hamilton fora do ar) ou sem a captação cadastrada:
+            # segue sem origem, como antes. Melhor cadastro sem origem que
+            # cadastro travado.
+            logger.warning("Captação 'Não sei' não está na lista; cadastro segue sem origem")
+            argumentos.pop("captacao_id", None)
         argumentos["is_parceria"] = False
     else:
         argumentos["is_parceria"] = captacao.e_parceria(escolhida)
@@ -423,7 +444,20 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
             # mais, mas avisa UMA vez que a equipe já foi acionada — antes o
             # paciente escrevia no vazio até alguém abrir o painel.
-            if conversa.modo == "humano":
+            #
+            # EXCEÇÃO: pesquisa e cobrança em curso furam o portão. As duas são
+            # iniciadas pelo cron, que fala com o paciente sem passar por aqui —
+            # sem a exceção a Sofia perguntaria e depois ignoraria a resposta.
+            # A primeira sessão é lançada dias depois de acontecer, então
+            # atropelar a Thainá em tempo real é improvável; e o `modo` NÃO é
+            # alterado, então a escalada aberta continua valendo pra ela no painel.
+            # Decisão do Paulo, contra a recomendação de abrir exceção pra
+            # `gratuidade`/`preco`/`crise`: o caso de borda se resolve pela pessoa
+            # reagir e a Sofia escalar de novo (por isso os dois modos têm a tool
+            # de escalada). Risco registrado em docs/demandas/01-EM-ANDAMENTO.md.
+            if conversa.modo == "humano" and not (
+                pesquisa.em_pesquisa(conversa) or cobranca.em_cobranca(conversa)
+            ):
                 await _avisar_escalada_uma_vez(session, conversa, numero)
                 return
 
@@ -437,7 +471,14 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
 
             if tipo_efetivo in midia.TIPOS_SUPORTADOS:
                 # A Sofia não lê o anexo: guarda (já feito) e chama a Thainá, que
-                # abre no painel.
+                # abre no painel. Numa cobrança em curso o anexo é quase sempre o
+                # comprovante do Pix — e é justamente por isso que a Sofia NÃO
+                # responde nada além do texto fixo: confirmar "sua vaga está
+                # garantida" ao receber uma imagem que ela não leu confirmaria
+                # também um print errado ou um comprovante de R$ 5. Quem confere
+                # e confirma é a Thainá.
+                if cobranca.em_cobranca(conversa):
+                    await cobranca.finalizar(session, conversa, "comprovante")
                 await escalation.registrar_escalada(session, conversa, "anexo_recebido")
                 await escalation.alertar_thaina(conversa, "anexo_recebido")
                 await session.commit()
@@ -530,8 +571,14 @@ async def _turno_agendado(numero: str) -> None:
     async with serializacao.lock_da_conversa(numero):
         async with async_session() as session:
             conversa = await conversation.obter_conversa_por_numero(session, numero)
-            # Pode ter virado modo humano (ex.: áudio no meio da rajada): não responde.
-            if conversa is None or conversa.modo == "humano":
+            if conversa is None:
+                return
+            # Pode ter virado modo humano (ex.: áudio no meio da rajada): não
+            # responde — salvo pesquisa/cobrança em curso, mesma exceção do portão
+            # em `ingerir_mensagem`.
+            if conversa.modo == "humano" and not (
+                pesquisa.em_pesquisa(conversa) or cobranca.em_cobranca(conversa)
+            ):
                 return
             await _responder_turno(session, conversa, numero)
 
@@ -543,6 +590,15 @@ async def _responder_turno(session, conversa, numero: str) -> None:
     # qualificação e cadastro aqui seria absurdo pra ela.
     if pesquisa.em_pesquisa(conversa):
         await pesquisa.responder(session, conversa, numero)
+        return
+
+    # Cobrança em curso: mesmo raciocínio. Sem isso, "consigo pagar semana que
+    # vem?" cairia no prompt de acolhimento — um roteiro de qualificação de lead
+    # novo, que ainda por cima tem `oferecer_desconto` disponível. Negociar preço
+    # automaticamente com quem está em dificuldade financeira é exatamente o que
+    # os prompts proíbem.
+    if cobranca.em_cobranca(conversa):
+        await cobranca.responder(session, conversa, numero)
         return
 
     resposta = await processar_turno_bot(session, conversa)

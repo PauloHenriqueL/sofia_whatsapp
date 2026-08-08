@@ -19,7 +19,8 @@ PREFEITURA = {
     "is_active": True,
     "is_parceria": True,
 }
-LISTA = [INSTAGRAM, PREFEITURA]
+NAO_SEI = {"pk_captacao": 4, "nome": "Não sei", "is_active": True, "is_parceria": False}
+LISTA = [INSTAGRAM, PREFEITURA, NAO_SEI]
 
 
 @pytest.fixture(autouse=True)
@@ -136,3 +137,69 @@ class TestListar:
         ]
         with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
             assert await captacao.listar() == [INSTAGRAM]
+
+
+class TestNaoSei:
+    """ "Não sei" é uma RESPOSTA, não a ausência de uma.
+
+    Antes, origem não identificada saía em branco — e em branco não dá pra
+    distinguir "a pessoa não soube dizer" de "o modelo esqueceu de perguntar".
+    A prestação de contas da ONG trata os dois igual.
+    """
+
+    def test_acha_pelo_nome(self):
+        assert captacao.nao_sei(LISTA) == NAO_SEI
+
+    def test_ignora_caixa_e_espaco(self):
+        lista = [{"pk_captacao": 9, "nome": "  NÃO SEI  ", "is_active": True}]
+        assert captacao.nao_sei(lista)["pk_captacao"] == 9
+
+    def test_lista_sem_a_opcao_devolve_none(self):
+        assert captacao.nao_sei([INSTAGRAM]) is None
+
+    def test_resolvida_por_nome_e_nao_por_id_cravado(self):
+        """O ID de "Não sei" difere entre produção e a branch de teste; cravar 4
+        gravaria a captação errada em um dos dois ambientes, em silêncio."""
+        lista = [{"pk_captacao": 99, "nome": "Não sei", "is_active": True}]
+        assert captacao.nao_sei(lista)["pk_captacao"] == 99
+
+
+class TestValidarCaptacaoNoWebhook:
+    """O fallback de verdade: o que sai de `_validar_captacao` pro cadastro."""
+
+    @pytest.mark.asyncio
+    async def test_id_ausente_vira_nao_sei(self):
+        from app.routers import webhook
+
+        with patch.object(captacao, "listar", AsyncMock(return_value=LISTA)):
+            r = await webhook._validar_captacao({"nome_completo": "Maria"})
+        assert r["captacao_id"] == 4
+        assert r["is_parceria"] is False
+
+    @pytest.mark.asyncio
+    async def test_id_inventado_vira_nao_sei(self):
+        from app.routers import webhook
+
+        with patch.object(captacao, "listar", AsyncMock(return_value=LISTA)):
+            r = await webhook._validar_captacao({"captacao_id": 9999})
+        assert r["captacao_id"] == 4
+
+    @pytest.mark.asyncio
+    async def test_id_valido_passa_intacto(self):
+        from app.routers import webhook
+
+        with patch.object(captacao, "listar", AsyncMock(return_value=LISTA)):
+            r = await webhook._validar_captacao({"captacao_id": 46})
+        assert r["captacao_id"] == 46
+        assert r["is_parceria"] is True  # veio da flag do Hamilton, não do modelo
+
+    @pytest.mark.asyncio
+    async def test_sem_a_opcao_na_lista_segue_sem_origem(self):
+        """Hamilton fora do ar (lista vazia): cadastro sem origem é melhor que
+        cadastro travado."""
+        from app.routers import webhook
+
+        with patch.object(captacao, "listar", AsyncMock(return_value=[])):
+            r = await webhook._validar_captacao({"captacao_id": 7})
+        assert "captacao_id" not in r
+        assert r["is_parceria"] is False

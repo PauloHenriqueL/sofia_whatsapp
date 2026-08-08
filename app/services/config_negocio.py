@@ -17,7 +17,7 @@ from app.models import Configuracao
 
 logger = logging.getLogger(__name__)
 
-# chave -> (rótulo pro painel, valor padrão, tipo "int"|"bool"). Ordem = ordem na tela.
+# chave -> (rótulo pro painel, valor padrão, tipo "int"|"bool"|"texto"). Ordem = ordem na tela.
 CAMPOS: dict[str, tuple[str, object, str]] = {
     "preco_terapia_mensal": ("Mensalidade da terapia (R$)", settings.preco_terapia_mensal, "int"),
     "preco_neuro": ("Orçamento da neuroavaliação (R$)", settings.preco_neuro, "int"),
@@ -54,6 +54,22 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
     "alerta_nota_terapeuta": ("Alertar se a nota do terapeuta for menor que", 6, "int"),
     "alerta_nota_sofia": ("Alertar se a nota do acolhimento (Sofia) for menor que", 6, "int"),
     "alerta_nota_indicacao": ("Alertar se a nota de indicação (NPS) for menor que", 6, "int"),
+    # --- Cobrança da mensalidade (Demanda D) ---
+    # Desligada por padrão, de propósito. É o mesmo desenho das travas
+    # SOFIA_PESQUISAS_* do Hamilton: um fluxo automático que fala de DINHEIRO com
+    # paciente sobe dark e é ligado por ato explícito de quem opera, nunca por
+    # deploy. Desligada, o cron não aborda ninguém e nada mais muda.
+    "cobranca_ativa": (
+        "Cobrar a mensalidade automaticamente após a primeira sessão realizada",
+        False,
+        "bool",
+    ),
+    # Vazia = a Sofia não oferece Pix (só o link do cartão). Não é segredo — é o
+    # CNPJ que já vai na nota —, então mora aqui e não nas env vars: muda sem deploy.
+    "chave_pix": ("Chave Pix da Allos (vazio = não oferecer Pix)", "50.990.346/0001-52", "texto"),
+    # Lembrete único da cobrança. Tem que caber na janela de 24h da Meta, igual ao
+    # follow-up: passada ela, só template resolve, e não temos template aprovado.
+    "cobranca_lembrete_horas": ("Horas até o lembrete da cobrança (menos de 24)", 20, "int"),
 }
 
 _cache: dict[str, object] = {chave: padrao for chave, (_, padrao, _t) in CAMPOS.items()}
@@ -65,15 +81,22 @@ def _tipo(chave: str) -> str:
 
 def _parse(chave: str, texto: str):
     """Converte o texto guardado no banco pro tipo do campo."""
-    if _tipo(chave) == "bool":
+    tipo = _tipo(chave)
+    if tipo == "bool":
         return str(texto).strip().lower() in ("true", "1", "sim", "on")
+    if tipo == "texto":
+        # Sem int(): campo livre. Vazio é um valor válido (desliga o que depende dele).
+        return str(texto).strip()
     return int(texto)
 
 
 def _serialize(chave: str, valor) -> str:
     """Converte o valor pro texto que vai pro banco."""
-    if _tipo(chave) == "bool":
+    tipo = _tipo(chave)
+    if tipo == "bool":
         return "true" if valor else "false"
+    if tipo == "texto":
+        return str(valor).strip()
     return str(int(valor))
 
 

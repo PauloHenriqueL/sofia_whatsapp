@@ -139,36 +139,50 @@ class TestCriarLinkNeuro:
             await pagamentos.criar_link_neuro(**kwargs)
 
 
-class TestAssinaturaTerapia:
+class TestAssinaturaMensalidade:
+    """Assinatura mensal simples: valor cheio hoje, valor cheio todo mês.
+
+    Antes o painel tinha uma versão própria (`criar_assinatura_terapia`) com
+    pro-rata ancorado no dia 10 — quem assinava dia 9 pagava R$ 6,67 e levava
+    R$ 200 no dia seguinte. Foi removida: o painel e a Sofia usam a MESMA função,
+    senão o mesmo paciente pagaria valores diferentes conforme quem gerou o link.
+    """
+
     @pytest.mark.asyncio
-    async def test_ancora_no_proximo_dia_10(self):
-        """Dia 18 -> âncora no dia 10 do mês seguinte, com pro-rata dos dias até lá."""
+    async def test_sem_ancora_sem_pro_rata_sem_trial(self):
         sessao = AsyncMock(return_value={"id": "cs_t_1", "url": "https://checkout.stripe.com/2"})
         with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
-            r = await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+            r = await pagamentos.criar_assinatura_mensalidade(
+                nome="Ana", valor_mensal=200, email="a@x.com", agora=AGORA
+            )
 
-        dados = sessao.await_args.args[0]
-        ancora = datetime.fromtimestamp(
-            dados["subscription_data"]["billing_cycle_anchor"], tz=timezone.utc
-        )
-        assert (ancora.year, ancora.month, ancora.day) == (2026, 8, 10)
-        assert dados["subscription_data"]["proration_behavior"] == "create_prorations"
-        assert r["proximo_dia10"] == "10/08/2026"
-        assert r["dias_ate_dia10"] == 22
-        assert r["pro_rata"] == pagamentos.fmt_centavos(round(200 * 100 / 30 * 22))
+        sub = sessao.await_args.args[0]["subscription_data"]
+        assert "billing_cycle_anchor" not in sub
+        assert "proration_behavior" not in sub
+        assert "trial_end" not in sub  # é o que faria o checkout dizer "avaliação gratuita"
+        assert len(sessao.await_args.args[0]["line_items"]) == 1
+        assert r["valor_entrada"] == "R$ 200,00"
+        assert r["valor_mensal"] == "R$ 200,00"
 
     @pytest.mark.asyncio
-    async def test_antes_do_dia_10_ancora_no_mesmo_mes(self):
-        sessao = AsyncMock(return_value={"id": "cs_t_2", "url": "u"})
-        cedo = datetime(2026, 7, 3, tzinfo=timezone.utc)
+    async def test_email_e_opcional(self):
+        """A Sofia nunca coletou e-mail; o Checkout pergunta se não vier."""
+        sessao = AsyncMock(return_value={"id": "cs_t_0", "url": "u"})
         with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
-            r = await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=cedo)
-        assert r["proximo_dia10"] == "10/07/2026"
+            await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
+        assert "customer_email" not in sessao.await_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_email_invalido_e_rejeitado(self):
+        with pytest.raises(ErroValidacao):
+            await pagamentos.criar_assinatura_mensalidade(
+                nome="Ana", valor_mensal=200, email="nao-e-email"
+            )
 
     @pytest.mark.asyncio
     async def test_valor_fora_da_faixa(self):
         with pytest.raises(ErroValidacao):
-            await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 10)
+            await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=10)
 
     @pytest.mark.asyncio
     async def test_reusa_preco_do_catalogo_quando_o_valor_bate(self):
@@ -182,7 +196,7 @@ class TestAssinaturaTerapia:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
                 "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
             ):
-                await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+                await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
         finally:
             settings.stripe_preco_mensal_id = original
         item = sessao.await_args.args[0]["line_items"][0]
@@ -198,7 +212,7 @@ class TestAssinaturaTerapia:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
                 "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
             ):
-                await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 150, agora=AGORA)
+                await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=150)
         finally:
             settings.stripe_preco_mensal_id = original
         item = sessao.await_args.args[0]["line_items"][0]
@@ -214,7 +228,7 @@ class TestAssinaturaTerapia:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
                 "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
             ):
-                r = await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+                r = await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
         finally:
             settings.stripe_preco_mensal_id = original
         assert r["ref"] == "cs_t_5"
@@ -226,7 +240,7 @@ class TestUrlDeCancelamento:
     async def test_cancelamento_volta_pra_pagina_da_sofia(self):
         sessao = AsyncMock(return_value={"id": "cs_y", "url": "u"})
         with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
-            await pagamentos.criar_assinatura_terapia("Ana", "a@x.com", 200, agora=AGORA)
+            await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
         assert sessao.await_args.args[0]["cancel_url"] == (
             f"{settings.base_url}/pagamento-cancelado"
         )

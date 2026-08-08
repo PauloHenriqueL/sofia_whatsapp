@@ -1,11 +1,18 @@
 """Testes da escalada: motivos novos + rótulo legível no alerta da Thainá."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.models import Conversa
-from app.services import escalation, tools, whatsapp_client
+from app.database import Base
+from app.models import Conversa, Escalada
+from app.services import escalation
+from app.services import painel as painel_service
+from app.services import tools, whatsapp_client
 
 
 def test_todo_motivo_da_escalada_tem_rotulo():
@@ -34,6 +41,77 @@ async def test_alerta_envia_rotulo_legivel_e_nao_o_codigo():
     assert ok is True
     parametros = mock_template.await_args.kwargs["parametros"]
     assert parametros == ["Ana", tools.MOTIVO_LABELS["neuro_reuniao"]]
+
+
+class TestResolverEscaladas:
+    """`Escalada.resolvida_em` existia mas nunca era preenchido em produção.
+
+    Como `pesquisa._criar_entradas` exclui conversa com escalada aberta, quem foi
+    escalado uma vez — áudio, anexo, preço, gratuidade, pedido de humano — ficava
+    fora da pesquisa de linha de base PARA SEMPRE, sem sintoma nenhum.
+    """
+
+    @pytest_asyncio.fixture
+    async def session(self):
+        engine = create_async_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as s:
+            yield s
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_devolver_ao_bot_fecha_as_escaladas(self, session):
+        conversa = Conversa(numero_whatsapp="5531999998888")
+        session.add(conversa)
+        await session.flush()
+        await escalation.registrar_escalada(session, conversa, "preco")
+        await escalation.registrar_escalada(session, conversa, "pedido_humano")
+        await session.commit()
+
+        await painel_service.devolver_ao_bot(session, conversa)
+
+        abertas = (
+            (
+                await session.execute(
+                    select(Escalada).where(
+                        Escalada.conversa_id == conversa.id, Escalada.resolvida_em.is_(None)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert abertas == []
+        assert conversa.modo == "bot"
+
+    @pytest.mark.asyncio
+    async def test_arquivar_fecha_escalada_e_zera_o_aviso(self, session):
+        """Arquivar devolvia ao bot sem zerar `aviso_escalada_em`.
+
+        Numa escalada posterior, `_avisar_escalada_uma_vez` caía no early-return e
+        o paciente ficava em silêncio TOTAL: nem a Sofia, nem o aviso.
+        """
+        conversa = Conversa(numero_whatsapp="5531999998888")
+        session.add(conversa)
+        await session.flush()
+        await escalation.registrar_escalada(session, conversa, "anexo_recebido")
+        conversa.aviso_escalada_em = datetime.now(timezone.utc)
+        await session.commit()
+
+        await painel_service.arquivar(session, conversa)
+
+        assert conversa.aviso_escalada_em is None
+        assert conversa.modo == "bot"
+        aberta = (
+            await session.execute(
+                select(Escalada).where(
+                    Escalada.conversa_id == conversa.id, Escalada.resolvida_em.is_(None)
+                )
+            )
+        ).scalar_one_or_none()
+        assert aberta is None
 
 
 class TestAlertarCadastro:

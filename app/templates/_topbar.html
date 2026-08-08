@@ -1,3 +1,8 @@
+{# Topbar + navegação. As abas moravam duplicadas em painel_lista, _acompanhamento
+   e _pagamentos — três cópias do mesmo HTML, e por isso "Resultados" nunca entrou
+   em nenhuma delas, e conversa/config/prompts/métricas eram becos sem saída.
+   Aqui elas são únicas: aba nova = uma linha. `aba_ativa` vem do contexto de cada
+   router; telas sem ela (conversa, config, prompts) só não acendem nenhuma. #}
 <div class="topbar">
   <a href="/painel/" class="brand">
     <span class="logo">a</span>
@@ -9,5 +14,21 @@
     <form method="post" action="/logout" style="margin:0">
       <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-box-arrow-right"></i> Sair</button>
     </form>
+  </div>
+</div>
+<div class="container-app" style="padding-top:0">
+  <div class="tabs">
+    <a class="tab {{ 'active' if aba_ativa == 'conversas' }}" href="/painel/">
+      <i class="bi bi-chat-dots"></i> Conversas
+    </a>
+    <a class="tab {{ 'active' if aba_ativa == 'acompanhamento' }}" href="/painel/acompanhamento">
+      <i class="bi bi-clipboard-check"></i> Acompanhamento
+    </a>
+    <a class="tab {{ 'active' if aba_ativa == 'pagamentos' }}" href="/painel/pagamentos/">
+      <i class="bi bi-credit-card"></i> Pagamentos
+    </a>
+    <a class="tab {{ 'active' if aba_ativa == 'metricas' }}" href="/painel/metricas">
+      <i class="bi bi-graph-up"></i> Resultados
+    </a>
   </div>
 </div>

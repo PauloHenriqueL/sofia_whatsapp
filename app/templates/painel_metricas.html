@@ -37,7 +37,24 @@
     <div class="kpi alert">
       <div class="num">{{ m.saidas_bloqueadas }}</div>
       <div class="lbl">Mensagens bloqueadas antes de sair
-        <span class="muted">(a Sofia tentou mandar dado interno; avise o Paulo)</span></div>
+        <span class="muted">(a Sofia tentou mandar dado interno; avise o Paulo.
+        Este número zera quando o sistema reinicia)</span></div>
+    </div>
+    {% endif %}
+    {# Cobrança que não saiu é falha silenciosa: a Sofia não conseguiu falar e
+       ninguém fica sabendo se não olhar aqui ou no acompanhamento. #}
+    {% if m.cobrancas_com_falha %}
+    <div class="kpi alert">
+      <div class="num">{{ m.cobrancas_com_falha }}</div>
+      <div class="lbl">Cobranças que não saíram
+        <span class="muted">(fora da janela de 24h ou falha no link — precisam de contato manual)</span></div>
+    </div>
+    {% endif %}
+    {% if m.alertas_abertos %}
+    <div class="kpi alert">
+      <div class="num">{{ m.alertas_abertos }}</div>
+      <div class="lbl">Alertas de pesquisa por tratar
+        <span class="muted">(veja em <a href="/painel/acompanhamento">Acompanhamento</a>)</span></div>
     </div>
     {% endif %}
     <div class="kpi">
@@ -54,6 +71,67 @@
     </div>
   </div>
 
+  {# ── Do primeiro "oi" até estar na cadeira do terapeuta ──────────────────
+     Mediana e não média: um caso de 90 dias distorce a média e faz parecer que
+     todo mundo espera muito. Só entra quem JÁ foi atendido — quem ainda espera
+     está na fila do Acompanhamento (senão a métrica melhoraria sozinha quando
+     alguém demora, porque o caso lento ficaria de fora até terminar). #}
+  {% if m.tempo_primeira_sessao %}
+  {% set t = m.tempo_primeira_sessao %}
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="font-size:16px; margin:0 0 4px">
+      <i class="bi bi-stopwatch"></i> Da primeira mensagem até a primeira sessão
+    </h2>
+    <div class="subtitle" style="margin-bottom:12px">
+      Baseado em {{ t.pacientes }} paciente{{ 's' if t.pacientes != 1 }} que já
+      {{ 'tiveram' if t.pacientes != 1 else 'teve' }} a primeira consulta realizada.
+    </div>
+    <div class="kpis">
+      <div class="kpi">
+        <div class="num">{{ t.mediana }}<span style="font-size:16px"> dias</span></div>
+        <div class="lbl">Mediana <span class="muted">(o caso típico)</span></div>
+      </div>
+      <div class="kpi">
+        <div class="num">{{ t.media }}<span style="font-size:16px"> dias</span></div>
+        <div class="lbl">Média</div>
+      </div>
+      <div class="kpi">
+        <div class="num">{{ t.minimo }}–{{ t.maximo }}</div>
+        <div class="lbl">Do mais rápido ao mais lento (dias)</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Pesquisa e cobrança ─────────────────────────────────────────────────── #}
+  {% if m.pesquisas_em_curso or m.alertas_total or m.cobrancas_por_status %}
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="font-size:16px; margin:0 0 12px">Pesquisa e cobrança</h2>
+    <div class="kpis" style="margin-bottom:{{ '12px' if m.cobrancas_por_status else '0' }}">
+      <div class="kpi">
+        <div class="num">{{ m.pesquisas_em_curso }}</div>
+        <div class="lbl">Pesquisas em andamento</div>
+      </div>
+      <div class="kpi">
+        <div class="num">{{ m.alertas_abertos }}/{{ m.alertas_total }}</div>
+        <div class="lbl">Alertas por tratar / total</div>
+      </div>
+    </div>
+    {% if m.cobrancas_por_status %}
+      {% set maxcob = (m.cobrancas_por_status | map(attribute='qtd') | max) or 1 %}
+      {% for c in m.cobrancas_por_status %}
+      <div class="bar-row">
+        <span class="bar-label">
+          {% if c.falha %}<i class="bi bi-exclamation-triangle"></i> {% endif %}{{ c.rotulo }}
+        </span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{ (c.qtd / maxcob * 100) | round }}%"></span></span>
+        <span class="bar-num">{{ c.qtd }}</span>
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="card" style="margin-bottom:16px">
     <h2 style="font-size:16px; margin:0 0 12px">Leads nos últimos 7 dias</h2>
     {% set maxdia = (m.leads_por_dia | map(attribute='qtd') | max) or 1 %}
@@ -67,7 +145,11 @@
   </div>
 
   <div class="card">
-    <h2 style="font-size:16px; margin:0 0 12px">Escaladas por motivo</h2>
+    <h2 style="font-size:16px; margin:0 0 4px">Escaladas em aberto, por motivo</h2>
+    <div class="subtitle" style="margin-bottom:12px">
+      Só as que ainda não foram tratadas — escalada fecha quando você devolve a
+      conversa ao bot ou arquiva.
+    </div>
     {% if m.escaladas_por_motivo %}
       {% set maxmot = (m.escaladas_por_motivo | map(attribute='qtd') | max) or 1 %}
       {% for e in m.escaladas_por_motivo %}

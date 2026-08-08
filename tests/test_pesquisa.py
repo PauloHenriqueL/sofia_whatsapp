@@ -380,9 +380,16 @@ class TestRodarPesquisas:
         assert mock_iniciar.await_args.args[1].id == conversa.id
 
     @pytest.mark.asyncio
-    async def test_nao_aborda_quem_esta_com_a_thaina(self, session):
-        """Modo humano: a Sofia não fala por cima de quem assumiu a conversa."""
-        await _conversa(session, modo="humano")
+    async def test_aborda_mesmo_com_a_conversa_escalada(self, session):
+        """Modo humano NÃO bloqueia mais a pesquisa (decisão do Paulo, Demanda D).
+
+        Antes a Sofia pulava quem estava com a Thainá. Passou a abordar: se a
+        primeira sessão aconteceu, a avaliação e a cobrança TÊM que acontecer, e o
+        caso de borda se resolve pela pessoa reagir e a Sofia escalar de novo.
+        O portão de `webhook.ingerir_mensagem` abre exceção pro modo pesquisa, então
+        a resposta dela não cai no vazio.
+        """
+        conversa = await _conversa(session, modo="humano")
         await session.commit()
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
@@ -390,8 +397,8 @@ class TestRodarPesquisas:
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
             resumo = await pesquisa.rodar_pesquisas(session, AGORA)
-        assert resumo["enviadas"] == 0
-        mock_iniciar.assert_not_awaited()
+        assert resumo["enviadas"] == 1
+        assert mock_iniciar.await_args.args[1].id == conversa.id
 
     @pytest.mark.asyncio
     async def test_nao_aborda_quem_ja_esta_em_pesquisa(self, session):
