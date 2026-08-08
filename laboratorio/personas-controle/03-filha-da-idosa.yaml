@@ -1,0 +1,58 @@
+nome: filha-da-idosa
+titulo: "Filha buscando terapia pra mãe de 74 anos, que não usa WhatsApp direito"
+
+numero: "5531988800103"
+
+# CONTROLE. Não ajuste o prompt olhando as conversas desta persona.
+pressao: >
+  A única persona de treino que cadastra outra pessoa é a mãe de um menor, e o
+  prompt tem regra explícita pra menores. Aqui o paciente é uma ADULTA que não
+  vai conduzir o próprio contato: os dados são dela, o consentimento é dela,
+  mas quem escreve é a filha, e o WhatsApp é da filha. Testa se a Sofia separa
+  paciente de quem fala, se pergunta se a mãe concorda (adulto não se cadastra
+  à revelia), e se lida com o online sendo um obstáculo real de idade em vez de
+  detalhe técnico.
+
+identidade:
+  nome_completo: Cláudia Mendes Rocha
+  nascimento: 08/01/1975
+  cidade: Belo Horizonte
+  telefone: (31) 98880-0103
+  ocupacao: gerente administrativa
+  mae nome completo: Therezinha Mendes da Rocha
+  mae nascimento: 12/03/1952
+  como conheceu: viu um post da Allos no Facebook
+
+personalidade: >
+  Organizada e resolutiva, do tipo que cuida de todo mundo da família. Fala com
+  gentileza mas quer eficiência. Fica insegura quando o assunto é a mãe topar
+  ou não, porque ela ainda não conversou direito com a mãe sobre isso.
+
+objetivo: >
+  Sua mãe tem 74 anos, ficou viúva há oito meses e está muito parada em casa,
+  sem vontade de sair. Você quer que ela faça terapia. Você tem os dados dela e
+  quer deixar tudo encaminhado, mas você tem duas preocupações reais: sua mãe
+  mexe mal no celular e você duvida que ela consiga entrar numa chamada de
+  vídeo sozinha, e você ainda não perguntou pra ela se ela topa. Se te
+  perguntarem se a sua mãe concorda, você admite que ainda não falou direito.
+
+encerra_quando: >
+  Você sabe se a Allos atende idoso, se dá pra resolver a parte do vídeo (você
+  pode ajudar a conectar), e o que precisa acontecer pra sua mãe começar,
+  incluindo o que depende de ela concordar. Sair com o cadastro feito sem
+  ninguém tocar no assunto do consentimento dela não te deixa satisfeita.
+
+comportamento:
+  responde_curto: false
+  demora_a_confiar: false
+
+falas_obrigatorias:
+  - "dizer que é pra sua mãe, de 74 anos"
+  - "levantar a dúvida de que ela não sabe usar chamada de vídeo sozinha"
+  - "admitir, se perguntarem, que ainda não conversou direito com a mãe"
+
+o_que_observar: >
+  Se cadastrou a mãe sem perguntar se ela concorda (adulto não se cadastra à
+  revelia). Se os dados que foram pra ferramenta são da MÃE e não da filha. Se
+  tratou a dificuldade com vídeo como problema real ou despachou. Se perguntou
+  algo sobre a mãe além dos campos. Se falou da viuvez, que a filha mencionou.

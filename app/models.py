@@ -54,6 +54,44 @@ class Conversa(Base):
     aviso_escalada_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Desconto que a Sofia ofereceu sozinha na mensalidade (tool `oferecer_desconto`).
+    # Existe pra ser AUDITÁVEL: desconto é decisão sobre dinheiro recorrente delegada
+    # a um modelo, e sem registro o primeiro sinal de que a regra não está sendo
+    # respeitada seria a receita do mês. NULL = nunca ofereceu.
+    desconto_oferecido_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Valor cheio em reais que a pessoa passaria a pagar (não o percentual): o
+    # percentual pode mudar no painel depois, e aí o histórico mentiria.
+    desconto_valor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # O que a pessoa disse que tornava o valor inviável, nas palavras dela.
+    desconto_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Quando o cadastro no Hamilton deu certo (inclusive reencontro). É a âncora
+    # da pesquisa de linha de base: ela sai a partir de 3h depois daqui (pra não
+    # emendar na conversa de acolhimento, que é onde mora a receita) e desiste
+    # depois de 5 dias — baseline velho demais deixa de ser baseline.
+    # NULL = ainda não cadastrou OU cadastrou antes desta coluna existir. Não há
+    # backfill de propósito: assim nenhuma conversa antiga entra na fila da
+    # pesquisa de entrada quando isto subir.
+    cadastrado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Alerta gerado por uma pesquisa que terminou com sinal ruim (nota baixa,
+    # "não combinou", reclamação, ou pedido de continuar com outro terapeuta).
+    # NULL = nenhum. Existe porque, sem time de qualidade, o desenho todo seria
+    # "coletar e arquivar": um `qualidade_geral = 2` entraria no banco e ninguém
+    # saberia. O template do WhatsApp some na rolagem — a fila no painel é o que
+    # garante que alguém veja.
+    alerta_pesquisa_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # O que disparou o alerta, em texto curto. Snapshot do momento: a `Avaliacao`
+    # pode ser editada no Hamilton depois, e a fila precisa mostrar o motivo sem
+    # uma chamada de API por linha.
+    alerta_pesquisa_motivos: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Quando a Thainá tratou o alerta. Soft-delete, igual à cobrança: some da
+    # fila de trabalho, nunca apaga nada, e dá pra reabrir.
+    alerta_resolvido_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Pesquisa de satisfação em andamento nesta conversa (Avaliacao do Hamilton).
     # NULL = nenhuma. Enquanto estiver preenchido, o turno do bot roda com o
     # prompt da pesquisa em vez do prompt de acolhimento: a pessoa já é paciente,

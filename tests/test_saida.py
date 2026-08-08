@@ -61,6 +61,31 @@ class TestRemoveTokensInternos:
         texto = "...e organizo os dados de quem quer começar.@endsection\nto=final code  omitted"
         assert saida.limpar(texto) == "...e organizo os dados de quem quer começar."
 
+    def test_cabecalho_de_tool_call_vazado(self):
+        # Vazou de verdade no laboratório (persona chega-com-a-dor, 07/08/2026): o modelo
+        # degenerou e escreveu o cabeçalho do canal de tool call no texto, seguido de spam.
+        texto = (
+            "Dá pra entrar sim. Pra te colocar na fila, eu só preciso te pedir alguns dados"
+            " e você pode mandar tudo de uma vez, como for mais fácil pra você.】【：】【“】【"
+            "assistant to=functions.escalar_para_thaina კომენტary  大发彩票官网  天天爱彩票网站?"
+        )
+        limpo = saida.limpar(texto)
+        assert limpo == (
+            "Dá pra entrar sim. Pra te colocar na fila, eu só preciso te pedir alguns dados"
+            " e você pode mandar tudo de uma vez, como for mais fácil pra você."
+        )
+
+    def test_tool_call_vazado_sem_colchete_cjk(self):
+        # Mesma rodada, persona cetica: a segunda linha do vazamento não começava com
+        # colchete, então o `to=functions` precisa cortar sozinho.
+        texto = "RTLUassistant to=functions.escalar_para_thaina commentary  天天彩票怎么? Wait no need."
+        assert saida.limpar(texto) == ""
+
+    def test_nao_come_email_com_to_igual(self):
+        # O `to=` genérico comeria isto. `functions` é literal justamente por causa disso.
+        texto = "Manda pra gente em contato@allos.org.br, com to=email@x no assunto."
+        assert saida.limpar(texto) == texto
+
     def test_cerca_de_codigo(self):
         assert saida.limpar("```\nOi\n```") == "Oi"
 
@@ -133,3 +158,17 @@ class TestObservabilidade:
         saida.limpar(JSON_CADASTRO)
         saida.limpar("Fim.@endsection")
         assert saida.bloqueios() == 2
+
+    def test_espaco_em_branco_nao_conta_como_bloqueio(self):
+        # Colapsar espaço não é sanitizar. Contava, e o número vai pro painel como
+        # sinal de que o modelo regrediu: das 27 conversas do laboratório em
+        # 07/08/2026, 27 "bloqueios" eram só isto — nenhum vazamento de verdade.
+        assert saida.bloqueios() == 0
+        assert saida.limpar("Oi, tudo bem?   \n\n\n\nMe conta.") == "Oi, tudo bem?\n\nMe conta."
+        assert saida.bloqueios() == 0
+
+    def test_amostras_desligadas_por_padrao(self):
+        # Em produção o texto removido pode ter nome, endereço, o que a pessoa
+        # contou. Só o laboratório liga, e lá os pacientes são fictícios.
+        saida.limpar("Fim.@endsection")
+        assert saida.amostras() == []

@@ -1,0 +1,12 @@
+# Bruto de cada rodada: bancos e JSON por conversa. Volumoso e descartável.
+execucoes/
+*.db
+__pycache__/
+
+# Saída das rodadas. Também não vai pro git: uma sessão de trabalho gera ~1 MB
+# de markdown, e isso cresce sem fim. O que precisa sobreviver a uma rodada é o
+# que já está versionado — as personas, a rubrica, e o *porquê* de cada mudança,
+# escrito como comentário junto do código ou do prompt que ela alterou. Relatório
+# guardado no repo vira arquivo morto que ninguém relê; comentário no lugar da
+# decisão é lido por quem for mexer ali.
+relatorios/

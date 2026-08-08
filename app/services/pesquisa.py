@@ -22,12 +22,23 @@ A conversa entra em "modo pesquisa" (`conversa.pesquisa_avaliacao_id`) e o turno
 do bot passa a rodar com o prompt da pesquisa em vez do prompt de acolhimento —
 a pessoa já é paciente, não é mais um lead a ser qualificado e cadastrado.
 
-O modelo conduz e o modelo extrai: no fim, uma chamada separada transforma a
-transcrição no JSON das respostas, que vai pro Hamilton por PATCH. Isso é uma
-decisão consciente, com um custo conhecido: nada garante que todas as perguntas
-sejam feitas nem que cada resposta seja lida corretamente, e ninguém confere
-depois. Se aparecer dado incompleto ou impreciso na `Avaliacao`, é aqui que se
-mexe (o conserto é registrar cada resposta por tool, em vez de extrair no fim).
+O modelo conduz, mas **não é ele quem decide o que fica gravado**. Cada nota e
+cada sim/não vai pro Hamilton na hora, por tool (`registrar_resposta_pesquisa`),
+validada em `_validar_resposta`. A extração por LLM no fim continua existindo,
+mas só pros textos e como rede pro que a tool não gravou — ela relê a
+transcrição de fora e é onde mora o risco de trocar uma nota de lugar.
+
+Isso foi uma reversão consciente: extrair tudo no fim era aceitável quando eram
+11 perguntas soltas, mas o ORS é um bloco que **se invalida inteiro** se um dos
+quatro itens sair errado, e é o número que vai pra prefeitura.
+
+## O alerta é o que transforma isto em produto
+
+Não há time de qualidade além da Sofia. Sem alerta, o desenho seria coletar e
+arquivar: um `qualidade_geral = 2` entraria no banco e ninguém saberia. No fim
+de cada pesquisa, `_alertar_se_precisar` manda **um** aviso consolidado à Thainá
+e põe a conversa numa fila no painel. Os limiares são editáveis em
+`/painel/config`. O ORS nunca alerta (ver `motivos_de_alerta`).
 
 ## Prazos
 
@@ -44,8 +55,17 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversa
-from app.services import config_prompt, conversation, hamilton_client, llm_client, whatsapp_client
+from app.models import Conversa, Escalada
+from app.services import (
+    config_negocio,
+    config_prompt,
+    conversation,
+    escalation,
+    hamilton_client,
+    llm_client,
+    tools,
+    whatsapp_client,
+)
 from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
@@ -55,8 +75,26 @@ logger = logging.getLogger(__name__)
 HORAS_LEMBRETE = 20
 HORAS_ENCERRAMENTO = 44
 
+# Os quatro questionários. O `momento` da `Avaliacao` é o seletor: ele decide
+# qual roteiro a Sofia aplica. Estes literais são os choices do Hamilton — mudar
+# um caractere aqui manda a pessoa pro roteiro errado.
+MOMENTO_LINHA_DE_BASE = "Antes da primeira sessão (linha de base)"
 MOMENTO_PRIMEIRA_SESSAO = "No início do processo (primeira sessão)"
+MOMENTO_ACOMPANHAMENTO = "Durante o acompanhamento terapêutico"
 MOMENTO_ENCERRAMENTO = "Após o encerramento da terapia"
+
+# Pesquisa de entrada (linha de base): as 3h evitam emendar na conversa de
+# acolhimento, que é onde mora a receita. Os 5 dias são o ponto em que baseline
+# velho deixa de ser baseline — depois disso a pessoa já pode ter tido a sessão,
+# e um ORS colhido aí não é comparável com um colhido antes.
+HORAS_ESPERA_ENTRADA = 3
+DIAS_LIMITE_ENTRADA = 5
+
+# Onde ficam registrados os campos que a TOOL já gravou nesta pesquisa. Serve
+# pra extração do fim não sobrescrever o que veio da tool: a tool é a fonte
+# preferida (leu a resposta na hora, com o contexto do turno), a extração é só
+# rede pro que ficou em branco.
+_CHAVE_GRAVADOS = "pesquisa_respostas_gravadas"
 
 # Texto do lembrete. Fixo e sem LLM: é um empurrãozinho, não um turno de
 # conversa, e insistir com criatividade seria pressão.
@@ -138,7 +176,44 @@ def _contexto_encerramento(avaliacao: dict) -> str:
     return "\n".join(partes)
 
 
-def montar_prompt(avaliacao: dict) -> str:
+# momento -> (chave do roteiro em config_prompt, contexto fixo).
+# O contexto do encerramento é o único calculado, porque depende do tipo de saída
+# e de quem a encerrou.
+_ROTEIROS = {
+    MOMENTO_LINHA_DE_BASE: (
+        "prompt_pesquisa_entrada",
+        "A pessoa acabou de ser cadastrada e AINDA NÃO teve a primeira sessão. "
+        "Este é um retrato de como ela está hoje, antes de começar — é o que "
+        "permite comparar lá na frente e saber se o processo ajudou.",
+    ),
+    MOMENTO_PRIMEIRA_SESSAO: (
+        "prompt_pesquisa_primeira_sessao",
+        "A pessoa acabou de ter a PRIMEIRA sessão com o terapeuta. Esta pesquisa "
+        "é sobre como foi esse começo.",
+    ),
+    MOMENTO_ACOMPANHAMENTO: (
+        "prompt_pesquisa_reencaminhamento",
+        "A pessoa vai TROCAR de terapeuta e CONTINUA sendo atendida na Allos. "
+        "Isto não é uma saída. Deixe isso claro logo no começo, com naturalidade, "
+        "e nunca pergunte por que ela decidiu interromper — ela não interrompeu "
+        "nada. As perguntas sobre o atendimento são sobre o terapeuta ANTERIOR.",
+    ),
+}
+
+
+def _quem_responde(conversa) -> str | None:
+    """O que já se sabe, do acolhimento, sobre quem está do outro lado.
+
+    O número cadastrado é muitas vezes o do responsável ou do cônjuge. Sem este
+    cuidado a Sofia pergunta "o quanto você se sente bem com quem você é" pra mãe
+    do paciente e grava como nota do filho.
+    """
+    dados = getattr(conversa, "dados_coletados", None) or {}
+    valor = dados.get("quem_fala")
+    return valor if valor in ("paciente", "acompanhante") else None
+
+
+def montar_prompt(avaliacao: dict, conversa=None) -> str:
     """System prompt do turno de pesquisa (substitui o prompt de acolhimento)."""
     base = config_prompt.texto("prompt_pesquisa")
     momento = avaliacao.get("momento") or ""
@@ -146,23 +221,41 @@ def montar_prompt(avaliacao: dict) -> str:
     terapeuta = avaliacao.get("terapeuta_nome") or "o terapeuta"
 
     if momento == MOMENTO_ENCERRAMENTO:
-        roteiro = config_prompt.texto("prompt_pesquisa_encerramento")
-        contexto = _contexto_encerramento(avaliacao)
+        chave, contexto = "prompt_pesquisa_encerramento", _contexto_encerramento(avaliacao)
     else:
-        roteiro = config_prompt.texto("prompt_pesquisa_primeira_sessao")
-        contexto = (
-            "A pessoa acabou de ter a primeira sessão. Esta é uma pesquisa de "
-            "acompanhamento do início do processo."
+        # Momento desconhecido cai na 1ª sessão, que é o questionário mais curto
+        # e mais neutro — o pior que acontece é perguntar de menos.
+        chave, contexto = _ROTEIROS.get(momento, _ROTEIROS[MOMENTO_PRIMEIRA_SESSAO])
+
+    partes = [
+        base,
+        "## Contexto deste atendimento\n\n"
+        f"Primeiro nome da pessoa: {nome or '(desconhecido)'}\n"
+        f"Terapeuta dela: {terapeuta}",
+        contexto,
+    ]
+
+    quem = _quem_responde(conversa)
+    if quem == "acompanhante":
+        partes.append(
+            "QUEM RESPONDE NÃO É O PACIENTE: este número é de um acompanhante "
+            "(responsável, cônjuge). **PULE inteiro o bloco de perguntas de 0 a 10 "
+            "sobre como a PESSOA ATENDIDA está se sentindo** — quem responde não "
+            "tem como responder por ela. Faça só as perguntas sobre o atendimento "
+            "e o serviço. Não explique essa regra, apenas não faça as perguntas."
+        )
+    elif quem == "paciente":
+        partes.append("Quem responde é a própria pessoa atendida. Siga o roteiro inteiro.")
+    else:
+        partes.append(
+            "NÃO se sabe se quem responde é a própria pessoa atendida ou um "
+            "acompanhante. Antes das perguntas de 0 a 10, confirme isso em UMA "
+            "frase curta e natural. Se for acompanhante, pule o bloco de perguntas "
+            "de 0 a 10 sobre como a pessoa atendida se sente."
         )
 
-    return (
-        f"{base}\n\n"
-        f"## Contexto deste atendimento\n\n"
-        f"Primeiro nome da pessoa: {nome or '(desconhecido)'}\n"
-        f"Terapeuta dela: {terapeuta}\n\n"
-        f"{contexto}\n\n"
-        f"## Roteiro de perguntas\n\n{roteiro}"
-    )
+    partes.append(f"## Roteiro de perguntas\n\n{config_prompt.texto(chave)}")
+    return "\n\n".join(partes)
 
 
 # --------------------------------------------------------------------------- #
@@ -184,7 +277,7 @@ async def iniciar(
         return False
 
     try:
-        resposta = await _turno(conversa, avaliacao, historico=[], abertura=True)
+        resposta = await _turno(conversa, avaliacao, historico=[], abertura=True, db=db)
     except llm_client.LLMError as exc:
         logger.error("Não consegui gerar o convite da pesquisa %s: %s", pk, exc)
         return False
@@ -222,7 +315,7 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
 
     historico = await conversation.carregar_historico(db, conversa)
     try:
-        resposta = await _turno(conversa, avaliacao, historico=historico)
+        resposta = await _turno(conversa, avaliacao, historico=historico, db=db)
     except llm_client.LLMError:
         logger.error("LLM falhou no turno da pesquisa da conversa %s", conversa.id)
         return
@@ -242,12 +335,35 @@ async def finalizar(
     diferença não muda o que fazer, e o Hamilton não tem status separado.
     """
     pk = conversa.pesquisa_avaliacao_id
-    payload: dict = {"status": "nao_respondeu" if recusou else "avaliado"}
+    # Resposta parcial vira `avaliado`: quem respondeu 2 de 8 perguntas e sumiu
+    # não é "não respondeu" — marcar assim apagaria essas 2 do radar. O rigor
+    # de quem precisa dele (o relatório de ORS) vem do filtro "os quatro itens
+    # presentes", não do status.
+    respondeu_algo = bool(_ja_gravados(conversa))
+    payload: dict = {"status": "nao_respondeu" if (recusou and not respondeu_algo) else "avaliado"}
+    reclamacao = False
 
-    if not recusou:
+    # Quem respondeu alguma coisa e depois sumiu ainda tem texto a extrair.
+    # Quem recusou de cara não: a transcrição são duas mensagens e a chamada
+    # ao modelo seria desperdício.
+    if respondeu_algo or not recusou:
         historico = await conversation.carregar_historico(db, conversa, limite=60)
         try:
-            payload.update(await extrair_respostas(historico, avaliacao))
+            extraido = await extrair_respostas(historico, avaliacao)
+            # Sinal só pro alerta: NÃO é campo da Avaliacao e não pode ir no PATCH.
+            reclamacao = bool(extraido.pop(CHAVE_RECLAMACAO, False))
+            # A TOOL TEM PRECEDÊNCIA. Ela leu a resposta no turno em que ela foi
+            # dada; a extração relê a transcrição inteira de fora e é onde mora o
+            # risco de trocar uma nota de lugar. Aqui ela só preenche buraco.
+            gravados = _ja_gravados(conversa)
+            descartados = sorted(set(extraido) & gravados)
+            if descartados:
+                logger.info(
+                    "Pesquisa %s: extração ignorada em %s (a tool já gravou)",
+                    pk,
+                    ", ".join(descartados),
+                )
+            payload.update({k: v for k, v in extraido.items() if k not in gravados})
         except (llm_client.LLMError, PesquisaError) as exc:
             # Sem extração, ainda assim marcamos como avaliado: a conversa está
             # no painel e a pessoa respondeu de verdade. Perder o status seria
@@ -259,7 +375,81 @@ async def finalizar(
     except hamilton_client.HamiltonError as exc:
         logger.error("Não consegui gravar a pesquisa %s no Hamilton: %s", pk, exc)
 
+    # O alerta vem DEPOIS de gravar: mesmo que o Hamilton esteja fora, a Thainá
+    # precisa saber que alguém deu nota 2 no terapeuta.
+    # O alerta olha o UNIÃO do que a tool gravou com o que a extração
+    # preencheu: a precedência da tool tira do payload justamente os campos
+    # do caminho principal, e sem isso o alerta ficaria cego pra eles.
+    await _alertar_se_precisar(db, conversa, {**_valores_gravados(conversa), **payload}, reclamacao)
     await _limpar(db, conversa)
+
+
+# --------------------------------------------------------------------------- #
+# Alertas pra Thainá
+# --------------------------------------------------------------------------- #
+
+# Chave que o modelo devolve na extração pra sinalizar reclamação. NÃO é campo da
+# `Avaliacao`: é retirada do payload antes do PATCH. Reclamação se detecta lendo
+# a conversa, não por palavra-chave — "foi ruim pra mim naquele período" não é
+# reclamação, e em português a lista de palavras erraria nos dois sentidos.
+CHAVE_RECLAMACAO = "alerta_reclamacao"
+
+# nota -> (chave do limiar em config_negocio, como descrever pra Thainá).
+_LIMIARES = {
+    "qualidade_geral": ("alerta_nota_terapeuta", "nota do terapeuta"),
+    "nota_sofia": ("alerta_nota_sofia", "nota do acolhimento"),
+    "nota_indicacao": ("alerta_nota_indicacao", "nota de indicação"),
+}
+
+
+def motivos_de_alerta(payload: dict, reclamacao: bool = False) -> list[str]:
+    """O que nesta pesquisa merece a atenção de um humano.
+
+    **O ORS não gera alerta nenhum**, de propósito: a Sofia não se intromete com
+    nota de bem-estar — ela segue o fluxo e o terapeuta competente cuida disso.
+    Crise se detecta pela descrição clara do paciente, com o modelo de crise que
+    já existe, nunca por nota de escala.
+    """
+    motivos: list[str] = []
+    for campo, (chave, rotulo) in _LIMIARES.items():
+        nota = payload.get(campo)
+        limiar = config_negocio.valor(chave)
+        # Limiar zero desliga o alerta daquela nota (ajustável no painel).
+        if isinstance(nota, int) and not isinstance(nota, bool) and limiar and nota < limiar:
+            motivos.append(f"{rotulo} {nota}")
+
+    if payload.get("continuar_terapeuta") is False:
+        # Sempre alerta: pegar match ruim na sessão 1 vale mais que qualquer nota.
+        motivos.append("não sentiu encaixe com o terapeuta")
+    if payload.get("continuar_allos") is True:
+        # Isto é boa notícia, mas exige ação: alguém tem que fazer o novo match.
+        motivos.append("QUER CONTINUAR na Allos com outro terapeuta")
+    if reclamacao:
+        motivos.append("RELATOU EXPERIÊNCIA RUIM / reclamação")
+    return motivos
+
+
+async def _alertar_se_precisar(
+    db: AsyncSession, conversa: Conversa, payload: dict, reclamacao: bool
+) -> None:
+    """Manda um alerta consolidado e põe a conversa na fila do painel.
+
+    Sem isto o desenho inteiro seria **coletar e arquivar**: as respostas
+    entrariam no banco e ninguém saberia. É o alerta que transforma a pesquisa de
+    custo em produto.
+    """
+    motivos = motivos_de_alerta(payload, reclamacao)
+    if not motivos:
+        return
+
+    conversa.alerta_pesquisa_em = _agora()
+    conversa.alerta_pesquisa_motivos = "; ".join(motivos)
+    # Alerta novo reabre a fila: a Thainá precisa ver este, mesmo tendo tratado
+    # o da pesquisa anterior desta mesma pessoa.
+    conversa.alerta_resolvido_em = None
+    await db.flush()
+    # Falha no envio não derruba nada: a fila do painel já registrou.
+    await escalation.alertar_pesquisa(conversa, motivos)
 
 
 async def extrair_respostas(historico: list[dict], avaliacao: dict) -> dict:
@@ -284,25 +474,18 @@ async def extrair_respostas(historico: list[dict], avaliacao: dict) -> dict:
     return _normalizar_extracao(resposta.texto, avaliacao)
 
 
-# Campos gravaveis na Avaliacao, por tipo. Allowlist: o que o modelo devolver
+# Campos graváveis na Avaliacao, por tipo. Allowlist: o que o modelo devolver
 # fora daqui é descartado em silêncio, sem chance de virar erro 400 no Hamilton.
-_NOTAS = (
-    "individual",
-    "interpessoal",
-    "social",
-    "geral",
-    "qualidade_geral",
-    "nota_terapeuta",
-    "nota_indicacao",
-    "nota_sofia",
-)
-_TEXTOS = (
-    "feedback_livre",
-    "atendimento_rapido",
-    "indicaria_allos",
-    "motivo_interrupcao",
-)
-_BOOLEANOS = ("consentimento_paciente", "atendimento_rapido_bool", "indicaria_allos_bool")
+#
+# Os numéricos/booleanos são os MESMOS da tool (`tools.CAMPOS_PESQUISA`), e não
+# uma segunda lista: duas listas divergiriam na primeira mudança de roteiro. Aqui
+# eles são rede — quem grava primeiro é a tool, e a extração só preenche o que
+# ficou em branco (ver `finalizar`).
+_NOTAS = tools.CAMPOS_PESQUISA_NOTA
+_BOOLEANOS = tools.CAMPOS_PESQUISA_BOOLEANO
+# Texto continua saindo só da extração: errar texto custa pouco, e forçar uma
+# tool pra texto longo atrapalha a conversa.
+_TEXTOS = ("feedback_livre", "motivo_encerramento")
 
 
 def _normalizar_extracao(bruto: str | None, avaliacao: dict) -> dict:
@@ -344,18 +527,16 @@ def _normalizar_extracao(bruto: str | None, avaliacao: dict) -> dict:
         if isinstance(valor, bool):
             limpo[campo] = valor
 
-    data = dados.get("dat_ultima_sessao")
-    if isinstance(data, str) and data.strip():
-        try:
-            limpo["dat_ultima_sessao"] = (
-                datetime.fromisoformat(data.strip()[:10]).date().isoformat()
-            )
-        except ValueError:
-            pass  # data que não dá pra ler é melhor ficar em branco
+    # Sinal de alerta: não é campo da Avaliacao, mas atravessa a normalização
+    # pra chegar em `finalizar`, que o retira antes do PATCH.
+    if dados.get(CHAVE_RECLAMACAO) is True:
+        limpo[CHAVE_RECLAMACAO] = True
 
-    # Motivo da interrupção só existe na pesquisa de encerramento.
-    if avaliacao.get("momento") != MOMENTO_ENCERRAMENTO:
-        limpo.pop("motivo_interrupcao", None)
+    # `motivo_encerramento` existe na saída E na troca de terapeuta (é um campo
+    # só: o `momento` já diz qual dos dois foi). Nos outros dois questionários
+    # não há motivo nenhum a registrar.
+    if avaliacao.get("momento") not in (MOMENTO_ENCERRAMENTO, MOMENTO_ACOMPANHAMENTO):
+        limpo.pop("motivo_encerramento", None)
     return limpo
 
 
@@ -371,7 +552,12 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
     Falha do Hamilton não derruba nada: a fila continua lá na próxima rodada.
     """
     agora = agora or _agora()
-    resumo = {"enviadas": 0, "lembretes": 0, "encerradas": 0}
+    resumo = {"enviadas": 0, "lembretes": 0, "encerradas": 0, "entradas_criadas": 0}
+
+    # A avaliação de linha de base não existe até a Sofia criar. Isso vem ANTES
+    # de ler a fila: criada agora, ela entra na fila do próximo tick — nunca no
+    # mesmo, então a janela de 3h nunca é encurtada por acidente.
+    resumo["entradas_criadas"] = await _criar_entradas(db, agora)
 
     try:
         pendentes = await hamilton_client.get_hamilton_client().avaliacoes_pendentes()
@@ -393,12 +579,64 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
 
     resumo.update(await _acompanhar_em_curso(db, agora))
     logger.info(
-        "Pesquisas: %s enviadas, %s lembretes, %s encerradas",
+        "Pesquisas: %s entradas criadas, %s enviadas, %s lembretes, %s encerradas",
+        resumo["entradas_criadas"],
         resumo["enviadas"],
         resumo["lembretes"],
         resumo["encerradas"],
     )
     return resumo
+
+
+async def _criar_entradas(db: AsyncSession, agora: datetime) -> int:
+    """Cria no Hamilton a avaliação de linha de base de quem acabou de se cadastrar.
+
+    É o único ponto de medida ANTES do tratamento: sem ele não existe par
+    pré/pós, e o ORS sozinho não significa nada — o dado só vale como
+    `ORS saída − ORS entrada`.
+
+    As guardas são para não emendar na conversa de acolhimento nem atropelar
+    outro assunto em curso. Se uma delas bloquear, tenta de novo nos próximos
+    ticks até os 5 dias.
+
+    Conversas cadastradas antes desta feature existir têm `cadastrado_em` NULL e
+    ficam de fora para sempre — é o que impede a estreia disto de virar um
+    disparo em massa pra base inteira.
+    """
+    janela_inicio = agora - timedelta(days=DIAS_LIMITE_ENTRADA)
+    janela_fim = agora - timedelta(hours=HORAS_ESPERA_ENTRADA)
+
+    # Escaladas abertas: assunto não resolvido com a Thainá, a pesquisa espera.
+    escaladas_abertas = (
+        select(Escalada.conversa_id).where(Escalada.resolvida_em.is_(None)).scalar_subquery()
+    )
+    q = select(Conversa).where(
+        Conversa.cadastrado_em.isnot(None),
+        Conversa.cadastrado_em <= janela_fim,
+        Conversa.cadastrado_em >= janela_inicio,
+        Conversa.paciente_hamilton_id.isnot(None),
+        # `cadastro_pendente` significa que o Hamilton falhou: não há paciente
+        # de verdade pra vincular a avaliação.
+        Conversa.estado == "cadastrado",
+        Conversa.modo == "bot",
+        Conversa.pesquisa_avaliacao_id.is_(None),
+        Conversa.arquivada_em.is_(None),
+        Conversa.id.not_in(escaladas_abertas),
+    )
+
+    cliente = hamilton_client.get_hamilton_client()
+    criadas = 0
+    for conversa in (await db.execute(q)).scalars().all():
+        try:
+            # Idempotente do lado do Hamilton: repetir devolve a que já existe.
+            # Por isso não é preciso marcar nada aqui.
+            await cliente.criar_avaliacao_entrada(conversa.paciente_hamilton_id)
+            criadas += 1
+        except hamilton_client.HamiltonError as exc:
+            logger.error(
+                "Não consegui criar a avaliação de entrada da conversa %s: %s", conversa.id, exc
+            )
+    return criadas
 
 
 async def _acompanhar_em_curso(db: AsyncSession, agora: datetime) -> dict:
@@ -470,8 +708,20 @@ def _sem_marcador(texto: str | None) -> str | None:
     return texto.replace(MARCADOR_FIM, "").replace(MARCADOR_RECUSA, "").strip()
 
 
-async def _turno(conversa, avaliacao: dict, historico: list[dict], abertura: bool = False) -> str:
-    """Uma geração do modelo com o prompt da pesquisa."""
+async def _turno(
+    conversa,
+    avaliacao: dict,
+    historico: list[dict],
+    abertura: bool = False,
+    db: AsyncSession | None = None,
+) -> str:
+    """Uma geração do modelo com o prompt da pesquisa, com tool calling.
+
+    A tool `registrar_resposta_pesquisa` grava cada resposta **na hora**. Isso
+    existe porque resposta parcial é o caso comum: a pessoa responde três
+    perguntas e some. Extrair só no fim perderia tudo — e o ORS se invalida
+    inteiro se faltar um dos quatro itens.
+    """
     mensagens = list(historico)
     if abertura:
         mensagens.append(
@@ -484,10 +734,135 @@ async def _turno(conversa, avaliacao: dict, historico: list[dict], abertura: boo
                 ),
             }
         )
-    resposta = await llm_client.get_llm_client().gerar_resposta(
-        mensagens, system_prompt=montar_prompt(avaliacao)
+    system_prompt = montar_prompt(avaliacao, conversa)
+    cliente = llm_client.get_llm_client()
+    resposta = await cliente.gerar_resposta(
+        mensagens, tools=tools.TOOLS_PESQUISA, system_prompt=system_prompt
     )
-    return resposta.texto or ""
+    if not resposta.tool_calls:
+        return resposta.texto or ""
+
+    resultados = [(tc, await _registrar_resposta(db, conversa, tc)) for tc in resposta.tool_calls]
+
+    # Round-trip: devolve os resultados ao modelo pra ele gerar a fala. O
+    # `system_prompt` PRECISA ir de novo — sem ele o modelo cairia no prompt de
+    # acolhimento no meio de uma pesquisa.
+    assistant_msg = {
+        "role": "assistant",
+        "content": resposta.texto or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                },
+            }
+            for tc, _ in resultados
+        ],
+    }
+    tool_msgs = [
+        {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(res, ensure_ascii=False)}
+        for tc, res in resultados
+    ]
+    final = await cliente.gerar_resposta(
+        [*mensagens, assistant_msg, *tool_msgs], system_prompt=system_prompt
+    )
+    # Se o round-trip não gerar fala, vale o texto que veio junto das tool calls.
+    return final.texto or resposta.texto or ""
+
+
+def _validar_resposta(campo, valor) -> tuple[str, int | bool] | None:
+    """Confere o par (campo, valor) que o MODELO escolheu.
+
+    O `campo` vem de um enum, mas o modelo erra enum; e `valor` chega como JSON,
+    onde `True` é instância de `int` em Python — sem a checagem explícita, um
+    `true` viraria a nota 1 no ORS.
+    """
+    if campo not in tools.CAMPOS_PESQUISA:
+        return None
+
+    if campo in tools.CAMPOS_PESQUISA_BOOLEANO:
+        # Só booleano de verdade: "sim" e 1 não viram True. Ver a decisão sobre
+        # extração no doc do modelo de avaliação.
+        return (campo, valor) if isinstance(valor, bool) else None
+
+    if isinstance(valor, bool):
+        return None
+    try:
+        nota = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return (campo, nota) if 0 <= nota <= 10 else None
+
+
+async def _registrar_resposta(db: AsyncSession | None, conversa, tc) -> dict:
+    """Grava UMA resposta no Hamilton, na hora.
+
+    PATCH imediato em vez de acumular na memória: acumular reintroduziria
+    exatamente o ponto único de falha que a tool veio remover — se a Sofia cair
+    (ou a pessoa sumir) no meio, o que ela já disse fica gravado.
+    """
+    validado = _validar_resposta(tc.arguments.get("campo"), tc.arguments.get("valor"))
+    if validado is None:
+        # Sem o valor no log: é resposta de pesquisa de saúde.
+        logger.warning(
+            "Pesquisa: tool recusada (campo=%r inválido ou valor fora do formato)",
+            tc.arguments.get("campo"),
+        )
+        return {"status": "recusado", "motivo": "campo ou valor inválido"}
+
+    campo, valor = validado
+    pk = getattr(conversa, "pesquisa_avaliacao_id", None)
+    if not pk:
+        return {"status": "recusado", "motivo": "sem pesquisa em curso"}
+
+    try:
+        await hamilton_client.get_hamilton_client().atualizar_avaliacao(pk, {campo: valor})
+    except hamilton_client.HamiltonError as exc:
+        # Não marca como gravado: a extração do fim ainda tenta preencher.
+        logger.error("Não consegui gravar %s da pesquisa %s: %s", campo, pk, exc)
+        return {"status": "erro", "motivo": "não consegui gravar agora"}
+
+    await _marcar_gravado(db, conversa, campo, valor)
+    return {"status": "registrado", "campo": campo}
+
+
+async def _marcar_gravado(db: AsyncSession | None, conversa, campo: str, valor) -> None:
+    """Anota o que a tool gravou: o campo **e o valor**.
+
+    O valor importa porque o alerta pra Thainá é decidido no fim, e o que a tool
+    gravou não passa pelo `payload` do PATCH final (a precedência da tool tira de
+    lá). Guardar só o nome do campo deixaria o alerta cego justamente para o
+    caminho principal — nota 2 no terapeuta não geraria aviso nenhum.
+    """
+    dados = dict(getattr(conversa, "dados_coletados", None) or {})
+    gravados = dict(_valores_gravados(conversa))
+    gravados[campo] = valor
+    dados[_CHAVE_GRAVADOS] = gravados
+    conversa.dados_coletados = dados
+    if db is not None:
+        await db.flush()
+
+
+def _valores_gravados(conversa) -> dict:
+    """O que a tool gravou nesta pesquisa, como {campo: valor}.
+
+    Tolera o formato antigo (lista de nomes): uma pesquisa que já estava em curso
+    no momento do deploy não pode explodir aqui.
+    """
+    dados = getattr(conversa, "dados_coletados", None) or {}
+    bruto = dados.get(_CHAVE_GRAVADOS)
+    if isinstance(bruto, dict):
+        return bruto
+    if isinstance(bruto, list):
+        return {campo: None for campo in bruto}
+    return {}
+
+
+def _ja_gravados(conversa) -> set[str]:
+    return set(_valores_gravados(conversa))
 
 
 async def _enviar(db: AsyncSession, conversa: Conversa, texto: str | None) -> bool:
@@ -556,4 +931,10 @@ async def _limpar(db: AsyncSession, conversa: Conversa) -> None:
     """Tira a conversa do modo pesquisa (ela volta ao fluxo normal)."""
     conversa.pesquisa_avaliacao_id = None
     conversa.pesquisa_iniciada_em = None
+    # Zera o rastro de quais campos a tool gravou: a pessoa recebe até quatro
+    # pesquisas ao longo do processo, e o registro da anterior não pode fazer a
+    # extração da seguinte pular campo que ninguém gravou.
+    dados = dict(conversa.dados_coletados or {})
+    if dados.pop(_CHAVE_GRAVADOS, None) is not None:
+        conversa.dados_coletados = dados
     await db.commit()

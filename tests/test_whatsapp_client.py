@@ -46,10 +46,91 @@ def _instalar_captura(monkeypatch, status=200, corpo=None) -> _Captura:
     return cap
 
 
+@pytest.fixture(autouse=True)
+def _sem_dry_run(monkeypatch):
+    """Este arquivo testa o caminho REAL: o payload que sai pra Meta.
+
+    O dry run liga sozinho fora de `production`, e como o `.env` de dev diz
+    `development`, sem isto todos os testes de payload passariam a exercitar o
+    atalho e nunca mais montariam um request. A trava tem classe própria
+    (`TestDryRun`), que a desliga deste autouse.
+    """
+    monkeypatch.setattr(wc.settings, "whatsapp_dry_run", False)
+
+
 @pytest.fixture
 def captura(monkeypatch):
     """Cliente que responde 200 e guarda os requests enviados."""
     return _instalar_captura(monkeypatch)
+
+
+class TestDryRun:
+    """A trava que impede a app rodando no laptop de falar com paciente real.
+
+    O `.env` de desenvolvimento carrega o token do número REAL da Allos. Sem
+    isto, `uvicorn app.main:app` manda mensagem de verdade e o alerta cai no
+    celular da Thainá, sem nenhum aviso de que aquilo era um teste.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _liga_dry_run(self, monkeypatch):
+        monkeypatch.setattr(wc.settings, "whatsapp_dry_run", True)
+
+    @pytest.mark.asyncio
+    async def test_nao_chama_a_meta(self, monkeypatch):
+        cap = _instalar_captura(monkeypatch)
+        await wc.enviar_texto("5531999998888", "oi")
+        assert cap.requests == []
+
+    @pytest.mark.asyncio
+    async def test_devolve_a_mesma_forma_da_resposta_da_meta(self, monkeypatch):
+        """O fluxo persiste esse id e o painel usa pra citar mensagem."""
+        _instalar_captura(monkeypatch)
+        resposta = await wc.enviar_texto("5531999998888", "oi")
+        assert isinstance(wc.id_da_resposta(resposta), str)
+
+    @pytest.mark.asyncio
+    async def test_template_tambem_e_bloqueado(self, monkeypatch):
+        """O alerta da Thainá vai por template: é o que acorda um humano."""
+        cap = _instalar_captura(monkeypatch)
+        await wc.enviar_template("5531999998888", "alerta_thaina", parametros=["X", "Y"])
+        assert cap.requests == []
+
+    @pytest.mark.asyncio
+    async def test_upload_de_midia_tem_endpoint_proprio_e_tambem_e_bloqueado(self, monkeypatch):
+        cap = _instalar_captura(monkeypatch)
+        media_id = await wc.subir_midia(b"conteudo", "image/png", "a.png")
+        assert cap.requests == []
+        assert media_id.startswith("dryrun-media-")
+
+    @pytest.mark.asyncio
+    async def test_read_receipt_nao_vaza(self, monkeypatch):
+        cap = _instalar_captura(monkeypatch)
+        await wc.marcar_como_lida("wamid.x", com_digitacao=True)
+        assert cap.requests == []
+
+
+class TestDecisaoDoDryRun:
+    """Seguro por omissão: liga sozinho em qualquer ambiente que não seja produção."""
+
+    @pytest.mark.parametrize("ambiente", ["development", "test", "staging", ""])
+    def test_fora_de_producao_bloqueia(self, monkeypatch, ambiente):
+        monkeypatch.setattr(wc.settings, "whatsapp_dry_run", None)
+        monkeypatch.setattr(wc.settings, "environment", ambiente)
+        assert wc.settings.envio_whatsapp_bloqueado is True
+
+    def test_producao_envia(self, monkeypatch):
+        monkeypatch.setattr(wc.settings, "whatsapp_dry_run", None)
+        monkeypatch.setattr(wc.settings, "environment", "production")
+        assert wc.settings.envio_whatsapp_bloqueado is False
+
+    def test_env_explicita_manda_nos_dois_sentidos(self, monkeypatch):
+        monkeypatch.setattr(wc.settings, "environment", "production")
+        monkeypatch.setattr(wc.settings, "whatsapp_dry_run", True)
+        assert wc.settings.envio_whatsapp_bloqueado is True
+        monkeypatch.setattr(wc.settings, "environment", "development")
+        monkeypatch.setattr(wc.settings, "whatsapp_dry_run", False)
+        assert wc.settings.envio_whatsapp_bloqueado is False
 
 
 class TestIdDaResposta:

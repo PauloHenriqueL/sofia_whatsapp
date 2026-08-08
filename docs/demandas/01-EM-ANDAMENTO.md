@@ -10,9 +10,23 @@
 |---|---|---|
 | 1 | **Demanda A** — origem real do paciente + parceria + fluxo de prefeitura | ✅ **entregue** |
 | 2 | **Demanda B** — neuro/Amanda + aviso único pós-escalada | ✅ **entregue** |
-| 3 | **Ajuste da tabela `Avaliacao`** | ⚠️ **parcial** — campos criados, modelo a discutir |
-| 4 | **Demanda C** — pesquisas (primeira sessão e encerramento) | ✅ **entregue** (infra) |
+| 3 | **Ajuste da tabela `Avaliacao`** | 🔴 **não existe no Hamilton** — modelo redesenhado, ver abaixo |
+| 4 | **Demanda C** — pesquisas de satisfação | 🔴 **não funciona** — o lado Sofia existe, o lado Hamilton não |
 | 5 | **Demanda D** — cobrança (Pix + Stripe) | ❌ **não iniciada** |
+
+> 🔴 **Correção de 06/08/2026.** Este documento afirmava que os campos da `Avaliacao`,
+> a migration `0005` e os endpoints de avaliação estavam prontos e testados no Hamilton.
+> **Nada disso existe no repositório** (verificado em `../hamilton-api`, `main`, working
+> tree limpo — sem `nota_sofia`/`nota_terapeuta`/`sofia_enviada_em`, migrations param na
+> `0004`, sem rota `avaliacoes/`). Provável causa: o `.gitignore` do Hamilton ignorava as
+> migrations. **Consequência: a Demanda C não roda hoje**, mesmo com o cron ligado — o
+> `pesquisa.py` da Sofia fala com uma API que não existe.
+>
+> O modelo de perguntas foi **inteiramente redesenhado** em grilling (06/08/2026, Q1–Q38):
+> quatro questionários, ORS como bloco fechado, baseline **antes** da primeira sessão,
+> tool de registro incremental e alertas pra Thainá. **Fonte de verdade:**
+> [`02-modelo-de-avaliacao.md`](02-modelo-de-avaliacao.md). As seções C.2, C.5 e C.6
+> abaixo descrevem o desenho **antigo** e foram substituídas por ele.
 
 **Testes:** Sofia **375** passando; Hamilton **23** passando
 (`principais.tests_sofia_api`). Lint (ruff/black/isort) limpo nos dois.

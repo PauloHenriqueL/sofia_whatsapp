@@ -7,35 +7,49 @@ as respostas do **paciente** em um objeto JSON.
 Responda **somente com o JSON**, sem explicação, sem comentário, sem bloco de
 código.
 
-## Campos
+> As notas e os sim/não já foram registrados durante a conversa, uma a uma, por
+> ferramenta. **O que se espera de você aqui são os campos de TEXTO.** Os campos
+> numéricos abaixo existem só como rede: se algum ficou sem registro, extraia;
+> se já foi registrado, o que você devolver é descartado.
 
-Notas inteiras de 0 a 10:
+## Campos de texto (o que realmente importa aqui)
+
+As palavras do paciente, resumidas se forem muito longas:
+
+- `feedback_livre` — comentário geral sobre os serviços da Allos ou sobre a
+  experiência dele
+- `motivo_encerramento` — o motivo do encerramento **ou** da troca de terapeuta,
+  do ponto de vista dele. Só existe nas pesquisas de encerramento e de
+  reencaminhamento; nas outras duas, omita.
+
+## Campos numéricos (rede, notas inteiras de 0 a 10)
 
 - `individual` — bem-estar pessoal ("se sente bem com quem você é e com a vida")
 - `interpessoal` — satisfação com os relacionamentos (família, amigos, próximos)
 - `social` — comunicação e convívio no dia a dia (trabalho, faculdade, amizades)
 - `geral` — estado geral de bem-estar (emocional, físico, financeiro, profissional)
-- `nota_terapeuta` — como se sentiu sendo atendido pelo terapeuta
+- `qualidade_geral` — como se sentiu sendo atendido pelo TERAPEUTA
 - `nota_indicacao` — o quanto indicaria o atendimento a alguém em situação parecida
 - `nota_sofia` — o quanto achou bom o acolhimento/encaminhamento inicial (da Sofia)
 
-Texto (as palavras do paciente, resumidas se forem muito longas):
-
-- `feedback_livre` — comentário geral sobre os serviços da Allos
-- `atendimento_rapido` — o que ele respondeu sobre ter sido atendido rápido
-- `indicaria_allos` — o que ele respondeu sobre indicar a Allos
-- `motivo_interrupcao` — por que o processo terminou (**só** em pesquisa de
-  encerramento)
-
-Booleanos (`true`/`false`):
+## Campos de sim/não (rede, `true`/`false`)
 
 - `consentimento_paciente` — se ele aceitou responder a pesquisa
-- `atendimento_rapido_bool` — se a resposta sobre rapidez foi positiva
-- `indicaria_allos_bool` — se ele indicaria a Allos
+- `continuar_terapeuta` — se ele sentiu que o terapeuta combinou com ele
+- `continuar_allos` — se ele quer continuar sendo atendido na Allos com outro
+  terapeuta
 
-Data:
+## Sinal de alerta (não é resposta do questionário)
 
-- `dat_ultima_sessao` — data da última sessão, no formato `AAAA-MM-DD`
+- `alerta_reclamacao` — `true` se o paciente **relatou uma experiência ruim,
+  fez uma reclamação ou descreveu algo que precisa da atenção de um humano**
+  sobre o atendimento, o terapeuta, a instituição ou o processo.
+
+  Este campo não é uma pergunta: você o deduz do que ele contou. Use `true` para
+  queixa concreta ("marcaram e não apareceram", "me senti julgada", "ninguém me
+  respondeu"). Use `false`, ou omita, para tristeza, sintoma ou dificuldade da
+  vida dela — **estar mal não é reclamar**. Também não é reclamação uma nota
+  baixa sem explicação: a nota já é tratada por conta própria.
 
 ## Regras
 
@@ -50,28 +64,15 @@ Data:
    **não converta em nota** — omita o campo numérico. Se for uma das perguntas de
    texto, guarde a frase.
 5. Notas fora de 0 a 10 são inválidas: omita o campo.
-6. Datas relativas ("semana passada", "terça") só viram `dat_ultima_sessao` se
-   for possível determinar a data exata pela conversa. Na dúvida, omita.
-7. `motivo_interrupcao` só existe quando a conversa é de encerramento. Se a
-   pesquisa é de acompanhamento da primeira sessão, omita.
+6. Os campos de sim/não só aceitam `true` ou `false`. Se a resposta foi ambígua,
+   omita.
 
 ## Exemplo
 
 ```json
 {
-  "consentimento_paciente": true,
-  "individual": 7,
-  "interpessoal": 8,
-  "social": 6,
-  "geral": 7,
-  "nota_terapeuta": 10,
-  "nota_indicacao": 9,
-  "nota_sofia": 9,
-  "dat_ultima_sessao": "2026-08-03",
-  "atendimento_rapido": "sim, foi bem rápido",
-  "atendimento_rapido_bool": true,
-  "indicaria_allos": "com certeza indicaria",
-  "indicaria_allos_bool": true,
-  "feedback_livre": "gostei muito do acolhimento"
+  "motivo_encerramento": "consegui o que precisava, me sinto bem melhor",
+  "feedback_livre": "gostei muito do acolhimento desde o começo",
+  "continuar_allos": false
 }
 ```

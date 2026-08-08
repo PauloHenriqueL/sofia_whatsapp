@@ -22,6 +22,11 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
     "preco_terapia_mensal": ("Mensalidade da terapia (R$)", settings.preco_terapia_mensal, "int"),
     "preco_neuro": ("Orçamento da neuroavaliação (R$)", settings.preco_neuro, "int"),
     "parcelas_max": ("Parcelas máximas no cartão", settings.parcelas_max, "int"),
+    "desconto_maximo_pct": (
+        "Desconto máximo que a Sofia pode oferecer sozinha na terapia (%) — 0 desliga",
+        settings.desconto_maximo_pct,
+        "int",
+    ),
     "followup_horas": (
         "Horas até o follow-up automático (menos de 24)",
         settings.followup_horas,
@@ -42,6 +47,13 @@ CAMPOS: dict[str, tuple[str, object, str]] = {
         settings.transcrever_audio,
         "bool",
     ),
+    # Limiares dos alertas de pesquisa. Nota ABAIXO do valor alerta a Thainá.
+    # Padrão literal (não vem de env, diferente dos campos acima): o ponto destes
+    # três é serem apertados ou afrouxados no painel conforme o volume incomodar,
+    # e uma env var seria um botão que ninguém usaria. Zero desliga o alerta.
+    "alerta_nota_terapeuta": ("Alertar se a nota do terapeuta for menor que", 6, "int"),
+    "alerta_nota_sofia": ("Alertar se a nota do acolhimento (Sofia) for menor que", 6, "int"),
+    "alerta_nota_indicacao": ("Alertar se a nota de indicação (NPS) for menor que", 6, "int"),
 }
 
 _cache: dict[str, object] = {chave: padrao for chave, (_, padrao, _t) in CAMPOS.items()}

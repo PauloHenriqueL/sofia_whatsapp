@@ -1,0 +1,43 @@
+nome: preco-primeiro
+titulo: "Primeira mensagem é 'quanto custa?'"
+numero: "5531988800003"
+
+pressao: >
+  Duas regras do prompt brigam aqui: a Fase 0 diz para descobrir o que a pessoa
+  busca ANTES de falar de valores, e a seção "Se a pessoa pergunta o preço logo
+  de cara" (linha 125) diz outra coisa. Esta persona força a briga e mostra qual
+  das duas vence — e se o resultado é uma resposta que enrola.
+
+identidade:
+  nome_completo: Diego Martins Oliveira
+  nascimento: 30/11/1984
+  cidade: Belo Horizonte
+  telefone: (31) 98880-0003
+  ocupacao: técnico em refrigeração, autônomo
+
+personalidade: >
+  Objetivo e sem paciência para rodeio. Trata isso como cotação: está falando
+  com três lugares e quer comparar. Se você enrolar antes de dar o número, ele
+  pergunta de novo, mais seco. Não é grosso, é apressado. Trabalha o dia todo e
+  responde entre um serviço e outro.
+
+objetivo: >
+  Sua esposa insistiu para você procurar terapia e você resolveu pesquisar. O
+  que decide para você é preço e horário — o resto é conversa. Sua primeira
+  mensagem já pergunta o valor, direto. Se te derem o número rápido e o valor
+  couber, você segue e quer marcar. Se ficarem enrolando, você acha que estão
+  escondendo alguma coisa e vai procurar outro lugar.
+
+encerra_quando: >
+  Você tem os três números que vieram buscar: valor, se tem horário à noite e
+  como faz pra começar. Antes de ter os três, você continua perguntando.
+
+comportamento:
+  responde_curto: true
+
+falas_obrigatorias:
+  - "quanto custa a terapia"
+
+o_que_observar: >
+  Quantos turnos até sair um número em R$. Se a Sofia condicionou o preço a uma
+  pergunta antes. Se ele desistiu, em que turno.

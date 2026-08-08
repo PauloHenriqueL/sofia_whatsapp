@@ -79,6 +79,36 @@
     </dl>
   </div>
 
+  {# ── Desconto que a Sofia deu sozinha. Só aparece se houve: é exceção, e o
+        ponto de mostrar aqui é a Thainá conseguir auditar sem abrir o banco. #}
+  {% if conversa.desconto_oferecido_em %}
+  <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">
+    <h2 style="font-size:16px; margin:0 0 10px"><i class="bi bi-tag"></i> Desconto oferecido pela Sofia</h2>
+    <dl class="datas">
+      <div class="data-row">
+        <dt>Valor proposto</dt>
+        <dd><strong>R$ {{ conversa.desconto_valor }}</strong>/mês</dd>
+      </div>
+      <div class="data-row">
+        <dt>Quando</dt>
+        <dd>{{ conversa.desconto_oferecido_em | data }}</dd>
+      </div>
+      <div class="data-row">
+        <dt>Motivo registrado</dt>
+        {% if conversa.desconto_motivo %}
+        <dd>{{ conversa.desconto_motivo }}</dd>
+        {% else %}
+        <dd class="vazio">não informado</dd>
+        {% endif %}
+      </div>
+    </dl>
+    <p class="muted" style="font-size:12px; margin:8px 0 0">
+      A Sofia oferece no máximo uma vez por conversa, no limite configurado em
+      <a href="/painel/config">Configurações</a>. Aceitar ou não é decisão do paciente.
+    </p>
+  </div>
+  {% endif %}
+
   {# ── Pagamento (Stripe): vínculo por referência + status ao vivo ─────── #}
   {% if stripe_configurado %}
   <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">

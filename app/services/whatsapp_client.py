@@ -7,6 +7,7 @@ Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
 
 import logging
 import re
+import uuid
 from typing import Any
 
 import httpx
@@ -21,8 +22,9 @@ logger = logging.getLogger(__name__)
 GRAPH_API_VERSION = "v23.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
-# Máximo de bolhas (mensagens) por turno, pra não floodar o paciente. Parágrafos
-# além disso são reagrupados na última bolha.
+# Máximo de bolhas (mensagens) por turno, pra não floodar o paciente. O excedente
+# é redistribuído entre as bolhas menores, não empilhado na última. Ver
+# `dividir_em_bolhas`.
 MAX_BOLHAS = 5
 
 # Ritmo das bolhas: simula ~25 caracteres "digitados" por segundo, entre 0,8s e
@@ -41,16 +43,21 @@ def dividir_em_bolhas(texto: str | None, max_bolhas: int = MAX_BOLHAS) -> list[s
 
     A Sofia separa ideias com linha em branco; cada bloco vira uma mensagem, pra
     a conversa parecer um papo e não um textão. Resposta curta (um bloco só) sai
-    como bolha única, sem fragmentar à toa. Acima de `max_bolhas`, o excedente é
-    reagrupado na última bolha.
+    como bolha única, sem fragmentar à toa.
+
+    Acima de `max_bolhas`, junta os **vizinhos mais curtos** até caber. Antes o
+    excedente era todo concatenado na última bolha, o que produzia exatamente o
+    que o teto queria evitar: no laboratório, TODAS as bolhas gigantes (677, 587,
+    542, 511 caracteres) eram a última do lote, ao lado de bolhas de 12 e 18. O
+    teto existe pra não floodar, não pra criar um paredão no fim.
     """
     if not texto:
         return []
     blocos = [b.strip() for b in re.split(r"\n\s*\n", texto.strip()) if b.strip()]
-    if len(blocos) > max_bolhas:
-        cabeca = blocos[: max_bolhas - 1]
-        resto = "\n\n".join(blocos[max_bolhas - 1 :])
-        blocos = cabeca + [resto]
+    while len(blocos) > max_bolhas:
+        # Par adjacente de menor soma: funde onde menos dói, e não sempre no fim.
+        i = min(range(len(blocos) - 1), key=lambda j: len(blocos[j]) + len(blocos[j + 1]))
+        blocos[i : i + 2] = ["\n\n".join(blocos[i : i + 2])]
     return blocos
 
 
@@ -149,6 +156,11 @@ async def subir_midia(conteudo: bytes, mime: str, nome: str) -> str:
     Raises:
         WhatsAppError: se o upload falhar.
     """
+    if settings.envio_whatsapp_bloqueado:
+        # `_enviar` não cobre este: o upload de mídia tem endpoint próprio.
+        logger.warning("[DRY RUN] mídia NÃO subida (mime=%s, bytes=%d)", mime, len(conteudo))
+        return f"dryrun-media-{abs(hash(conteudo)):016x}"
+
     url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/media"
     headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
     dados = {"messaging_product": "whatsapp", "type": mime}
@@ -284,8 +296,31 @@ async def baixar_midia(media_id: str) -> tuple[bytes, str]:
         raise WhatsAppError(f"falha de rede ao baixar mídia {media_id}") from exc
 
 
+def _resumo_dry_run(payload: dict[str, Any]) -> str:
+    """O que teria sido enviado, sem o conteúdo da mensagem (LGPD).
+
+    Em dry run o texto interessa pra quem está testando — e quem está testando é
+    quem já vê a conversa inteira no painel. Mesmo assim, só o começo: log não é
+    lugar de transcrição de conversa de saúde.
+    """
+    tipo = payload.get("type") or payload.get("status") or "?"
+    corpo = (payload.get("text") or {}).get("body") or ""
+    trecho = corpo[:120] + ("…" if len(corpo) > 120 else "")
+    return f"tipo={tipo} para={mascarar_telefone(payload.get('to'))} texto={trecho!r}"
+
+
 async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:
     """Faz o POST para o endpoint de mensagens da Cloud API."""
+    if settings.envio_whatsapp_bloqueado:
+        # Único choke point de envio: cobre texto, template, mídia e read receipt.
+        logger.warning("[DRY RUN] NÃO enviado (%s): %s", descricao, _resumo_dry_run(payload))
+        # Devolve um wamid falso, mas com a MESMA forma da resposta da Meta: o
+        # resto do fluxo persiste esse id e o painel usa pra citar mensagem.
+        # Aleatório, e não derivado do payload: `whatsapp_message_id` tem índice
+        # único, e um id derivado do texto colide quando o bot repete a mesma
+        # frase na conversa — o INSERT estoura e a conversa morre em dev.
+        return {"messages": [{"id": f"dryrun.{uuid.uuid4().hex[:16]}"}]}
+
     url = f"{GRAPH_API_BASE}/{settings.whatsapp_phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {settings.whatsapp_token}",

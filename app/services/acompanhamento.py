@@ -120,6 +120,47 @@ async def montar_acompanhamento(
     }
 
 
+async def listar_alertas_pesquisa(db: AsyncSession) -> list[dict[str, Any]]:
+    """Pesquisas que terminaram com sinal ruim e ainda não foram tratadas.
+
+    Existe porque o template do WhatsApp **some na rolagem**. Sem uma fila, o
+    alerta vira uma notificação que a Thainá viu no meio de outras vinte e o
+    desenho volta a ser "coletar e arquivar".
+
+    Não depende do Hamilton: os motivos são um snapshot gravado no momento do
+    alerta, então a página abre mesmo com a API fora do ar.
+    """
+    q = (
+        select(Conversa)
+        .where(Conversa.alerta_pesquisa_em.isnot(None), Conversa.alerta_resolvido_em.is_(None))
+        .order_by(Conversa.alerta_pesquisa_em.desc())
+    )
+    conversas = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "conversa_id": c.id,
+            "nome": (c.dados_coletados or {}).get("nome_completo") or c.numero_whatsapp,
+            "numero": c.numero_whatsapp,
+            "motivos": c.alerta_pesquisa_motivos or "",
+            "quando": c.alerta_pesquisa_em,
+            "modo": c.modo,
+        }
+        for c in conversas
+    ]
+
+
+async def marcar_alerta_resolvido(db: AsyncSession, conversa: Conversa) -> None:
+    """Tira o alerta da fila. Soft-delete: nada é apagado, e dá pra reabrir."""
+    conversa.alerta_resolvido_em = datetime.now(timezone.utc)
+    await db.commit()
+
+
+async def reabrir_alerta(db: AsyncSession, conversa: Conversa) -> None:
+    """Devolve o alerta à fila (clique por engano, ou o assunto voltou)."""
+    conversa.alerta_resolvido_em = None
+    await db.commit()
+
+
 async def marcar_cobranca_resolvida(db: AsyncSession, conversa: Conversa) -> None:
     """Tira o paciente da fila de cobrança (a conversa continua existindo).
 

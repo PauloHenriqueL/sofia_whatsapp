@@ -196,6 +196,9 @@ async def pagina_acompanhamento(
     dados = await acompanhamento.montar_acompanhamento(db)
     # Status de pagamento (Stripe) na fila de cobrança — tolerante a falha.
     await pagamentos_service.anotar_pagamentos(dados["cobranca"])
+    # Fila de alertas de pesquisa: não passa pelo Hamilton (é snapshot local),
+    # então aparece mesmo quando a API está fora.
+    dados["alertas"] = await acompanhamento.listar_alertas_pesquisa(db)
     return templates.TemplateResponse(
         "painel_acompanhamento.html",
         {"request": request, "feito": feito, **dados},
@@ -237,6 +240,16 @@ async def cobranca_resolvida(conversa_id: int, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await acompanhamento.marcar_cobranca_resolvida(db, conversa)
     return RedirectResponse("/painel/acompanhamento?feito=resolvido", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/alerta-resolvido")
+async def alerta_resolvido(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Tira o alerta de pesquisa da fila. A conversa e a avaliação continuam lá."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await acompanhamento.marcar_alerta_resolvido(db, conversa)
+    return RedirectResponse("/painel/acompanhamento?feito=alerta_resolvido", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/cobranca-reabrir")

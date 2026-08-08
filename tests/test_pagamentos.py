@@ -29,6 +29,19 @@ def stripe_ligado():
     settings.stripe_secret_key = original
 
 
+@pytest.fixture
+def stripe_desligado():
+    """Desliga o Stripe explicitamente.
+
+    Sem isto o teste dependeria do .env de quem roda: quem tem
+    STRIPE_SECRET_KEY preenchida (o .env copiado do Render) via o teste falhar.
+    """
+    original = settings.stripe_secret_key
+    settings.stripe_secret_key = ""
+    yield
+    settings.stripe_secret_key = original
+
+
 class TestAchatar:
     def test_notacao_de_colchetes_do_stripe(self):
         plano = _achatar({"a": {"b": 1}, "c": [{"d": 2}], "e": True, "f": None, "g": "x"})
@@ -291,7 +304,7 @@ class TestAnotarPagamentos:
         assert "pagamento" not in itens[1]
 
     @pytest.mark.asyncio
-    async def test_sem_chave_nao_faz_nada(self):
+    async def test_sem_chave_nao_faz_nada(self, stripe_desligado):
         itens = [{"stripe_ref": "sub_1"}]
         await pagamentos.anotar_pagamentos(itens)
         assert "pagamento" not in itens[0]
@@ -343,7 +356,7 @@ class TestPaginaPagamentos:
         assert resp.headers["location"] == "/login"
 
     @pytest.mark.asyncio
-    async def test_sem_chave_mostra_aviso(self, ambiente):
+    async def test_sem_chave_mostra_aviso(self, ambiente, stripe_desligado):
         client, _ = ambiente
         await _login(client)
         html = (await client.get("/painel/pagamentos/")).text
