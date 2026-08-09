@@ -252,6 +252,27 @@ class HamiltonClient:
             )
         return resp.json()
 
+    async def obter_avaliacao(self, pk: int) -> dict | None:
+        """Uma avaliação pelo id. Mesmo shape dos itens de `avaliacoes_pendentes`.
+
+        `None` quer dizer **o Hamilton respondeu e ela não existe** (404). Falha
+        de rede ou erro do servidor levanta `HamiltonError` — quem chama TEM que
+        distinguir os dois casos.
+
+        Existe porque a alternativa era baixar a fila inteira (`?enviadas=1`, o
+        acumulado histórico de anos) pra achar um pk já conhecido: payload que
+        estourava o timeout, e o timeout era lido como "a avaliação sumiu".
+        """
+        if not pk:
+            return None
+        resp = await self._request("GET", f"/api/v1/avaliacoes/{pk}/")
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise HamiltonError(f"Leitura da avaliação {pk} falhou ({resp.status_code})")
+        data = resp.json()
+        return data if isinstance(data, dict) else None
+
     async def atualizar_avaliacao(self, pk: int, payload: dict) -> dict:
         """PATCH parcial de uma avaliação (respostas, marcação de envio, status)."""
         if not pk or not payload:

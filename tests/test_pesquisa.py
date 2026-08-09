@@ -429,6 +429,7 @@ class TestRodarPesquisas:
         await session.commit()
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.obter_avaliacao.return_value = PRIMEIRA_SESSAO
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -448,9 +449,9 @@ class TestRodarPesquisas:
         )
         await session.commit()
         cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = [
-            {**PRIMEIRA_SESSAO, "sofia_lembrete_em": "2026-08-06T00:00:00+00:00"}
-        ]
+        ja_lembrada = {**PRIMEIRA_SESSAO, "sofia_lembrete_em": "2026-08-06T00:00:00+00:00"}
+        cliente.avaliacoes_pendentes.return_value = [ja_lembrada]
+        cliente.obter_avaliacao.return_value = ja_lembrada
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -485,6 +486,7 @@ class TestRodarPesquisas:
         await session.commit()
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.obter_avaliacao.return_value = PRIMEIRA_SESSAO
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -492,6 +494,60 @@ class TestRodarPesquisas:
         assert resumo["encerradas"] == 1
         assert conversa.pesquisa_avaliacao_id is None
         mock_enviar.assert_not_awaited()
+
+
+class TestFalhaDoHamiltonNaoEncerraPesquisa:
+    """Regressão de produção: um 502 do proxy apagou uma pesquisa em andamento.
+
+    `_buscar_avaliacao` devolvia `None` tanto para "o Hamilton respondeu e ela
+    não existe" quanto para "não consegui perguntar", e `responder` tratava os
+    dois como sumiço — zerava `pesquisa_avaliacao_id` e não falava nada. Foi o
+    que aconteceu com a avaliação 392 em 09/08/2026: a pessoa respondeu que
+    aceitava a pesquisa e ficou sem resposta, sem erro visível em lugar nenhum.
+
+    A distinção é o comportamento sob teste, não um detalhe de implementação.
+    """
+
+    @pytest.mark.asyncio
+    async def test_hamilton_fora_do_ar_mantem_a_pesquisa_em_curso(self, session):
+        conversa = await _conversa(session, pesquisa_avaliacao_id=10, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.obter_avaliacao.side_effect = hamilton_client.HamiltonError("502 do proxy")
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+        # Continua em curso: a pessoa repete, ou o lembrete de 20h pega.
+        assert conversa.pesquisa_avaliacao_id == 10
+        mock_enviar.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_avaliacao_de_fato_apagada_encerra_a_pesquisa(self, session):
+        """O outro lado da moeda: respondeu 404, aí sim não há o que conduzir."""
+        conversa = await _conversa(session, pesquisa_avaliacao_id=10, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.obter_avaliacao.return_value = None
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+        assert conversa.pesquisa_avaliacao_id is None
+
+    @pytest.mark.asyncio
+    async def test_busca_pelo_id_em_vez_de_varrer_a_fila(self, session):
+        """A varredura baixava o acumulado histórico inteiro (~68 KB) por 1 registro.
+
+        Foi esse payload que derrubou o proxy com 502. Buscar pelo pk que já
+        sabemos é o que remove a causa, não só o sintoma.
+        """
+        conversa = await _conversa(session, pesquisa_avaliacao_id=10, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.obter_avaliacao.return_value = None
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+        cliente.obter_avaliacao.assert_awaited_once_with(10)
+        cliente.avaliacoes_pendentes.assert_not_awaited()
 
 
 class TestValidacaoDaTool:

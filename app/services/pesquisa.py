@@ -303,10 +303,23 @@ async def iniciar(
 
 async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
     """Conduz um turno da pesquisa (chamado no lugar do turno normal do bot)."""
-    avaliacao = await _buscar_avaliacao(conversa)
+    try:
+        avaliacao = await _buscar_avaliacao(conversa)
+    except hamilton_client.HamiltonError as exc:
+        # "Não consegui saber" NÃO é "não existe". Falha transitória mantém a
+        # pesquisa de pé: a pessoa repete, ou o lembrete de 20h pega. Encerrar
+        # aqui destruiria estado por causa de um 502 do proxy — foi o que
+        # aconteceu com a pesquisa 392 e matou a conversa em silêncio.
+        logger.error(
+            "Hamilton indisponível no turno da pesquisa %s; mantendo em curso: %s",
+            conversa.pesquisa_avaliacao_id,
+            exc,
+        )
+        return
     if avaliacao is None:
-        # Sem contexto não dá pra conduzir; encerra o modo pesquisa e deixa a
-        # conversa voltar ao fluxo normal em vez de travar o paciente.
+        # Aqui o Hamilton RESPONDEU e a avaliação não está lá. Sem contexto não
+        # dá pra conduzir; encerra o modo pesquisa e deixa a conversa voltar ao
+        # fluxo normal em vez de travar o paciente.
         logger.warning(
             "Pesquisa %s sumiu do Hamilton; saindo do modo pesquisa", conversa.pesquisa_avaliacao_id
         )
@@ -670,7 +683,17 @@ async def _acompanhar_em_curso(db: AsyncSession, agora: datetime) -> dict:
     for conversa in conversas:
         silencio = agora - (_aware(conversa.pesquisa_iniciada_em) or agora)
         if silencio >= timedelta(hours=HORAS_ENCERRAMENTO):
-            avaliacao = await _buscar_avaliacao(conversa) or {}
+            try:
+                avaliacao = await _buscar_avaliacao(conversa) or {}
+            except hamilton_client.HamiltonError as exc:
+                # Encerrar às cegas gravaria o desfecho errado (ou nenhum). O
+                # prazo já passou: mais um tick de espera não custa nada.
+                logger.error(
+                    "Hamilton indisponível; encerramento da pesquisa %s adiado: %s",
+                    conversa.pesquisa_avaliacao_id,
+                    exc,
+                )
+                continue
             await finalizar(db, conversa, avaliacao, recusou=True)
             resumo["encerradas"] += 1
         elif silencio >= timedelta(hours=HORAS_LEMBRETE):
@@ -684,10 +707,9 @@ async def _mandar_lembrete(db: AsyncSession, conversa: Conversa, agora: datetime
     pk = conversa.pesquisa_avaliacao_id
     cliente = hamilton_client.get_hamilton_client()
     try:
-        pendentes = await cliente.avaliacoes_pendentes(incluir_enviadas=True)
+        atual = await cliente.obter_avaliacao(pk)
     except hamilton_client.HamiltonError:
-        return False
-    atual = next((a for a in pendentes if a.get("pk_avaliacao") == pk), None)
+        return False  # tenta no próximo tick; não insiste às cegas
     if atual is None or atual.get("sofia_lembrete_em"):
         return False  # já lembramos; insistir de novo vira pressão
 
@@ -907,18 +929,18 @@ async def _enviar(db: AsyncSession, conversa: Conversa, texto: str | None) -> bo
 
 
 async def _buscar_avaliacao(conversa: Conversa) -> dict | None:
-    """Recupera do Hamilton a avaliação em curso nesta conversa."""
+    """Recupera do Hamilton a avaliação em curso nesta conversa.
+
+    `None` significa **o Hamilton respondeu e ela não existe mais**. Falha de
+    rede/servidor sobe como `HamiltonError` — de propósito, e quem chama tem que
+    tratar. Antes os dois casos viravam `None`, e o `responder` encerrava a
+    pesquisa: um 502 do proxy no meio de uma conversa em andamento apagava o
+    `pesquisa_avaliacao_id` e a pessoa ficava sem resposta, sem erro visível.
+    """
     if conversa.pesquisa_avaliacao_id is None:
         return None
-    try:
-        pendentes = await hamilton_client.get_hamilton_client().avaliacoes_pendentes(
-            incluir_enviadas=True
-        )
-    except hamilton_client.HamiltonError as exc:
-        logger.error("Não consegui recuperar a avaliação em curso: %s", exc)
-        return None
-    return next(
-        (a for a in pendentes if a.get("pk_avaliacao") == conversa.pesquisa_avaliacao_id), None
+    return await hamilton_client.get_hamilton_client().obter_avaliacao(
+        conversa.pesquisa_avaliacao_id
     )
 
 
