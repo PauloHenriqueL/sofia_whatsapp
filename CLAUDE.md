@@ -23,6 +23,9 @@ o ambiente — nenhuma delas exige código novo.
   com ela desligada `GET /api/v1/avaliacoes/pendentes/` devolve **lista vazia** —
   o cron roda e não sai pesquisa nenhuma. Há mais duas travas lá
   (`SOFIA_PESQUISAS_IDADE_MAXIMA_DIAS=7`, `SOFIA_PESQUISAS_LIMITE=5`).
+  ⚠️ **Isso já não vale pra pesquisa de ENTRADA (ORS de linha de base)**: desde
+  10/08 ela emenda no cadastro, tem interruptor próprio (`pesquisa_entrada_ativa`
+  em `/painel/config`, **nasce ligada**) e não passa pela fila de pendentes.
 - **`cobranca_ativa`** em `/painel/config`. Mesmo desenho: nasce desligada.
 - **Crons** no cron-job.org, mesmo `TASKS_TOKEN`: `POST /tasks/pesquisas` e
   `POST /tasks/cobrancas`. **Sem cron, nada sai.**
@@ -507,6 +510,36 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
 - **Quem nunca falou com a Sofia não recebe pesquisa** — sem conversa aberta e fora da janela
   de 24h, não há como abordar. São pulados em silêncio. **Em aberto** (ver `docs/demandas/01-EM-ANDAMENTO.md`).
 
+#### A pesquisa de ENTRADA (ORS de linha de base) é a exceção de tudo acima
+É a única que a Sofia **cria**, e desde 10/08 é a única que **não passa pelo cron**:
+- **Emenda no cadastro** (`pesquisa.iniciar_entrada`, chamada por `webhook._responder_turno`
+  logo depois de enviar a fala que confirma o cadastro). Antes ela dependia de três condições
+  invisíveis em série — 3h de espera, **duas** voltas do cron (uma criava a `Avaliacao`, a
+  outra abordava) e `SOFIA_PESQUISAS_ATIVAS` no Hamilton — e **na prática não acontecia**.
+- **Interruptor próprio**: `pesquisa_entrada_ativa` no `/painel/config`, **nasce ligada**.
+  Ela não fala de dinheiro e não tem como virar disparo em massa (só dispara em cadastro que
+  acabou de acontecer); as travas do Hamilton existem pra segurar o acumulado histórico de
+  pendentes, que aqui não existe.
+- **Só terapia.** `pesquisa._e_neuro` pula quem tem escalada `neuro_reuniao` (mesmo resolvida)
+  ou "neuro" no `motivo_busca`/`observacoes`. O Hamilton não ajuda: `Paciente` não tem tipo de
+  serviço (`fk_modalidade` é online/presencial).
+- **Todas as guardas num lugar só** (`pesquisa.motivo_para_pular_entrada`, usada pela emenda
+  **e** pela rede): desligada no painel, cadastro não concluído, **reencontro**
+  (`cadastro.CHAVE_CADASTRO_NOVO` — ficha que já existia não é alguém começando), pesquisa ou
+  cobrança em curso, modo humano, conversa arquivada, **acompanhante** (sem as 4 notas não
+  sobra pesquisa) e neuro. O motivo vai pro log em uma linha — é por ele que se debuga
+  "por que não veio o convite?".
+- **A rede** (`_abrir_entradas`, no cron) pega quem a emenda não pegou: cadastro pelo painel,
+  convite que não conseguiu sair. Espera 3h, desiste em 5 dias, e agora **cria e aborda no
+  mesmo tick**. Também pula quem já teve a 1ª consulta **realizada**.
+- **A corrida foi fechada** (`_descartar_entradas_obsoletas`): se a mesma pessoa tem pendente
+  a linha de base **e** uma pesquisa de outro momento, a de entrada é marcada `nao_respondeu`
+  e sai da fila. Sem isso ela ficava pendente pra sempre e, se disparasse, perguntava "como
+  você está antes de começar?" pra quem já foi atendido (foi a avaliação 393, no teste de 09/08).
+- **Sem terapeuta no prompt**: na linha de base o `fk_terapeuta` é o **sentinela** (a
+  coordenação ainda não fez o match). `montar_prompt` omite a linha do terapeuta nesse
+  momento — senão a Sofia citaria como "o terapeuta dela" alguém que não atende ninguém.
+
 ### Áudio: a Sofia ouve e responde em texto (`transcricao.py` + webhook)
 - Ligado pela flag `transcrever_audio` (painel). Quando ligada, `ingerir_mensagem` baixa a
   mídia (`whatsapp_client.baixar_midia` — GET `/{media_id}` → URL → bytes, mesmo token JWT do
@@ -715,6 +748,51 @@ A Sofia cobra a mensalidade sozinha depois da primeira sessão. Exige ler
   Hamilton: fluxo automático que fala de dinheiro com paciente sobe dark.
 - `oferecer_desconto` **não** entra em `TOOLS_COBRANCA`. Quem não pode pagar vira
   escalada `gratuidade` — decisão humana.
+
+### Painel: identidade e navegação (revisão de 10/08)
+Três bugs de verdade e uma tela nova. O que volta a quebrar se alguém mexer sem saber:
+- 🔴 **As abas ficavam invisíveis em TODA tela.** O `_topbar.html` as punha num
+  `.container-app` com `padding-top:0` e a topbar é `position:fixed` com 60px —
+  elas nasciam em y=0, debaixo da barra. Desde o commit `bb22140` (08/08),
+  Acompanhamento, Pagamentos e Resultados só eram alcançáveis digitando a URL.
+  Agora existe `.abas-wrap`, que ocupa espaço no fluxo (`margin-top` = altura da
+  topbar) e gruda abaixo dela; `.abas-wrap + .container-app` corta o respiro de
+  84px que só existia pra compensar a barra fixa.
+- 🔴 **`.card` não tem padding** (é full-bleed por causa das tabelas), e metade
+  das telas punha texto direto dentro: o texto encostava na borda e o
+  `overflow:hidden` **fatiava os ícones ao meio**. Quem parecia bom era quem
+  passava `style="padding:18px"` na mão. Agora há `.card-topo`/`.card-corpo`.
+  **Não ponha padding no `.card`** — quebra toda tabela.
+- 🔴 **`.kpis` não existia no CSS** (só `.kpi-grid`): os dois blocos de KPI
+  dentro de card em `/painel/metricas` renderizavam empilhados em largura cheia.
+- **Identidade v2.** O painel usava `#2E9E8F` e neutros creme; o teal da marca
+  (e do Hamilton, e da própria logo) é **`#008888`**. Agora o CSS segue o
+  `Allos_IdVisual - v2.pdf`: Marrs Green, Vermelho Queimado (urgência), Ouro
+  Velho (atenção), cinza esverdeado. Tipografia **Montserrat + Inter** — o guia
+  pede Frontage, que é paga, e ele mesmo indica Montserrat como fallback.
+  A logo real (grafismo α na topbar, lockup no login, ícones do PWA) vem de
+  `app/static/marca/`, com o traço raspado guardado no **canal alfa**;
+  `scripts/gerar_marca.py` regera tudo.
+- **A home virou a tela "Hoje"** (`hoje.py` + `painel_hoje.html`); a lista de
+  conversas foi pra **`/painel/conversas`**. Motivo: "o que eu tenho pra fazer
+  agora?" não tinha resposta em tela nenhuma — escalada aberta e cadastro que
+  falhou moravam na lista, alerta de pesquisa e espera pela 1ª consulta no
+  acompanhamento, falha de cobrança só como número em resultados.
+  - **A fila não tem recorte de tempo, de propósito.** Escalada de três semanas
+    continua lá. Filtrar por "hoje" faria sumir justamente o esquecido. A janela
+    de 7 dias vale só pros números e pro bloco "resolveu sozinha".
+  - **Uma linha por conversa** (`hoje.PRIORIDADE`): comprovante em cobrança abre
+    escalada *e* marca `cobranca_status`, e duas linhas fariam o contador mentir.
+  - **Só "de olho" fala com o Hamilton.** Ele fora → a fila e os números seguem.
+  - O contador da aba vem da dependência `_pendencias_na_topbar`, que roda em
+    **toda** página do painel — a graça é ser visto de outra tela.
+- **`config_negocio.CAMPOS` virou `NamedTuple` `Campo`** com `ajuda`, `grupo`,
+  `prefixo`/`sufixo`. Os três primeiros itens continuam acessíveis por índice.
+  A tela de configurações era uma lista plana de 15 campos com o rótulo fazendo
+  as vezes de ajuda ("Desconto máximo que a Sofia pode oferecer sozinha na
+  terapia (%) — 0 desliga") e o contexto amontoado num bloco no rodapé.
+- **Sem confirmação ao ligar a cobrança** (decisão do Paulo, 10/08): o estado
+  aparece escrito ao lado da chave e repetido na tela Hoje.
 
 ### Painel: o que cada tela mostra (revisão de 08/08)
 O painel tinha ficado dois ciclos atrás do bot. O que foi corrigido, e o porquê —
@@ -937,7 +1015,7 @@ sofia/
 │   │   ├── webhook.py        # GET/POST /webhook/whatsapp (orquestra o turno do bot)
 │   │   ├── auth.py           # GET/POST /login, /logout (sessão)
 │   │   ├── api.py            # API JSON do painel
-│   │   ├── painel.py         # /painel, /painel/config, /painel/metricas, conversas
+│   │   ├── painel.py         # /painel (Hoje), /painel/conversas, /config, /metricas
 │   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas,cobrancas} (cron, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
@@ -954,6 +1032,7 @@ sofia/
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
 │   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
 │   │   ├── captacao.py       # Origem do paciente: lista do Hamilton + validação do ID
+│   │   ├── hoje.py           # Fila única do que precisa de uma pessoa (home do painel)
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
 │   │   ├── pagamentos.py     # Regra do Stripe (links, assinaturas, status unificado)
@@ -963,15 +1042,18 @@ sofia/
 │   ├── templates/            # Jinja2 (HTMX via CDN)
 │   │   ├── base.html, _topbar.html, login.html
 │   │   ├── painel_lista.html, painel_conversa.html
+│   │   ├── painel_hoje.html   # a home: fila do que precisa de gente
 │   │   ├── painel_config.html, painel_metricas.html
 │   │   └── _conversas_fragment.html, _mensagens_fragment.html
 │   │
 │   └── static/
-│       ├── allos.css         # Allos Design System (paleta Hamilton, neutros creme)
+│       ├── allos.css         # Allos Design System (guia de identidade v2: #008888 + Montserrat/Inter)
+│       ├── marca/            # logo real extraída do guia (grafismo α + lockup), com a textura no alfa
 │       └── ordenar-tabela.js # Ordenação client-side (<th data-sort>)
 │
 ├── scripts/
-│   └── gerar_icones.py       # Regera os ícones do PWA (dev-only)
+│   ├── gerar_icones.py       # (legado) ícones do PWA com o "S" da Fraunces
+│   └── gerar_marca.py        # Regera marca + ícones do PWA a partir da logo (dev-only)
 │
 ├── alembic/
 │   ├── env.py
@@ -1174,8 +1256,9 @@ SIMULAR_DIGITACAO=false            # "digitando…" + visto (tiques azuis). Edit
 > só o **default inicial**; o valor salvo no painel manda. Segredos ficam **só** no Render.
 >
 > **Só no painel** (não têm env var, padrão literal no `config_negocio.CAMPOS`):
-> `desconto_maximo_pct`, `alerta_nota_*`, e os da cobrança — **`cobranca_ativa`**
-> (nasce desligada), **`chave_pix`** (vazia = não oferece Pix),
+> `desconto_maximo_pct`, `alerta_nota_*`, **`pesquisa_entrada_ativa`** (nasce
+> **ligada** — ORS de linha de base emendado no cadastro), e os da cobrança —
+> **`cobranca_ativa`** (nasce desligada), **`chave_pix`** (vazia = não oferece Pix),
 > `cobranca_lembrete_horas`.
 >
 > ⚠️ **`SOFIA_PESQUISAS_ATIVAS`, `SOFIA_PESQUISAS_LIMITE`, `SOFIA_PESQUISAS_IDADE_MAXIMA_DIAS`

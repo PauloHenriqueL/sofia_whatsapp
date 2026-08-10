@@ -4,7 +4,7 @@
   {% set nova_dir = 'asc' if (ativa and dir == 'desc') else ('desc' if ativa else 'desc') %}
   <th>
     <a class="th-sort {{ 'active' if ativa }}"
-       href="/painel/?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ chave }}&dir={{ nova_dir }}">
+       href="/painel/conversas?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ chave }}&dir={{ nova_dir }}">
       {{ rotulo }}
       {% if ativa %}<i class="bi bi-caret-{{ 'down' if dir == 'desc' else 'up' }}-fill"></i>
       {% else %}<i class="bi bi-arrow-down-up sort-idle"></i>{% endif %}
@@ -52,7 +52,7 @@
         <i class="bi bi-chat-dots"></i>
         {% if busca %}
           Nada encontrado para "{{ busca }}".
-          <a href="/painel/?filtro={{ filtro }}">Limpar a busca</a>
+          <a href="/painel/conversas?filtro={{ filtro }}">Limpar a busca</a>
         {% else %}
           Nenhuma conversa por aqui ainda.
         {% endif %}

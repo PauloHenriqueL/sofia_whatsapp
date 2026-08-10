@@ -5,8 +5,8 @@
   "start_url": "/painel/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#F7F3EA",
-  "theme_color": "#2E9E8F",
+  "background_color": "#F1F4F3",
+  "theme_color": "#008888",
   "lang": "pt-BR",
   "icons": [
     {

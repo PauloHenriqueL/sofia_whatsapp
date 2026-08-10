@@ -51,12 +51,10 @@
      Só aparece quando há algo — fila vazia não ocupa espaço todo dia. #}
   {% if alertas %}
   <div class="card" style="margin-bottom:18px; border-left:4px solid var(--danger, #c0392b)">
-    <h2 style="font-size:16px; margin:0 0 4px">
-      <i class="bi bi-exclamation-octagon"></i> Pesquisas com alerta ({{ alertas|length }})
-    </h2>
-    <div class="subtitle" style="margin-bottom:12px">
-      Respostas que pedem um humano: nota baixa, falta de encaixe com o terapeuta,
-      reclamação, ou alguém que quer continuar na Allos com outro terapeuta.
+    <div class="card-topo">
+      <h2><i class="bi bi-exclamation-octagon"></i> Pesquisas com alerta ({{ alertas|length }})</h2>
+      <div class="nota">Respostas que pedem um humano: nota baixa, falta de encaixe com o terapeuta,
+      reclamação, ou alguém que quer continuar na Allos com outro terapeuta.</div>
     </div>
     <table class="table">
       <thead>
@@ -85,11 +83,9 @@
   {% endif %}
 
   <div class="card" style="margin-bottom:18px">
-    <h2 style="font-size:16px; margin:0 0 4px">
-      <i class="bi bi-hourglass-split"></i> Esperando a 1ª consulta ({{ espera|length }})
-    </h2>
-    <div class="subtitle" style="margin-bottom:12px">
-      Dias desde o cadastro. Em vermelho, fora da meta de {{ meta_dias }} dias.
+    <div class="card-topo">
+      <h2><i class="bi bi-hourglass-split"></i> Esperando a 1ª consulta ({{ espera|length }})</h2>
+      <div class="nota">Dias desde o cadastro. Em vermelho, fora da meta de {{ meta_dias }} dias.</div>
     </div>
     <table class="table">
       <thead>
@@ -126,18 +122,16 @@
   </div>
 
   <div class="card" style="margin-bottom:18px">
-    <h2 style="font-size:16px; margin:0 0 4px">
-      <i class="bi bi-cash-coin"></i> Pronto pra cobrança ({{ cobranca|length }})
-    </h2>
-    <div class="subtitle" style="margin-bottom:12px">
-      Já tiveram a 1ª consulta realizada.
+    <div class="card-topo">
+      <h2><i class="bi bi-cash-coin"></i> Pronto pra cobrança ({{ cobranca|length }})</h2>
+      <div class="nota">Já tiveram a 1ª consulta realizada.
       {% if cobranca_automatica %}
         <strong>A cobrança automática está ligada</strong> — a Sofia manda o link
         e o Pix sozinha. A coluna Pagamento mostra o que ela já fez; só mande à
         mão quem aparecer com aviso de falha.
       {% else %}
         Envie o link de pagamento e marque como resolvido.
-      {% endif %}
+      {% endif %}</div>
     </div>
     <table class="table">
       <thead>

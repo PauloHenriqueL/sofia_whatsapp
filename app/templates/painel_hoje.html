@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block titulo %}Hoje · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app">
+  <div class="page-head">
+    <div>
+      <h1>Hoje</h1>
+      <div class="subtitle">O que precisa de você, e o que a Sofia fez sozinha</div>
+    </div>
+    <a class="btn btn-ghost" href="/painel/"><i class="bi bi-arrow-clockwise"></i> Atualizar</a>
+  </div>
+
+  {% if erro %}
+  <div class="aviso aviso--erro">
+    <i class="bi bi-exclamation-triangle"></i> {{ erro }}
+  </div>
+  {% endif %}
+
+  <div class="tiras">
+    <div class="tira tira--destaque">
+      <div class="n">{{ numeros.pendentes }}</div>
+      <div class="l">esperando você <span class="muted">· agora</span></div>
+    </div>
+    <div class="tira"><div class="n">{{ numeros.novas }}</div><div class="l">pessoas novas nos {{ janela_dias }} dias</div></div>
+    <div class="tira"><div class="n">{{ numeros.cadastradas }}</div><div class="l">cadastradas no Hamilton</div></div>
+    <div class="tira"><div class="n">{{ numeros.pesquisas }}</div><div class="l">pesquisas conduzidas</div></div>
+  </div>
+
+  {# Estado das automações à vista: ligar a cobrança muda o que a Sofia diz pro
+     paciente, e isso não pode ficar só escondido na tela de configurações. #}
+  <div class="automacoes">
+    <b style="color:var(--text-primary)">A Sofia está:</b>
+    {% for a in automacoes %}
+      <span class="chip {{ 'chip--ok' if a.ligada }}">
+        <span class="ponto"></span>{{ a.on if a.ligada else a.off }}
+      </span>
+    {% endfor %}
+    <a class="fim" href="/painel/config">Mudar →</a>
+  </div>
+
+  {# ── Fila 1: parou e está esperando gente ─────────────────────────────── #}
+  <div class="card card--urgente" style="margin-bottom:16px">
+    <div class="card-topo">
+      <div>
+        <h2>
+          <i class="bi bi-exclamation-triangle" style="color:var(--warm-400)"></i>
+          Precisa de você agora
+          {% if pendencias %}<span class="conta conta--urgente">{{ pendencias|length }}</span>{% endif %}
+        </h2>
+        <div class="nota">
+          A Sofia parou e está esperando uma pessoa. <b>Não some com o tempo</b> —
+          fica aqui até alguém resolver, mesmo que seja de semanas atrás.
+        </div>
+      </div>
+    </div>
+    {% if pendencias %}
+    <div class="fila">
+      {% for p in pendencias %}
+      <div class="item">
+        <div class="quem">
+          <div class="nome">{{ p.nome }}</div>
+          <div class="meta">{{ p.numero }}</div>
+        </div>
+        <div class="tipo"><span class="chip chip--urgente">{{ p.rotulo }}</span></div>
+        <div class="oque">{{ p.texto }}</div>
+        <div class="quando">{{ p.quando|desde }}</div>
+        <a class="btn btn-primary btn-sm" href="/painel/conversas/{{ p.conversa_id }}/">Abrir</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card-corpo">
+      <div class="empty" style="padding:28px 20px">
+        <img class="vazio-marca" src="/static/marca/allos-grafismo-teal.png" alt="">
+        <div style="font-weight:600; color:var(--text-primary)">Nada esperando por você</div>
+        <div style="font-size:13.5px">A Sofia está dando conta sozinha.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Fila 2: relógio correndo, mas ninguém travado ────────────────────── #}
+  {% if de_olho %}
+  <div class="card card--atencao" style="margin-bottom:16px">
+    <div class="card-topo">
+      <div>
+        <h2>
+          <i class="bi bi-eye" style="color:#E2A854"></i>
+          De olho
+          <span class="conta conta--atencao">{{ de_olho|length }}</span>
+        </h2>
+        <div class="nota">Ninguém está travado, mas o relógio está correndo. Sai daqui sozinho se a coisa andar.</div>
+      </div>
+    </div>
+    <div class="fila">
+      {% for d in de_olho %}
+      <div class="item">
+        <div class="quem">
+          <div class="nome">{{ d.nome }}</div>
+          <div class="meta">{{ d.numero }}</div>
+        </div>
+        <div class="tipo"><span class="chip chip--atencao">{{ d.rotulo }}</span></div>
+        <div class="oque">{{ d.texto }}</div>
+        <div class="quando">{{ d.quando|desde }}</div>
+        <a class="btn btn-ghost btn-sm" href="/painel/conversas/{{ d.conversa_id }}/">Abrir</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Fila 3: notícia, não tarefa ──────────────────────────────────────── #}
+  {% if resumo %}
+  <div class="card card--calmo">
+    <div class="card-topo">
+      <div>
+        <h2>
+          <i class="bi bi-check2-all" style="color:var(--teal-500)"></i>
+          A Sofia resolveu sozinha nos {{ janela_dias }} dias
+        </h2>
+        <div class="nota">Nada pra fazer aqui — é só pra você saber que aconteceu.</div>
+      </div>
+    </div>
+    <div class="fila fila--resumo">
+      {% for r in resumo %}
+      <div class="item">
+        <div class="quem">
+          <div class="nome">{{ r.titulo }}</div>
+          <div class="meta">{{ r.detalhe }}</div>
+        </div>
+        <div class="quando">{{ janela_dias }} dias</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

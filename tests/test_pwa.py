@@ -87,7 +87,7 @@ class TestManifest:
             assert r.headers["content-type"] == "image/png"
 
     def test_theme_color_e_a_do_design_system(self, manifest):
-        assert manifest["theme_color"] == "#2E9E8F"  # --teal-500
+        assert manifest["theme_color"] == "#008888"  # --teal-500 (Marrs Green do guia v2)
 
 
 class TestServiceWorkerNaoCacheiaDadoDePaciente:

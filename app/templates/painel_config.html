@@ -2,13 +2,16 @@
 {% block titulo %}Configurações · Sofia{% endblock %}
 {% block corpo %}
 {% include "_topbar.html" %}
-<div class="container-app" style="max-width:560px">
-  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar</a>
-
-  <div class="page-head" style="margin-top:10px">
+{# A tela era uma lista plana de 15 campos de naturezas diferentes (dinheiro,
+   prazos, limiares, interruptores), com o rótulo fazendo as vezes de ajuda e
+   todo o contexto amontoado num bloco no rodapé. Agora cada ajuste é uma linha
+   com nome curto, uma frase de efeito embaixo e a unidade colada no input; os
+   grupos vêm de `config_negocio.GRUPOS`. #}
+<div class="container-app" style="max-width:820px">
+  <div class="page-head">
     <div>
       <h1>Configurações</h1>
-      <div class="subtitle">Valores que a Sofia usa nas conversas</div>
+      <div class="subtitle">O que a Sofia faz sozinha, e com que números ela trabalha</div>
     </div>
   </div>
 
@@ -18,61 +21,89 @@
   </div>
   {% endif %}
 
-  <form class="card" method="post" action="/painel/config">
-    {% for chave, campo in campos.items() %}
-      {% if campo[2] == 'bool' %}
-      <div class="login-field" style="margin-bottom:16px; display:flex; align-items:center; gap:10px">
-        <input type="checkbox" id="{{ chave }}" name="{{ chave }}"
-               {% if valores[chave] %}checked{% endif %} style="width:auto; margin:0">
-        <label for="{{ chave }}" style="margin:0">{{ campo[0] }}</label>
+  <form method="post" action="/painel/config">
+    {% for chave_grupo, titulo, icone, descricao in grupos %}
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-topo">
+        <div>
+          <h2><i class="bi {{ icone }}" style="color:var(--teal-500)"></i> {{ titulo }}</h2>
+          <div class="nota">{{ descricao|safe }}</div>
+        </div>
       </div>
-      {% elif campo[2] == 'texto' %}
-      <div class="login-field" style="margin-bottom:16px">
-        <label for="{{ chave }}">{{ campo[0] }}</label>
-        <input class="input" type="text" id="{{ chave }}" name="{{ chave }}"
-               value="{{ valores[chave] }}" autocomplete="off">
+
+      {% for chave, campo in campos_do_grupo(chave_grupo).items() %}
+      <div class="campo" {% if loop.first %}style="border-top:1px solid var(--border-default)"{% endif %}>
+        <div class="txt">
+          <label class="nome" for="{{ chave }}">{{ campo.rotulo }}</label>
+          {% if campo.ajuda %}<div class="ajuda">{{ campo.ajuda|safe }}</div>{% endif %}
+        </div>
+
+        {% if campo.tipo == 'bool' %}
+          {# Sem confirmação ao ligar, inclusive na cobrança: decisão do Paulo.
+             O estado fica escrito por extenso ao lado da chave, e a tela Hoje
+             repete o que está ligado — é ali que o risco de esquecer mora. #}
+          <div class="linha-switch">
+            <span class="estado {{ 'on' if valores[chave] }}" data-fem="{{ 'sim' if campo.rotulo.startswith(('Cobrar','Pedir','Ouvir')) }}">
+              {%- if valores[chave] %}Ligado{% else %}Desligado{% endif -%}
+            </span>
+            <label class="switch">
+              <input type="checkbox" id="{{ chave }}" name="{{ chave }}" {% if valores[chave] %}checked{% endif %}>
+              <i></i>
+            </label>
+          </div>
+        {% elif campo.tipo == 'texto' %}
+          <div class="entrada">
+            <input class="largo" type="text" id="{{ chave }}" name="{{ chave }}"
+                   value="{{ valores[chave] }}" autocomplete="off">
+          </div>
+        {% else %}
+          {# min="0": há campos em que 0 é o valor que DESLIGA (desconto máximo e
+             os três limiares de alerta). Com min="1" eles eram insalváveis. #}
+          <div class="entrada">
+            {% if campo.prefixo %}<span class="prefixo">{{ campo.prefixo }}</span>{% endif %}
+            <input type="number" min="0" id="{{ chave }}" name="{{ chave }}"
+                   value="{{ valores[chave] }}" required>
+            {% if campo.sufixo %}<span class="sufixo">{{ campo.sufixo }}</span>{% endif %}
+          </div>
+        {% endif %}
       </div>
-      {% else %}
-      <div class="login-field" style="margin-bottom:16px">
-        <label for="{{ chave }}">{{ campo[0] }}</label>
-        {# min="0": há campos em que 0 é o valor que DESLIGA (desconto máximo e
-           os três limiares de alerta). Com min="1" eles eram insalváveis. #}
-        <input class="input" type="number" min="0" id="{{ chave }}" name="{{ chave }}"
-               value="{{ valores[chave] }}" required>
-      </div>
-      {% endif %}
+      {% endfor %}
+    </div>
     {% endfor %}
-    <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
+
+    <div class="salvar-barra">
+      <span class="dica">Alterações valem na hora — não precisa reiniciar nada.</span>
+      <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
+    </div>
   </form>
 
-  <div class="card" style="margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap">
-    <div>
-      <div style="font-weight:600"><i class="bi bi-chat-square-text"></i> Prompts da Sofia</div>
-      <div class="subtitle" style="margin-top:2px">Os textos que definem como a Sofia conversa e responde dúvidas.</div>
+  <div class="card" style="margin-top:16px">
+    <div class="campo" style="align-items:center">
+      <div class="txt">
+        <div class="nome">Como a Sofia fala</div>
+        <div class="ajuda">
+          Os textos que definem o jeito dela conversar, a base de conhecimento e os
+          roteiros de pesquisa e de cobrança.
+        </div>
+      </div>
+      <a class="btn btn-ghost" href="/painel/prompts"><i class="bi bi-pencil-square"></i> Editar prompts</a>
     </div>
-    <a class="btn btn-ghost" href="/painel/prompts"><i class="bi bi-pencil-square"></i> Editar prompts</a>
-  </div>
-
-  <div class="subtitle" style="margin-top:14px">
-    <p style="margin:0 0 8px">
-      <strong>Prazos:</strong> o follow-up e o lembrete da cobrança precisam ser
-      menos de 24 horas — passado esse tempo sem o paciente escrever, o WhatsApp
-      não deixa mais mandar mensagem livre. Valores maiores viram 23 automaticamente.
-    </p>
-    <p style="margin:0 0 8px">
-      <strong>Zero desliga:</strong> desconto máximo em 0 impede a Sofia de oferecer
-      desconto sozinha; cada limiar de alerta em 0 desliga aquele aviso.
-    </p>
-    <p style="margin:0 0 8px">
-      <strong>Cobrança automática:</strong> ligada, a Sofia fala de mensalidade
-      sozinha com quem já teve a primeira sessão <em>realizada</em> no Hamilton.
-      Apagar a chave Pix faz ela oferecer só o cartão.
-    </p>
-    <p style="margin:0">
-      "Mostrar digitando/visto" liga os indicadores de presença. "Ouvir áudios"
-      transcreve o que o paciente manda (tem custo por minuto); desligado, áudio
-      vira escalada pra você.
-    </p>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // O rótulo ao lado da chave acompanha o clique — sem isso ele mentiria até
+  // a página recarregar. O gênero vem do próprio rótulo do campo.
+  document.querySelectorAll('.switch input').forEach(function (inp) {
+    inp.addEventListener('change', function () {
+      var e = inp.closest('.linha-switch').querySelector('.estado');
+      var fem = e.dataset.fem === 'sim';
+      e.textContent = inp.checked ? (fem ? 'Ligada' : 'Ligado') : (fem ? 'Desligada' : 'Desligado');
+      e.classList.toggle('on', inp.checked);
+    });
+    inp.dispatchEvent(new Event('change'));
+  });
+</script>
 {% endblock %}

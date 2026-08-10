@@ -3,7 +3,7 @@
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app">
-  <a href="/painel/" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
+  <a href="/painel/conversas" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
 
   <div class="page-head" style="margin-top:10px">
     <div>
@@ -79,14 +79,12 @@
   {% if m.tempo_primeira_sessao %}
   {% set t = m.tempo_primeira_sessao %}
   <div class="card" style="margin-bottom:16px">
-    <h2 style="font-size:16px; margin:0 0 4px">
-      <i class="bi bi-stopwatch"></i> Da primeira mensagem até a primeira sessão
-    </h2>
-    <div class="subtitle" style="margin-bottom:12px">
-      Baseado em {{ t.pacientes }} paciente{{ 's' if t.pacientes != 1 }} que já
-      {{ 'tiveram' if t.pacientes != 1 else 'teve' }} a primeira consulta realizada.
+    <div class="card-topo">
+      <h2><i class="bi bi-stopwatch"></i> Da primeira mensagem até a primeira sessão</h2>
+      <div class="nota">Baseado em {{ t.pacientes }} paciente{{ 's' if t.pacientes != 1 }} que já
+      {{ 'tiveram' if t.pacientes != 1 else 'teve' }} a primeira consulta realizada.</div>
     </div>
-    <div class="kpis">
+    <div class="kpi-grid">
       <div class="kpi">
         <div class="num">{{ t.mediana }}<span style="font-size:16px"> dias</span></div>
         <div class="lbl">Mediana <span class="muted">(o caso típico)</span></div>
@@ -106,8 +104,10 @@
   {# ── Pesquisa e cobrança ─────────────────────────────────────────────────── #}
   {% if m.pesquisas_em_curso or m.alertas_total or m.cobrancas_por_status %}
   <div class="card" style="margin-bottom:16px">
-    <h2 style="font-size:16px; margin:0 0 12px">Pesquisa e cobrança</h2>
-    <div class="kpis" style="margin-bottom:{{ '12px' if m.cobrancas_por_status else '0' }}">
+    <div class="card-topo">
+      <h2>Pesquisa e cobrança</h2>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:{{ '12px' if m.cobrancas_por_status else '0' }}">
       <div class="kpi">
         <div class="num">{{ m.pesquisas_em_curso }}</div>
         <div class="lbl">Pesquisas em andamento</div>
@@ -133,7 +133,9 @@
   {% endif %}
 
   <div class="card" style="margin-bottom:16px">
-    <h2 style="font-size:16px; margin:0 0 12px">Leads nos últimos 7 dias</h2>
+    <div class="card-topo">
+      <h2>Leads nos últimos 7 dias</h2>
+    </div>
     {% set maxdia = (m.leads_por_dia | map(attribute='qtd') | max) or 1 %}
     {% for d in m.leads_por_dia %}
     <div class="bar-row">
@@ -145,10 +147,10 @@
   </div>
 
   <div class="card">
-    <h2 style="font-size:16px; margin:0 0 4px">Escaladas em aberto, por motivo</h2>
-    <div class="subtitle" style="margin-bottom:12px">
-      Só as que ainda não foram tratadas — escalada fecha quando você devolve a
-      conversa ao bot ou arquiva.
+    <div class="card-topo">
+      <h2>Escaladas em aberto, por motivo</h2>
+      <div class="nota">Só as que ainda não foram tratadas — escalada fecha quando você devolve a
+      conversa ao bot ou arquiva.</div>
     </div>
     {% if m.escaladas_por_motivo %}
       {% set maxmot = (m.escaladas_por_motivo | map(attribute='qtd') | max) or 1 %}

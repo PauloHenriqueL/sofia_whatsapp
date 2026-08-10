@@ -13,7 +13,7 @@
 
   {# Abas: as duas telas que a Thainá usa o tempo todo, lado a lado. #}
   <div class="toolbar">
-    <form class="search" method="get" action="/painel/">
+    <form class="search" method="get" action="/painel/conversas">
       <input type="hidden" name="ordem" value="{{ ordem }}">
       <input type="hidden" name="dir" value="{{ dir }}">
       <input type="hidden" name="filtro" value="{{ filtro }}">
@@ -21,7 +21,7 @@
       <input class="input" type="search" name="busca" value="{{ busca }}"
              placeholder="Buscar por nome, número ou mensagem...">
       {% if busca %}
-        <a class="btn btn-ghost btn-sm" href="/painel/?filtro={{ filtro }}" title="Limpar busca">
+        <a class="btn btn-ghost btn-sm" href="/painel/conversas?filtro={{ filtro }}" title="Limpar busca">
           <i class="bi bi-x-lg"></i>
         </a>
       {% endif %}
@@ -37,7 +37,7 @@
       <div class="dropdown-menu">
         {% for chave, rotulo in filtros.items() %}
           <a class="{{ 'active' if filtro == chave }}"
-             href="/painel/?filtro={{ chave }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}">
+             href="/painel/conversas?filtro={{ chave }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}">
             {% if filtro == chave %}<i class="bi bi-check2"></i>{% endif %}{{ rotulo }}
           </a>
         {% endfor %}
@@ -61,7 +61,7 @@
 
   {# Paginação. Antes não existia e a lista parava na 50ª conversa em silêncio. #}
   {% if pagina > 1 or tem_proxima %}
-  {% set base = '/painel/?filtro=' ~ filtro ~ '&busca=' ~ (busca|urlencode) ~ '&ordem=' ~ ordem ~ '&dir=' ~ dir %}
+  {% set base = '/painel/conversas?filtro=' ~ filtro ~ '&busca=' ~ (busca|urlencode) ~ '&ordem=' ~ ordem ~ '&dir=' ~ dir %}
   <div class="toolbar" style="justify-content:space-between; margin-top:12px">
     {% if pagina > 1 %}
       <a class="btn btn-ghost" href="{{ base }}&pagina={{ pagina - 1 }}">

@@ -125,7 +125,7 @@ class TestAuth:
     @pytest.mark.asyncio
     async def test_painel_sem_login_redireciona(self, ambiente):
         client, _ = ambiente
-        resp = await client.get("/painel/")
+        resp = await client.get("/painel/conversas")
         assert resp.status_code == 303
         assert resp.headers["location"] == "/login"
 
@@ -148,7 +148,7 @@ class TestListaEDetalhe:
         client, maker = ambiente
         await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/painel/")
+        resp = await client.get("/painel/conversas")
         assert resp.status_code == 200
         assert "Conversas" in resp.text
         assert "5531999998888" in resp.text
@@ -311,7 +311,7 @@ class TestAcoes:
 
         resp = await client.post(f"/painel/conversas/{cid}/reiniciar", follow_redirects=False)
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/painel/"
+        assert resp.headers["location"] == "/painel/conversas"
 
         async with maker() as s:
             assert await s.get(Conversa, cid) is None
@@ -334,7 +334,7 @@ class TestPaginacaoDaLista:
         await _login(client)
         for i in range(55):
             await _seed_conversa(maker, numero=f"55319{i:07d}")
-        resp = await client.get("/painel/")
+        resp = await client.get("/painel/conversas")
         assert resp.status_code == 200
         assert "Próximas" in resp.text
         assert "pagina=2" in resp.text
@@ -345,7 +345,7 @@ class TestPaginacaoDaLista:
         await _login(client)
         for i in range(55):
             await _seed_conversa(maker, numero=f"55319{i:07d}")
-        resp = await client.get("/painel/?pagina=2")
+        resp = await client.get("/painel/conversas?pagina=2")
         assert resp.status_code == 200
         assert "Anteriores" in resp.text
         assert "Próximas" not in resp.text  # 55 conversas = 2 páginas
@@ -355,7 +355,7 @@ class TestPaginacaoDaLista:
         client, maker = ambiente
         await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/painel/")
+        resp = await client.get("/painel/conversas")
         assert "Próximas" not in resp.text
         assert "Anteriores" not in resp.text
 
@@ -476,7 +476,7 @@ class TestBuscaEOrdenacao:
         client, maker = ambiente
         await _login(client)
         await _seed_conversa(maker)
-        resp = await client.get("/painel/?busca=oi&ordem=nome&dir=asc&filtro=todas")
+        resp = await client.get("/painel/conversas?busca=oi&ordem=nome&dir=asc&filtro=todas")
         assert resp.status_code == 200
 
 
@@ -765,12 +765,12 @@ class TestPaginasDoPainel:
     @pytest.mark.parametrize(
         "url",
         [
-            "/painel/",
-            "/painel/?filtro=humano",
-            "/painel/?filtro=escalada",
-            "/painel/?filtro=cadastradas_hoje",
-            "/painel/?filtro=cadastrados",
-            "/painel/?busca=oi&ordem=nome&dir=asc",
+            "/painel/conversas",
+            "/painel/conversas?filtro=humano",
+            "/painel/conversas?filtro=escalada",
+            "/painel/conversas?filtro=cadastradas_hoje",
+            "/painel/conversas?filtro=cadastrados",
+            "/painel/conversas?busca=oi&ordem=nome&dir=asc",
             "/painel/config",
             "/painel/prompts",
             "/painel/metricas",
@@ -812,7 +812,7 @@ class TestPaginasDoPainel:
     @pytest.mark.asyncio
     async def test_todas_as_paginas_exigem_login(self, ambiente):
         client, _ = ambiente
-        for url in ("/painel/", "/painel/config", "/painel/metricas", "/painel/prompts"):
+        for url in ("/painel/", "/painel/conversas", "/painel/config", "/painel/metricas", "/painel/prompts"):
             assert (await client.get(url)).status_code == 303, url
 
 
@@ -961,7 +961,7 @@ class TestCobrancaResolvidaEReabrir:
         await client.post(f"/painel/conversas/{cid}/cobranca-resolvida")
         # Continua acessível e listada.
         assert (await client.get(f"/painel/conversas/{cid}/")).status_code == 200
-        assert (await client.get("/painel/")).status_code == 200
+        assert (await client.get("/painel/conversas")).status_code == 200
 
     @pytest.mark.asyncio
     async def test_nome_hostil_nao_quebra_o_html_nem_injeta(self, ambiente):
@@ -1045,9 +1045,9 @@ class TestArquivamento:
 
         resp = await client.post(f"/painel/conversas/{cid}/arquivar")
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/painel/?feito=arquivada"
+        assert resp.headers["location"] == "/painel/conversas?feito=arquivada"
 
-        html = (await client.get("/painel/")).text
+        html = (await client.get("/painel/conversas")).text
         assert "5531900001111" not in html
         assert "5531900002222" in html
         async with maker() as s:
@@ -1065,7 +1065,7 @@ class TestArquivamento:
         await _seed_conversa(maker, numero="5531900002222")
         await client.post(f"/painel/conversas/{cid}/arquivar")
 
-        html = (await client.get("/painel/?filtro=arquivadas")).text
+        html = (await client.get("/painel/conversas?filtro=arquivadas")).text
         assert "5531900001111" in html
         assert "5531900002222" not in html
 
@@ -1099,7 +1099,7 @@ class TestArquivamento:
         resp = await client.post(f"/painel/conversas/{cid}/desarquivar")
         assert resp.status_code == 303
         assert resp.headers["location"] == f"/painel/conversas/{cid}/"
-        html = (await client.get("/painel/")).text
+        html = (await client.get("/painel/conversas")).text
         assert "5531900001111" in html
         async with maker() as s:
             assert (await s.get(Conversa, cid)).arquivada_em is None
@@ -1110,7 +1110,7 @@ class TestArquivamento:
         await _login(client)
         cid = await _seed_conversa(maker, numero="5531900001111")
         await client.post(f"/painel/conversas/{cid}/arquivar")
-        html = (await client.get("/painel/?busca=5531900001111")).text
+        html = (await client.get("/painel/conversas?busca=5531900001111")).text
         # O termo ecoa no campo de busca; o que não pode aparecer é a linha.
         assert f"/painel/conversas/{cid}/" not in html
         assert "Nada encontrado" in html
@@ -1129,5 +1129,5 @@ class TestArquivamento:
             c = await s.get(Conversa, cid)
             c.arquivada_em = c.criada_em
             await s.commit()
-        html = (await client.get("/painel/?filtro=humano")).text
+        html = (await client.get("/painel/conversas?filtro=humano")).text
         assert "5531900001111" not in html

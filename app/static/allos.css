@@ -1,24 +1,40 @@
-/* Allos Design System — Painel da Sofia (inspirado no Hamilton). Tema claro,
-   neutros em tom creme (aconchegante); teal/âmbar/vermelho são a identidade. */
+/* Allos Design System — Painel da Sofia.
+   Segue o guia de identidade v2 da Allos (`Allos_IdVisual - v2.pdf`):
+
+     Marrs Green (primária)     100 #80D9D4 · 300 #00B3A8 · 500 #008888 · 700 #002B2A
+     Vermelho Queimado (2ª)     100 #F9CFAC · 300 #EAAC7D · 500 #C05C35 · 700 #3A1C10
+     Ouro Velho (3ª)            100 #F6E5CC · 300 #F2C988 · 500 #E2A854 · 700 #2D2211
+     Cinza Esverdeado (neutra)  100 #CBD3D2 · 300 #859795 · 500 #516B68 · 700 #18201F
+
+   Antes daqui o painel usava #2E9E8F e neutros creme — teal que não é o da marca
+   (o Hamilton e a própria logo usam #008888) e uma família de neutros que briga
+   com o cinza esverdeado do guia. Os NOMES das variáveis foram mantidos porque os
+   templates os usam; só os valores mudaram.
+
+   Tipografia: o guia pede **Frontage** nos títulos, que é paga e não existe como
+   webfont — ele mesmo resolve ("caso alguma fonte esteja indisponível, utilizar
+   Montserrat"). Corpo é **Inter**, como o guia manda. */
 :root {
-  --teal-400:#5BB8AE; --teal-500:#2E9E8F; --teal-600:#238578; --teal-700:#1A6B60;
-  --teal-glow:rgba(46,158,143,.12); --teal-glow-strong:rgba(46,158,143,.2);
-  --warm-400:#DA6C34; --warm-500:#C45A28;
-  --bg-page:#F7F3EA; --bg-card:#FFFDF8; --bg-input:#F6F0E4; --bg-hover:#F1EADC;
-  --text-primary:#241F17; --text-secondary:#5C5344; --text-tertiary:#746A5A;
-  --border-subtle:#EFE8DA; --border-default:#E4DBC9; --border-strong:#D5C9B2;
-  --border-teal:rgba(46,158,143,.3);
-  --green-bg:rgba(46,158,143,.1); --green-text:#1A6B60; --green-border:rgba(46,158,143,.25);
-  --amber-bg:#FEF3E2; --amber-text:#B45309; --amber-border:#FBD9A8;
-  --red-bg:#FDECEC; --red-text:#C0362C; --red-border:#F5C2BE;
-  --shadow-card:0 1px 3px rgba(58,48,32,.06),0 1px 2px rgba(58,48,32,.04);
-  --grad-primario:linear-gradient(135deg,var(--teal-500),#3AAFA0);
-  --grad-barra:linear-gradient(90deg,var(--teal-600),var(--teal-400));
-  --sombra-teal:0 2px 8px rgba(46,158,143,.3);
-  --sombra-teal-forte:0 4px 14px rgba(46,158,143,.4);
-  --warm-bg:#FBE9D6;
-  --font-display:'Fraunces',Georgia,serif;
-  --font-body:'DM Sans',-apple-system,system-ui,sans-serif;
+  --teal-100:#80D9D4; --teal-300:#00B3A8; --teal-500:#008888; --teal-900:#002B2A;
+  /* aliases herdados: --teal-600 é o tom de TEXTO (contraste em fundo claro) */
+  --teal-400:#00B3A8; --teal-600:#00706E; --teal-700:#002B2A;
+  --teal-glow:rgba(0,136,136,.10); --teal-glow-strong:rgba(0,136,136,.18);
+  --warm-400:#C05C35; --warm-500:#A34B2A;
+  --bg-page:#F1F4F3; --bg-card:#FFFFFF; --bg-input:#F7F9F8; --bg-hover:#EDF1F0;
+  --text-primary:#18201F; --text-secondary:#516B68; --text-tertiary:#7C8C8A;
+  --border-subtle:#ECF0EF; --border-default:#E2E8E7; --border-strong:#CBD3D2;
+  --border-teal:rgba(0,136,136,.3);
+  --green-bg:#E1F1EF; --green-text:#005E5E; --green-border:rgba(0,136,136,.25);
+  --amber-bg:#F6E5CC; --amber-text:#8A6520; --amber-border:#F2C988;
+  --red-bg:#FBE8DC; --red-text:#A34B2A; --red-border:#F0C7AE;
+  --shadow-card:0 1px 2px rgba(24,32,31,.05),0 1px 3px rgba(24,32,31,.04);
+  --grad-primario:linear-gradient(135deg,var(--teal-500),var(--teal-300));
+  --grad-barra:linear-gradient(90deg,var(--teal-500),var(--teal-300));
+  --sombra-teal:0 2px 8px rgba(0,136,136,.25);
+  --sombra-teal-forte:0 4px 14px rgba(0,136,136,.32);
+  --warm-bg:#FBE8DC;
+  --font-display:'Montserrat',system-ui,sans-serif;
+  --font-body:'Inter',-apple-system,system-ui,sans-serif;
 }
 * { box-sizing:border-box; }
 /* O atributo `hidden` sempre vence (classes com display:flex não podem reexibir). */
@@ -30,7 +46,7 @@ body {
 body::before {
   content:''; position:fixed; top:-120px; left:50%; transform:translateX(-50%);
   width:90%; max-width:1100px; height:360px;
-  background:radial-gradient(ellipse 80% 60% at 50% 0,rgba(46,158,143,.07),transparent 70%);
+  background:radial-gradient(ellipse 80% 60% at 50% 0,rgba(0,136,136,.06),transparent 70%);
   pointer-events:none; z-index:0;
 }
 a { color:var(--teal-600); }
@@ -38,24 +54,24 @@ a { color:var(--teal-600); }
 /* Topbar */
 .topbar {
   position:fixed; top:0; left:0; right:0; height:60px; z-index:1020;
-  background:rgba(255,253,248,.85); backdrop-filter:blur(10px);
+  background:rgba(255,255,255,.88); backdrop-filter:blur(10px);
   border-bottom:1px solid var(--border-default);
   display:flex; align-items:center; justify-content:space-between; padding:0 20px;
 }
-.brand { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text-primary); font-weight:700; font-size:17px; }
-.brand .logo {
-  width:32px; height:32px; border-radius:9px; display:grid; place-items:center; color:#fff;
-  background:var(--grad-primario); box-shadow:var(--sombra-teal);
-  font-family:var(--font-display); font-weight:700;
-}
-.brand small { font-family:var(--font-display); font-weight:500; color:var(--teal-600); font-size:13px; }
+.brand { display:flex; align-items:center; gap:11px; text-decoration:none; color:var(--text-primary); }
+/* O guia reserva o grafismo (o α) pra "avatares, ícones, etc." — é exatamente
+   este uso. O lockup completo (allos + ASSOCIAÇÃO) fica na tela de login, onde
+   cabe e é a versão que o guia manda priorizar. */
+.brand .logo { width:27px; height:25px; display:block; }
+.brand .nome { font-family:var(--font-display); font-weight:700; font-size:15px; letter-spacing:.06em; text-transform:uppercase; }
+.brand small { color:var(--text-tertiary); font-size:12px; font-weight:400; letter-spacing:.01em; }
 .topbar-right { display:flex; align-items:center; gap:14px; color:var(--text-secondary); font-size:13px; }
 
 /* Container */
 .container-app { max-width:1100px; margin:0 auto; padding:84px 20px 60px; position:relative; z-index:1; }
 
 /* Headings */
-h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-spacing:-.01em; color:var(--text-primary); margin:0; }
+h1 { font-family:var(--font-display); font-weight:700; font-size:27px; letter-spacing:-.015em; color:var(--text-primary); margin:0; }
 .subtitle { color:var(--text-secondary); font-size:14px; margin-top:2px; }
 .page-head { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
 
@@ -75,7 +91,7 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .table tbody tr:last-child td { border-bottom:none; }
 
 /* Badges */
-.badge { display:inline-block; border-radius:999px; font-weight:600; font-size:11px; padding:4px 10px; letter-spacing:.01em; background:rgba(116,106,90,.14); color:var(--text-secondary); }
+.badge { display:inline-block; border-radius:999px; font-weight:600; font-size:11px; padding:4px 10px; letter-spacing:.01em; background:var(--bg-hover); color:var(--text-secondary); }
 .badge-humano { background:var(--amber-bg); color:var(--amber-text); border:1px solid var(--amber-border); }
 .badge-escalado { background:var(--red-bg); color:var(--red-text); border:1px solid var(--red-border); }
 .badge-cadastrado { background:var(--green-bg); color:var(--green-text); border:1px solid var(--green-border); }
@@ -94,7 +110,7 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 
 /* Inputs */
 .input { width:100%; background:var(--bg-input); border:1.5px solid var(--border-strong); border-radius:12px; padding:11px 14px; font-size:14px; color:var(--text-primary); font-family:inherit; transition:all .2s; }
-.input:focus { outline:none; border-color:var(--teal-500); background:var(--bg-card); box-shadow:0 0 0 3px rgba(46,158,143,.15); }
+.input:focus { outline:none; border-color:var(--teal-500); background:var(--bg-card); box-shadow:0 0 0 3px rgba(0,136,136,.15); }
 .input::placeholder { color:var(--text-tertiary); }
 
 /* Chat */
@@ -113,8 +129,8 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 
 /* Login */
 .login-wrap { min-height:100vh; display:grid; place-items:center; padding:20px; }
-.login-card { background:var(--bg-card); border:1px solid var(--border-default); border-radius:22px; box-shadow:0 20px 50px rgba(58,48,32,.1); padding:40px 34px; width:100%; max-width:400px; text-align:center; }
-.login-logo { width:62px; height:62px; border-radius:17px; margin:0 auto 18px; background:var(--grad-primario); display:grid; place-items:center; color:#fff; font-family:var(--font-display); font-size:30px; font-weight:700; box-shadow:0 8px 22px rgba(46,158,143,.35); }
+.login-card { background:var(--bg-card); border:1px solid var(--border-default); border-radius:22px; box-shadow:0 20px 50px rgba(24,32,31,.10); padding:40px 34px; width:100%; max-width:400px; text-align:center; }
+.login-marca { width:186px; max-width:70%; height:auto; display:block; margin:0 auto 20px; }
 .login-card h1 { font-size:24px; margin-bottom:2px; }
 .login-card .subtitle { margin-bottom:26px; }
 .login-field { text-align:left; margin-bottom:14px; }
@@ -153,15 +169,35 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 .data-row dd.vazio { color:var(--text-tertiary); font-style:italic; }
 @media (max-width:640px) { .data-row { flex-direction:column; gap:2px; } .data-row dt { width:auto; } }
 
-/* ── Abas de navegação (Conversas ↔ Acompanhamento) ───────────────────────── */
-.tabs { display:flex; gap:6px; margin:0 0 16px; border-bottom:1.5px solid var(--border-default); }
+/* ── Abas de navegação ─────────────────────────────────────────────────────
+   🔴 As abas ficavam INVISÍVEIS. O `_topbar.html` as punha num `.container-app`
+   com `padding-top:0`, e a topbar é `position:fixed` com 60px — então elas
+   nasciam em y=0, debaixo da barra, em TODA tela do painel. Acompanhamento,
+   Pagamentos e Resultados só eram alcançáveis digitando a URL.
+
+   Agora a faixa das abas ocupa espaço no fluxo (`margin-top` = altura da topbar)
+   e gruda logo abaixo dela na rolagem. O `+ .container-app` corta o respiro que
+   existia só pra compensar a barra fixa — sem isso sobrariam 84px de vazio. */
+.abas-wrap {
+  position:sticky; top:calc(60px + env(safe-area-inset-top)); z-index:1010;
+  margin-top:calc(60px + env(safe-area-inset-top));
+  background:var(--bg-card); border-bottom:1px solid var(--border-default);
+}
+.abas-wrap + .container-app { padding-top:24px; }
+.tabs { display:flex; gap:2px; max-width:1100px; margin:0 auto; padding:0 20px; }
 .tabs .tab {
-  display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-bottom:-1.5px;
-  font-size:14px; font-weight:600; text-decoration:none; color:var(--text-tertiary);
-  border-bottom:2.5px solid transparent; transition:all .2s;
+  display:inline-flex; align-items:center; gap:8px; padding:12px 15px 11px; margin-bottom:-1px;
+  font-size:13.5px; font-weight:500; text-decoration:none; color:var(--text-secondary);
+  border-bottom:2px solid transparent; transition:color .15s, border-color .15s; white-space:nowrap;
 }
 .tabs .tab:hover { color:var(--teal-600); }
-.tabs .tab.active { color:var(--teal-600); border-bottom-color:var(--teal-500); }
+.tabs .tab.active { color:var(--teal-600); font-weight:600; border-bottom-color:var(--teal-500); }
+.tabs .tab.no-fim { margin-left:auto; }
+/* Contador do que está esperando uma pessoa. Só aparece quando há algo. */
+.tabs .tab .pino {
+  background:var(--warm-400); color:#fff; font-size:10.5px; font-weight:700; line-height:1;
+  min-width:17px; height:17px; border-radius:999px; display:grid; place-items:center; padding:0 5px;
+}
 
 /* ── Barra de ferramentas: busca + filtro ─────────────────────────────────── */
 .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
@@ -235,7 +271,7 @@ h1 { font-family:var(--font-display); font-weight:600; font-size:28px; letter-sp
 }
 .btn-citar:hover { color:var(--teal-600); background:var(--teal-glow); }
 .citacao {
-  border-left:3px solid var(--teal-500); background:rgba(58,48,32,.04);
+  border-left:3px solid var(--teal-500); background:rgba(24,32,31,.04);
   padding:6px 10px; margin:2px 0 6px; border-radius:0 8px 8px 0; font-size:13px;
 }
 .citacao-autor { display:block; font-weight:700; color:var(--teal-600); font-size:12px; }
@@ -313,3 +349,141 @@ details.card > summary:hover h2 { color:var(--teal-600); }
 }
 details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 .resolvidos-cabecalho .muted { font-size:13px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Componentes da revisão de 10/08 — tela "Hoje" e configurações
+   ══════════════════════════════════════════════════════════════════════════
+   ⚠️ `.card` continua SEM padding de propósito: metade dos cards abraça uma
+   tabela full-bleed. O que faltava era um lugar pra pôr o conteúdo que NÃO é
+   tabela — antes o texto encostava na borda e o `overflow:hidden` do card
+   fatiava os ícones ao meio. É pra isso que servem `.card-topo`/`.card-corpo`. */
+.card-topo { padding:15px 20px 14px; }
+.card-topo h2 { font-size:15.5px; font-weight:700; font-family:var(--font-display);
+  letter-spacing:-.005em; margin:0; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.card-topo .nota { color:var(--text-secondary); font-size:12.5px; margin-top:3px; line-height:1.45; }
+.card-corpo { padding:16px 20px; }
+.card-topo + .card-corpo { padding-top:0; }
+/* Faixa lateral: a urgência lida antes da leitura. */
+.card--urgente { border-left:3px solid var(--warm-400); }
+.card--atencao { border-left:3px solid #E2A854; }
+.card--calmo   { border-left:3px solid var(--teal-300); }
+
+/* Contador ao lado do título da fila */
+.conta { font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:999px;
+  background:var(--bg-hover); color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+.conta--urgente { background:var(--red-bg); color:var(--red-text); }
+.conta--atencao { background:var(--amber-bg); color:var(--amber-text); }
+
+/* ── Fila de pendências (tela Hoje) ───────────────────────────────────────── */
+.fila { border-top:1px solid var(--border-default); }
+.item { display:flex; align-items:center; gap:14px; padding:12px 20px;
+  border-bottom:1px solid var(--border-default); transition:background .12s; }
+.item:last-child { border-bottom:none; }
+.item:hover { background:var(--bg-input); }
+.item .quem { width:236px; flex:none; min-width:0; }
+.item .nome { font-weight:600; font-size:14px; letter-spacing:-.005em; }
+.item .meta { color:var(--text-tertiary); font-size:12.5px; font-variant-numeric:tabular-nums; margin-top:1px; }
+.item .tipo { width:136px; flex:none; }
+.item .oque { color:var(--text-secondary); font-size:13px; flex:1.4; min-width:0; overflow-wrap:anywhere; }
+.item .oque b { color:var(--text-primary); font-weight:600; }
+.item .quando { color:var(--text-tertiary); font-size:12.5px; white-space:nowrap;
+  font-variant-numeric:tabular-nums; }
+/* No bloco-resumo não existe coluna de tipo: o nome ocupa a linha. */
+.fila--resumo .quem { width:auto; flex:1; }
+
+/* ── Chips de estado ──────────────────────────────────────────────────────── */
+.chip { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600;
+  padding:3px 9px; border-radius:999px; white-space:nowrap;
+  background:var(--bg-hover); color:var(--text-secondary); }
+.chip--urgente { background:var(--red-bg); color:var(--red-text); }
+.chip--atencao { background:var(--amber-bg); color:var(--amber-text); }
+.chip--ok { background:var(--green-bg); color:var(--green-text); }
+.chip .ponto { width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.75; }
+
+/* ── Faixa de números ─────────────────────────────────────────────────────── */
+.tiras { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:16px; }
+.tira { background:var(--bg-card); border:1px solid var(--border-default); border-radius:10px;
+  padding:13px 15px; box-shadow:var(--shadow-card); }
+.tira .n { font-family:var(--font-display); font-size:23px; font-weight:700; line-height:1.15;
+  font-variant-numeric:tabular-nums; }
+.tira .l { color:var(--text-secondary); font-size:12.5px; margin-top:1px; }
+.tira--destaque { background:linear-gradient(180deg,#EAF5F4,var(--bg-card)); border-color:var(--teal-100); }
+.tira--destaque .n { color:var(--teal-600); }
+
+/* Estado das automações à vista, sem virar atrito. */
+.automacoes { display:flex; align-items:center; gap:9px; flex-wrap:wrap; padding:12px 16px;
+  background:var(--bg-input); border:1px dashed var(--border-strong); border-radius:10px;
+  margin-bottom:22px; font-size:13px; color:var(--text-secondary); }
+.automacoes .fim { margin-left:auto; font-size:12.5px; font-weight:600; }
+
+/* ── Configurações: uma linha por ajuste ──────────────────────────────────── */
+.campo { display:flex; align-items:flex-start; justify-content:space-between; gap:20px;
+  padding:14px 20px; border-bottom:1px solid var(--border-default); }
+.campo:last-child { border-bottom:none; }
+.campo .txt { flex:1; min-width:0; }
+.campo .nome { font-weight:600; font-size:14px; }
+.campo .ajuda { color:var(--text-secondary); font-size:12.5px; margin-top:2px; line-height:1.45; max-width:60ch; }
+.campo .ajuda em { color:var(--text-tertiary); font-style:normal; }
+
+/* Input com a unidade grudada (R$ 200, 20 h, 10 %) — a unidade sai do rótulo. */
+.entrada { display:flex; align-items:center; flex:none; }
+.entrada .prefixo, .entrada .sufixo { background:var(--bg-input); border:1px solid var(--border-strong);
+  color:var(--text-tertiary); padding:8px 10px; font-size:13px; font-weight:600; }
+.entrada .prefixo { border-right:0; border-radius:9px 0 0 9px; }
+.entrada .sufixo { border-left:0; border-radius:0 9px 9px 0; }
+.entrada input { border:1px solid var(--border-strong); background:var(--bg-card); padding:8px 11px;
+  font:inherit; font-variant-numeric:tabular-nums; width:88px; color:var(--text-primary); outline:0;
+  text-align:right; border-radius:9px; }
+.entrada .prefixo + input { border-radius:0 9px 9px 0; }
+.entrada input:has(+ .sufixo) { border-radius:9px 0 0 9px; }
+.entrada input:focus { border-color:var(--teal-500); box-shadow:0 0 0 3px var(--teal-glow); position:relative; z-index:1; }
+.entrada input.largo { width:240px; text-align:left; border-radius:9px; }
+
+/* Chave liga/desliga */
+.switch { position:relative; width:42px; height:25px; flex:none; }
+.switch input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; z-index:2; width:100%; height:100%; }
+.switch i { position:absolute; inset:0; border-radius:999px; background:var(--border-strong); transition:background .18s; }
+.switch i::after { content:""; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%;
+  background:#fff; transition:transform .18s; box-shadow:0 1px 3px rgba(24,32,31,.25); }
+.switch input:checked + i { background:var(--teal-500); }
+.switch input:checked + i::after { transform:translateX(17px); }
+.switch input:focus-visible + i { box-shadow:0 0 0 3px var(--teal-glow-strong); }
+.linha-switch { display:flex; align-items:center; gap:12px; flex:none; }
+.estado { font-size:11.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--text-tertiary); width:70px; text-align:right; white-space:nowrap; }
+.estado.on { color:var(--teal-600); }
+
+/* Salvar sempre ao alcance: o formulário é longo e o botão vivia lá no fim. */
+.salvar-barra { position:sticky; bottom:0; z-index:5; padding:14px 20px; margin-top:16px;
+  background:rgba(255,255,255,.93); backdrop-filter:blur(8px);
+  border:1px solid var(--border-default); border-radius:12px;
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.salvar-barra .dica { color:var(--text-secondary); font-size:13px; }
+
+/* Marca d'agua nos estados vazios (grafismo — uso previsto no guia). */
+.vazio-marca { width:74px; height:68px; margin:0 auto 14px; display:block; opacity:.16; }
+
+@media (max-width:640px) {
+  .campo { flex-direction:column; align-items:stretch; gap:12px; }
+  .campo .linha-switch { align-self:flex-start; }
+  .item { flex-wrap:wrap; gap:8px 12px; }
+  .item .quem { width:auto; flex:1; }
+  .item .tipo { width:auto; order:2; }
+  .item .oque { flex:1 1 100%; order:3; }
+  .item .btn { order:4; }
+  .entrada input.largo { width:100%; }
+}
+
+/* Conteúdo que mora direto dentro do card (barras e KPIs de /painel/metricas):
+   o card é full-bleed por causa das tabelas, então quem não é tabela precisa do
+   respiro aqui — sem isso as barras encostavam e o número da direita ficava
+   colado na borda. */
+.card > .kpi-grid, .card > .bar-row { padding-left:20px; padding-right:20px; }
+.card > .kpi-grid { margin:0 0 14px; padding-top:14px; }
+.card-topo + .kpi-grid { padding-top:0; }
+.card > .bar-row:last-child { margin-bottom:16px; }
+.card > .empty { padding:32px 20px; }
+
+/* KPI dentro de card não pode esticar: com dois itens o `auto-fit` dava duas
+   colunas de meia tela pra números de dois dígitos. */
+.card > .kpi-grid { grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); }

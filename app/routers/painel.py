@@ -10,22 +10,31 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import (
-    acompanhamento,
-    cadastro,
-    config_negocio,
-    config_prompt,
-    metricas,
-    midia,
-    painel,
-    whatsapp_client,
-)
+from app.services import acompanhamento, cadastro, config_negocio, config_prompt
+from app.services import hoje as hoje_service
+from app.services import metricas, midia, painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
+
+
+async def _pendencias_na_topbar(request: Request, db: AsyncSession = Depends(get_db)):
+    """Abastece o contador da aba "Hoje" em qualquer tela do painel.
+
+    Fica numa dependência do router (e não no contexto de cada rota) porque a
+    graça do contador é justamente ser visto de outra tela: se ele só existisse
+    na home, ninguém saberia que apareceu coisa nova enquanto lê uma conversa.
+    """
+    request.state.pendencias = await hoje_service.contar_pendencias(db)
+
+
 router = APIRouter(
     prefix="/painel",
     tags=["painel"],
-    dependencies=[Depends(requer_login_pagina), Depends(verificar_origem)],
+    dependencies=[
+        Depends(requer_login_pagina),
+        Depends(verificar_origem),
+        Depends(_pendencias_na_topbar),
+    ],
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -122,6 +131,21 @@ async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int):
 
 
 @router.get("/")
+async def pagina_hoje(request: Request, db: AsyncSession = Depends(get_db)):
+    """A home do painel: o que precisa de uma pessoa, num lugar só.
+
+    Era a lista de conversas. A lista continua existindo em `/painel/conversas`,
+    mas ela responde "quem falou com a Sofia", não "o que eu tenho pra fazer" —
+    e essa segunda pergunta não tinha tela nenhuma.
+    """
+    dados = await hoje_service.montar_hoje(db)
+    return templates.TemplateResponse(
+        "painel_hoje.html",
+        {"request": request, "aba_ativa": "hoje", **dados},
+    )
+
+
+@router.get("/conversas")
 async def pagina_lista(
     request: Request,
     filtro: str = "todas",
@@ -151,7 +175,8 @@ async def pagina_config(request: Request, salvo: int = 0):
         "painel_config.html",
         {
             "request": request,
-            "campos": config_negocio.CAMPOS,
+            "grupos": config_negocio.GRUPOS,
+            "campos_do_grupo": config_negocio.campos_do_grupo,
             "valores": config_negocio.valores(),
             "salvo": salvo,
             "aba_ativa": "config",
@@ -164,10 +189,10 @@ async def salvar_config(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
     novos: dict[str, object] = {}
     for chave, campo in config_negocio.CAMPOS.items():
-        if campo[2] == "bool":
+        if campo.tipo == "bool":
             novos[chave] = chave in form  # checkbox marcado = presente no form
             continue
-        if campo[2] == "texto":
+        if campo.tipo == "texto":
             bruto = form.get(chave)
             if bruto is None:  # campo ausente do form != campo apagado
                 continue
@@ -493,7 +518,7 @@ async def arquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await painel.arquivar(db, conversa)
-    return RedirectResponse("/painel/?feito=arquivada", status_code=303)
+    return RedirectResponse("/painel/conversas?feito=arquivada", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/desarquivar")
@@ -528,4 +553,4 @@ async def reiniciar(conversa_id: int, db: AsyncSession = Depends(get_db)):
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await painel.excluir_conversa(db, conversa)
-    return RedirectResponse("/painel/", status_code=303)
+    return RedirectResponse("/painel/conversas", status_code=303)

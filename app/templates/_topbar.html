@@ -1,24 +1,35 @@
-{# Topbar + navegação. As abas moravam duplicadas em painel_lista, _acompanhamento
-   e _pagamentos — três cópias do mesmo HTML, e por isso "Resultados" nunca entrou
-   em nenhuma delas, e conversa/config/prompts/métricas eram becos sem saída.
-   Aqui elas são únicas: aba nova = uma linha. `aba_ativa` vem do contexto de cada
-   router; telas sem ela (conversa, config, prompts) só não acendem nenhuma. #}
+{# Topbar + navegação, uma cópia só (as abas já moraram duplicadas em três
+   templates, e por isso "Resultados" não entrou em nenhum).
+
+   🔴 As abas ficavam DEBAIXO da topbar fixa: este bloco usava `.container-app`
+   com `padding-top:0` e a topbar é `position:fixed` com 60px, então elas
+   nasciam em y=0 e nenhuma tela do painel mostrava navegação. Agora a faixa é
+   `.abas-wrap`, que ocupa espaço no fluxo e gruda abaixo da topbar na rolagem.
+
+   `aba_ativa` vem do contexto de cada router; `request.state.pendencias` vem da
+   dependência `_pendencias_na_topbar`, que roda em toda página do painel. #}
 <div class="topbar">
   <a href="/painel/" class="brand">
-    <span class="logo">a</span>
-    <span>Allos <small>· Sofia</small></span>
+    <img class="logo" src="/static/marca/allos-grafismo-teal.png" alt="Allos">
+    <span>
+      <span class="nome">Sofia</span>
+      <small>· painel Allos</small>
+    </span>
   </a>
   <div class="topbar-right">
-    <a href="/painel/config" class="muted" title="Configurações"><i class="bi bi-gear"></i> Configurações</a>
     <span class="muted"><i class="bi bi-person-circle"></i> {{ request.session.usuario }}</span>
     <form method="post" action="/logout" style="margin:0">
       <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-box-arrow-right"></i> Sair</button>
     </form>
   </div>
 </div>
-<div class="container-app" style="padding-top:0">
+<div class="abas-wrap">
   <div class="tabs">
-    <a class="tab {{ 'active' if aba_ativa == 'conversas' }}" href="/painel/">
+    <a class="tab {{ 'active' if aba_ativa == 'hoje' }}" href="/painel/">
+      <i class="bi bi-list-check"></i> Hoje
+      {% if request.state.pendencias %}<span class="pino">{{ request.state.pendencias }}</span>{% endif %}
+    </a>
+    <a class="tab {{ 'active' if aba_ativa == 'conversas' }}" href="/painel/conversas">
       <i class="bi bi-chat-dots"></i> Conversas
     </a>
     <a class="tab {{ 'active' if aba_ativa == 'acompanhamento' }}" href="/painel/acompanhamento">
@@ -29,6 +40,9 @@
     </a>
     <a class="tab {{ 'active' if aba_ativa == 'metricas' }}" href="/painel/metricas">
       <i class="bi bi-graph-up"></i> Resultados
+    </a>
+    <a class="tab no-fim {{ 'active' if aba_ativa == 'config' }}" href="/painel/config">
+      <i class="bi bi-sliders"></i> Configurações
     </a>
   </div>
 </div>
