@@ -91,16 +91,28 @@ Comandos dentro da conversa:
 
 ## Testar a pesquisa de entrada
 
-Ela só dispara entre 3h e 5 dias depois do cadastro, e a criação acontece num
-tick do cron e o convite no **seguinte** — então são dois `/pesquisas`:
+**Ela emenda sozinha no cadastro.** Não precisa de cron, de `/adiantar` nem da
+trava `SOFIA_PESQUISAS_ATIVAS` (essa vale só pros outros três questionários):
 
 ```
 (faça o cadastro conversando normalmente)
-/adiantar 4
-/pesquisas      <- cria a Avaliacao de linha de base no Hamilton
-/pesquisas      <- manda o convite
+                <- a Sofia confirma o cadastro e, na mensagem seguinte,
+                   convida pro ORS de linha de base
 (responda as 5 perguntas)
 /estado         <- confira o "tool gravou"
+```
+
+Se o convite **não** vier, o log do uvicorn diz por quê, em uma linha:
+`Pesquisa de entrada dispensada (conversa=N): <motivo>`. Os motivos possíveis
+são as guardas de `pesquisa.motivo_para_pular_entrada` — neuro, acompanhante,
+reencontro, modo humano, `pesquisa_entrada_ativa` desligada no painel.
+
+Pra testar a **rede** (o caminho do cron, que pega cadastro feito pelo painel ou
+convite que não saiu), é preciso envelhecer o cadastro pra vencer a espera de 3h:
+
+```
+/adiantar 4
+/pesquisas      <- cria a Avaliacao E manda o convite no mesmo tick
 ```
 
 ## O que olhar no fim

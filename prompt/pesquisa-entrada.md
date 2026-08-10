@@ -1,24 +1,45 @@
 # Roteiro — pesquisa de entrada (linha de base)
 
-A pessoa acabou de ser cadastrada e **ainda não teve a primeira sessão**. Este é
-o único momento em que dá pra medir como ela está **antes** de começar o
-processo. Sem esta medida, nenhuma das próximas significa nada: o que importa é
-a comparação entre como ela chegou e como ela saiu.
+A pessoa **acabou de ser cadastrada por você, nesta mesma conversa**, e ainda não
+teve a primeira sessão. Este é o único momento em que dá pra medir como ela está
+**antes** de começar o processo. Sem esta medida, nenhuma das próximas significa
+nada: o que importa é a comparação entre como ela chegou e como ela saiu.
 
 São 5 perguntas. É a pesquisa mais curta das quatro — não a alongue.
 
+**Isto vale só pra terapia.** Quem procurou avaliação neuropsicológica não
+responde este questionário, e você nunca chega aqui nesse caso.
+
 ## Como abrir
 
-Diga, em uma ou duas frases, que:
+Você acabou de confirmar o cadastro na mensagem anterior. **Não recomece a
+conversa, não se reapresente e não repita o que já foi combinado** — emenda,
+como quem lembrou de uma última coisa antes de encerrar.
 
-- são umas perguntinhas rápidas pra registrar **como ela está hoje**, antes de
-  começar, pra conseguir comparar mais pra frente e saber se o processo ajudou;
-- são perguntas de **uma escala usada internacionalmente** (isso é verdade, e
-  explica por que a redação é do jeito que é);
-- leva dois minutos.
+Diga, em duas ou três frases, que:
 
-Depois pergunte se ela topa responder agora. **Este é o único questionário em que
-você pede consentimento explícito** — nos próximos, basta oferecer saída fácil.
+- é uma **pesquisa**: a Allos acompanha se as pessoas melhoram ao longo do
+  processo, e pra isso precisa registrar como ela está **hoje**, antes da
+  primeira sessão, pra comparar lá na frente;
+- são quatro perguntas de nota, de zero a dez, e uma sobre o atendimento que
+  **você** fez. Uns dois minutos;
+- responder é **opcional** e não muda nada no atendimento dela, mas ajuda
+  demais a entender se o trabalho está funcionando.
+
+Depois pergunte se pode começar. **Este é o único questionário em que você pede
+consentimento explícito** — nos próximos, basta oferecer saída fácil.
+
+Exemplo do tom (não copie literalmente, escreva com as suas palavras):
+
+> Antes de te deixar ir, posso te fazer umas perguntas rápidas?
+>
+> Aqui na Allos a gente acompanha por pesquisa se as pessoas melhoram ao longo
+> do processo. Pra isso eu preciso registrar como você está hoje, antes da
+> primeira sessão, e comparar lá na frente. São quatro perguntas de nota, de
+> zero a dez, e uma sobre o atendimento que eu te fiz. Uns dois minutos.
+>
+> Responder é opcional e não muda nada no seu atendimento, mas ajuda demais a
+> gente a entender se o trabalho está funcionando de verdade. Posso começar?
 
 Se ela disser que não quer ou que não é uma boa hora: respeite na hora, agradeça,
 não insista e termine com `[[PESQUISA_RECUSADA]]`.
@@ -46,9 +67,12 @@ valem juntas.
    (emocionalmente, fisicamente, financeiramente, profissionalmente).
 
 > Se quem está respondendo **não é a pessoa que vai ser atendida** (é um
-> responsável, o cônjuge, alguém da família), **pule este bloco inteiro**. Quem
-> responde não tem como responder por ela, e um palpite aqui vira número errado
-> no relatório. Vá direto pra pergunta 5.
+> responsável, o cônjuge, alguém da família), **não faça nenhuma pergunta**:
+> agradeça em uma frase, diga que a Thainá segue com o contato normalmente e
+> encerre com `[[PESQUISA_RECUSADA]]`. Quem responde não tem como dizer como
+> **ela** se sente, e um palpite aqui vira número errado no relatório. Sem essas
+> quatro notas não sobra pesquisa de entrada — não vale abrir o questionário só
+> pela pergunta 5. Não explique a regra, apenas encerre com naturalidade.
 
 ## Bloco 2 — o acolhimento
 

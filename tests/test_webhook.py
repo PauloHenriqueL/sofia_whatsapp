@@ -796,6 +796,78 @@ class TestRootEndpoint:
         assert response.headers["location"] == "/painel/"
 
 
+class TestOrsDeEntradaNoCadastro:
+    """O ORS de linha de base emenda no cadastro, na mesma conversa.
+
+    Antes ele dependia do cron (duas voltas, 3h de espera e uma trava no
+    Hamilton) e na prática não acontecia. Aqui o que se testa é o **gatilho**:
+    quem decide se cabe é `pesquisa.iniciar_entrada`, que tem os próprios testes.
+    """
+
+    class _LLMCadastra:
+        def __init__(self):
+            self.n = 0
+
+        async def gerar_resposta(self, historico, tools=None, **kwargs):
+            self.n += 1
+            if self.n == 1:
+                return llm_client.LLMResposta(
+                    texto=None,
+                    tool_calls=[
+                        llm_client.ToolCall(
+                            id="t1",
+                            name="cadastrar_paciente",
+                            arguments={
+                                "nome_completo": "Maria Silva",
+                                "data_nascimento": "1990-01-01",
+                            },
+                        )
+                    ],
+                )
+            return llm_client.LLMResposta(texto="Pronto, te cadastrei.")
+
+    async def _cadastrar(self, existentes, msg_id):
+        fake_hamilton = AsyncMock()
+        fake_hamilton.buscar_paciente_por_telefone = AsyncMock(return_value=existentes)
+        fake_hamilton.criar_paciente = AsyncMock(return_value={"pk_paciente": 99})
+        fake_hamilton.atualizar_paciente = AsyncMock(return_value={})
+        mock_entrada = AsyncMock(return_value=True)
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client", return_value=self._LLMCadastra()
+        ), patch("app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock), patch(
+            "app.services.cadastro.hamilton_client.get_hamilton_client",
+            return_value=fake_hamilton,
+        ), patch(
+            "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ), patch.object(
+            webhook_module.pesquisa, "iniciar_entrada", mock_entrada
+        ):
+            await _rodar(_payload_texto(numero="5531977776666", msg_id=msg_id))
+        return mock_entrada
+
+    @pytest.mark.asyncio
+    async def test_cadastro_novo_emenda_a_pesquisa_de_entrada(self, db_em_memoria):
+        mock_entrada = await self._cadastrar(existentes=[], msg_id="wamid.ors1")
+        mock_entrada.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reencontro_nao_emenda(self, db_em_memoria):
+        """Ficha que já existia no Hamilton não é alguém começando o processo."""
+        existentes = [{"pk_paciente": 42, "nome": "Maria Silva", "observacao": ""}]
+        mock_entrada = await self._cadastrar(existentes=existentes, msg_id="wamid.ors2")
+        mock_entrada.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_turno_sem_cadastro_nao_emenda(self, db_em_memoria):
+        """Uma conversa qualquer não pode disparar pesquisa a cada mensagem."""
+        mock_entrada = AsyncMock(return_value=True)
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=_FakeLLM()), patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ), patch.object(webhook_module.pesquisa, "iniciar_entrada", mock_entrada):
+            await _rodar(_payload_texto(msg_id="wamid.ors3"))
+        mock_entrada.assert_not_awaited()
+
+
 class TestAlertaDeCadastro:
     """Cadastro pela tool avisa a Thainá (antes ela só via abrindo o painel)."""
 
@@ -834,7 +906,12 @@ class TestAlertaDeCadastro:
             return_value=fake_hamilton,
         ), patch(
             "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
-        ) as mock_tpl:
+        ) as mock_tpl, patch.object(
+            # Cadastro novo emenda o ORS de entrada; aqui o assunto é o alerta.
+            webhook_module.pesquisa,
+            "iniciar_entrada",
+            AsyncMock(return_value=False),
+        ):
             await _rodar(_payload_texto(numero="5531977778888", msg_id="wamid.cad"))
 
         mock_tpl.assert_awaited_once()
@@ -939,6 +1016,11 @@ class TestCaptacaoNoCadastro:
             return_value=fake_hamilton,
         ), patch(
             "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
+        ), patch.object(
+            # Cadastro novo emenda o ORS de entrada; aqui o assunto é a captação.
+            webhook_module.pesquisa,
+            "iniciar_entrada",
+            AsyncMock(return_value=False),
         ):
             await _rodar(_payload_texto(numero=numero, msg_id=msg_id))
         captacao_mod.limpar()

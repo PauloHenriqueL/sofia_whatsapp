@@ -57,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada
 from app.services import (
+    cadastro,
     config_negocio,
     config_prompt,
     conversation,
@@ -83,10 +84,16 @@ MOMENTO_PRIMEIRA_SESSAO = "No início do processo (primeira sessão)"
 MOMENTO_ACOMPANHAMENTO = "Durante o acompanhamento terapêutico"
 MOMENTO_ENCERRAMENTO = "Após o encerramento da terapia"
 
-# Pesquisa de entrada (linha de base): as 3h evitam emendar na conversa de
-# acolhimento, que é onde mora a receita. Os 5 dias são o ponto em que baseline
-# velho deixa de ser baseline — depois disso a pessoa já pode ter tido a sessão,
-# e um ORS colhido aí não é comparável com um colhido antes.
+# Pesquisa de entrada (linha de base): o caminho principal é a EMENDA — a Sofia
+# convida logo depois de confirmar o cadastro, na mesma conversa (`iniciar_entrada`).
+# O cron é só a REDE, pra quem foi cadastrado pelo painel ou pra quando o convite
+# não saiu; por isso ele espera as 3h (não atropela a emenda que acabou de rodar)
+# e desiste em 5 dias, que é quando baseline velho deixa de ser baseline.
+#
+# Antes a emenda não existia e TUDO dependia do cron: o convite só saía na
+# SEGUNDA volta dele (uma criava a Avaliacao, a outra abordava), 3h depois do
+# cadastro e com a trava do Hamilton ligada. Três condições invisíveis em série,
+# e na prática a linha de base não acontecia.
 HORAS_ESPERA_ENTRADA = 3
 DIAS_LIMITE_ENTRADA = 5
 
@@ -213,12 +220,23 @@ def _quem_responde(conversa) -> str | None:
     return valor if valor in ("paciente", "acompanhante") else None
 
 
+def _primeiro_nome(avaliacao: dict, conversa) -> str:
+    """Primeiro nome da pessoa, do Hamilton ou do que a Sofia coletou.
+
+    O POST que cria a linha de base devolve um payload enxuto, sem o nome — e
+    nessa hora quem tem o nome é a própria conversa, que acabou de cadastrar.
+    """
+    nome = avaliacao.get("paciente_nome") or ""
+    if not nome:
+        nome = ((getattr(conversa, "dados_coletados", None) or {}).get("nome_completo")) or ""
+    return nome.split(" ")[0]
+
+
 def montar_prompt(avaliacao: dict, conversa=None) -> str:
     """System prompt do turno de pesquisa (substitui o prompt de acolhimento)."""
     base = config_prompt.texto("prompt_pesquisa")
     momento = avaliacao.get("momento") or ""
-    nome = (avaliacao.get("paciente_nome") or "").split(" ")[0]
-    terapeuta = avaliacao.get("terapeuta_nome") or "o terapeuta"
+    nome = _primeiro_nome(avaliacao, conversa)
 
     if momento == MOMENTO_ENCERRAMENTO:
         chave, contexto = "prompt_pesquisa_encerramento", _contexto_encerramento(avaliacao)
@@ -227,11 +245,19 @@ def montar_prompt(avaliacao: dict, conversa=None) -> str:
         # e mais neutro — o pior que acontece é perguntar de menos.
         chave, contexto = _ROTEIROS.get(momento, _ROTEIROS[MOMENTO_PRIMEIRA_SESSAO])
 
+    contexto_atendimento = f"Primeiro nome da pessoa: {nome or '(desconhecido)'}"
+    # Na linha de base NÃO existe terapeuta: a coordenação ainda não fez o match
+    # e o Hamilton grava um sentinela pra não deixar a FK nula. Passar esse nome
+    # pro modelo faria a Sofia citar como "o terapeuta dela" uma pessoa que não
+    # atende ninguém.
+    if momento != MOMENTO_LINHA_DE_BASE:
+        contexto_atendimento += (
+            f"\nTerapeuta dela: {avaliacao.get('terapeuta_nome') or 'o terapeuta'}"
+        )
+
     partes = [
         base,
-        "## Contexto deste atendimento\n\n"
-        f"Primeiro nome da pessoa: {nome or '(desconhecido)'}\n"
-        f"Terapeuta dela: {terapeuta}",
+        f"## Contexto deste atendimento\n\n{contexto_atendimento}",
         contexto,
     ]
 
@@ -246,6 +272,19 @@ def montar_prompt(avaliacao: dict, conversa=None) -> str:
         )
     elif quem == "paciente":
         partes.append("Quem responde é a própria pessoa atendida. Siga o roteiro inteiro.")
+    elif momento == MOMENTO_LINHA_DE_BASE:
+        # A linha de base É o bloco de 0 a 10. Sem ele não sobra pesquisa: quem
+        # responde por outra pessoa não tem como dizer como ELA se sente, e um
+        # palpite viraria número errado no relatório da prefeitura. Por isso aqui
+        # o desconhecido não "pula o bloco" — ele encerra.
+        partes.append(
+            "NÃO se sabe se quem responde é a própria pessoa que vai ser atendida "
+            "ou um acompanhante (responsável, cônjuge). Confirme isso em UMA frase "
+            "curta e natural ANTES de começar as perguntas. Se for acompanhante, "
+            "NÃO faça nenhuma das perguntas: agradeça em uma frase, diga que a "
+            "Thainá segue com o contato normalmente e encerre com "
+            f"{MARCADOR_RECUSA}. Não explique a regra."
+        )
     else:
         partes.append(
             "NÃO se sabe se quem responde é a própria pessoa atendida ou um "
@@ -299,6 +338,111 @@ async def iniciar(
         logger.error("Pesquisa %s enviada mas não marcada no Hamilton: %s", pk, exc)
     await db.commit()
     return True
+
+
+# Sinal de que a conversa é de neuroavaliação, e não de terapia. A linha de base
+# é o ORS, que é instrumento de PROCESSO TERAPÊUTICO: quem vai fazer avaliação
+# neuropsicológica não tem "antes e depois do tratamento" pra medir, e negociação,
+# prazo e laudo dela correm com a Amanda, fora do fluxo da Sofia.
+_MARCA_NEURO = "neuro"
+
+
+async def _e_neuro(db: AsyncSession, conversa: Conversa) -> bool:
+    """A conversa é de neuroavaliação?
+
+    Dois sinais, porque nenhum sozinho basta. A escalada `neuro_reuniao` é o
+    registro objetivo de que a pessoa foi pra fila da Amanda — vale mesmo já
+    resolvida, porque o que ela diz é "o assunto aqui foi neuro". O texto livre
+    pega quem falou de avaliação e ainda assim chegou ao cadastro (ex.: pediu as
+    duas coisas). O Hamilton não ajuda aqui: `Paciente` não tem campo de tipo de
+    serviço — `fk_modalidade` é online/presencial.
+    """
+    dados = conversa.dados_coletados or {}
+    texto = " ".join(str(dados.get(c) or "") for c in ("motivo_busca", "observacoes")).lower()
+    if _MARCA_NEURO in texto:
+        return True
+    achado = await db.execute(
+        select(Escalada.id)
+        .where(Escalada.conversa_id == conversa.id, Escalada.motivo == "neuro_reuniao")
+        .limit(1)
+    )
+    return achado.scalar_one_or_none() is not None
+
+
+async def motivo_para_pular_entrada(db: AsyncSession, conversa: Conversa) -> str | None:
+    """Por que NÃO pedir o ORS de entrada desta pessoa (ou `None` se pode pedir).
+
+    Vale pros dois caminhos — a emenda no cadastro e a rede do cron —, de
+    propósito: duas listas de guarda divergiriam na primeira mudança, e o custo
+    de errar aqui é perguntar "como você está antes de começar?" pra quem já
+    começou, ou perguntar ORS pra quem veio fazer uma avaliação neuropsicológica.
+    """
+    if not config_negocio.valor("pesquisa_entrada_ativa"):
+        return "pesquisa de entrada desligada no painel"
+    if conversa.estado != "cadastrado" or not conversa.paciente_hamilton_id:
+        return "cadastro não concluído no Hamilton"
+    if not cadastro.foi_cadastro_novo(conversa):
+        return "a ficha já existia no Hamilton (reencontro)"
+    if em_pesquisa(conversa):
+        return "já tem pesquisa em curso"
+    # Mesmo teste de `cobranca.em_cobranca`, inline: importar `cobranca` aqui no
+    # topo fecharia o ciclo (ele importa este módulo).
+    if conversa.cobranca_iniciada_em is not None and conversa.cobranca_encerrada_em is None:
+        return "cobrança em curso"
+    if conversa.modo != "bot":
+        # A Thainá está conduzindo. Emendar pesquisa por cima é a Sofia
+        # atropelando um humano — o mesmo problema que o "Assumir controle"
+        # existiu pra resolver.
+        return "conversa em modo humano"
+    if conversa.arquivada_em is not None:
+        return "conversa arquivada"
+    if _quem_responde(conversa) == "acompanhante":
+        # Sem o ORS não sobra pesquisa: o que restaria é só a nota do acolhimento,
+        # e ela não justifica abrir um questionário pra quem acabou de responder
+        # um cadastro inteiro pelo filho.
+        return "quem escreve é acompanhante, não o paciente"
+    if await _e_neuro(db, conversa):
+        return "avaliação neuropsicológica (o ORS é de terapia)"
+    return None
+
+
+async def iniciar_entrada(
+    db: AsyncSession, conversa: Conversa, agora: datetime | None = None
+) -> bool:
+    """Abre o ORS de linha de base logo depois do cadastro, na mesma conversa.
+
+    Este é o caminho principal da pesquisa de entrada. Ele não passa pela fila
+    de pendentes do Hamilton (e portanto não depende de `SOFIA_PESQUISAS_ATIVAS`):
+    a Sofia acabou de criar essa avaliação e já tem o `pk` dela na mão. As travas
+    de lá seguram o acumulado histórico de pendentes; aqui não há acumulado
+    nenhum, é um cadastro que aconteceu há segundos.
+    """
+    motivo = await motivo_para_pular_entrada(db, conversa)
+    if motivo:
+        logger.info("Pesquisa de entrada dispensada (conversa=%s): %s", conversa.id, motivo)
+        return False
+
+    try:
+        # Idempotente do lado do Hamilton: repetir devolve a que já existe.
+        avaliacao = await hamilton_client.get_hamilton_client().criar_avaliacao_entrada(
+            conversa.paciente_hamilton_id
+        )
+    except hamilton_client.HamiltonError as exc:
+        logger.error(
+            "Não consegui criar a avaliação de entrada da conversa %s: %s", conversa.id, exc
+        )
+        return False
+    if not avaliacao:
+        return False
+
+    # Já abordada antes (a rede do cron rodando em cima de uma emenda que já
+    # saiu, ou o contrário). 'pendente' quer dizer sem RESPOSTA, não sem envio.
+    if avaliacao.get("sofia_enviada_em") or (avaliacao.get("status") or "pendente") != "pendente":
+        return False
+
+    # O POST devolve um payload enxuto; o `momento` é o seletor do roteiro e
+    # precisa estar lá mesmo que o serializer mude.
+    return await iniciar(db, conversa, {**avaliacao, "momento": MOMENTO_LINHA_DE_BASE}, agora)
 
 
 async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
@@ -583,16 +727,19 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
     agora = agora or _agora()
     resumo = {"enviadas": 0, "lembretes": 0, "encerradas": 0, "entradas_criadas": 0}
 
-    # A avaliação de linha de base não existe até a Sofia criar. Isso vem ANTES
-    # de ler a fila: criada agora, ela entra na fila do próximo tick — nunca no
-    # mesmo, então a janela de 3h nunca é encurtada por acidente.
-    resumo["entradas_criadas"] = await _criar_entradas(db, agora)
+    # Rede da linha de base: o caminho principal é a emenda no cadastro
+    # (`iniciar_entrada`), e isto aqui pega quem escapou dela — cadastro feito
+    # pelo painel, ou convite que não conseguiu sair na hora. Diferente do resto
+    # da rodada, não passa pela fila de pendentes do Hamilton.
+    resumo["entradas_criadas"] = await _abrir_entradas(db, agora)
 
     try:
         pendentes = await hamilton_client.get_hamilton_client().avaliacoes_pendentes()
     except hamilton_client.HamiltonError as exc:
         logger.error("Não consegui buscar as avaliações pendentes: %s", exc)
         pendentes = []
+
+    pendentes = await _descartar_entradas_obsoletas(pendentes)
 
     for avaliacao in pendentes:
         conversa = await _conversa_do_paciente(db, avaliacao)
@@ -612,7 +759,7 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
 
     resumo.update(await _acompanhar_em_curso(db, agora))
     logger.info(
-        "Pesquisas: %s entradas criadas, %s enviadas, %s lembretes, %s encerradas",
+        "Pesquisas: %s entradas abertas, %s enviadas, %s lembretes, %s encerradas",
         resumo["entradas_criadas"],
         resumo["enviadas"],
         resumo["lembretes"],
@@ -621,16 +768,59 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
     return resumo
 
 
-async def _criar_entradas(db: AsyncSession, agora: datetime) -> int:
-    """Cria no Hamilton a avaliação de linha de base de quem acabou de se cadastrar.
+async def _descartar_entradas_obsoletas(pendentes: list[dict]) -> list[dict]:
+    """Tira da fila a linha de base de quem já tem pesquisa de outro momento.
+
+    A linha de base mede **quem ainda não começou**. Se a mesma pessoa já tem
+    pendente a pesquisa da 1ª sessão (ou uma de saída), a de entrada perdeu o
+    sentido em dobro: o par pré/pós não existe mais, e disparar significaria
+    perguntar *"como você está antes de começar?"* pra quem já foi atendido e já
+    pagou. Foi o que aconteceu com a avaliação 393 no teste de 09/08.
+
+    Marcar como `nao_respondeu` em vez de deixar pendente é o que impede a
+    obsoleta de ressuscitar num tick futuro.
+    """
+    com_outra = {
+        a.get("fk_paciente")
+        for a in pendentes
+        if a.get("momento") != MOMENTO_LINHA_DE_BASE and a.get("fk_paciente")
+    }
+    if not com_outra:
+        return pendentes
+
+    cliente = hamilton_client.get_hamilton_client()
+    vivas = []
+    for avaliacao in pendentes:
+        obsoleta = (
+            avaliacao.get("momento") == MOMENTO_LINHA_DE_BASE
+            and avaliacao.get("fk_paciente") in com_outra
+        )
+        if not obsoleta:
+            vivas.append(avaliacao)
+            continue
+        pk = avaliacao.get("pk_avaliacao")
+        logger.info("Linha de base %s descartada: o paciente já tem pesquisa de outro momento", pk)
+        try:
+            await cliente.atualizar_avaliacao(pk, {"status": "nao_respondeu"})
+        except hamilton_client.HamiltonError as exc:
+            # Fica pendente e cai aqui de novo no próximo tick. O que não pode é
+            # ela seguir pro `iniciar` desta rodada.
+            logger.error("Não consegui descartar a linha de base %s: %s", pk, exc)
+    return vivas
+
+
+async def _abrir_entradas(db: AsyncSession, agora: datetime) -> int:
+    """Rede da pesquisa de linha de base: pega quem a emenda no cadastro não pegou.
 
     É o único ponto de medida ANTES do tratamento: sem ele não existe par
     pré/pós, e o ORS sozinho não significa nada — o dado só vale como
     `ORS saída − ORS entrada`.
 
-    As guardas são para não emendar na conversa de acolhimento nem atropelar
-    outro assunto em curso. Se uma delas bloquear, tenta de novo nos próximos
-    ticks até os 5 dias.
+    Diferente do resto da rodada, aqui a Sofia **cria e aborda no mesmo tick**,
+    sem passar pela fila de pendentes do Hamilton — ela acabou de criar a
+    avaliação e já tem o `pk`. Antes eram dois ticks (um criava, o seguinte
+    abordava) e a coisa dependia de `SOFIA_PESQUISAS_ATIVAS`, que existe pra
+    segurar o acumulado histórico e não tem nada a ver com um cadastro de ontem.
 
     Conversas cadastradas antes desta feature existir têm `cadastrado_em` NULL e
     ficam de fora para sempre — é o que impede a estreia disto de virar um
@@ -656,20 +846,35 @@ async def _criar_entradas(db: AsyncSession, agora: datetime) -> int:
         Conversa.arquivada_em.is_(None),
         Conversa.id.not_in(escaladas_abertas),
     )
+    candidatas = list((await db.execute(q)).scalars().all())
+    if not candidatas:
+        return 0
 
-    cliente = hamilton_client.get_hamilton_client()
-    criadas = 0
-    for conversa in (await db.execute(q)).scalars().all():
-        try:
-            # Idempotente do lado do Hamilton: repetir devolve a que já existe.
-            # Por isso não é preciso marcar nada aqui.
-            await cliente.criar_avaliacao_entrada(conversa.paciente_hamilton_id)
-            criadas += 1
-        except hamilton_client.HamiltonError as exc:
-            logger.error(
-                "Não consegui criar a avaliação de entrada da conversa %s: %s", conversa.id, exc
+    # Quem já foi atendido não tem mais "antes". A guarda vem do Hamilton porque
+    # é lá que mora o `is_realizado`; se ele estiver fora, seguimos sem ela — o
+    # `_descartar_entradas_obsoletas` ainda pega o caso pela fila.
+    ja_atendidos: set[int] = set()
+    try:
+        status = await hamilton_client.get_hamilton_client().status_primeira_consulta(
+            [c.paciente_hamilton_id for c in candidatas]
+        )
+        ja_atendidos = {
+            pid for pid, info in status.items() if info.get("primeira_consulta_realizada")
+        }
+    except hamilton_client.HamiltonError as exc:
+        logger.warning("Não consegui checar a 1ª consulta antes da linha de base: %s", exc)
+
+    abertas = 0
+    for conversa in candidatas:
+        if conversa.paciente_hamilton_id in ja_atendidos:
+            logger.info(
+                "Linha de base pulada (conversa=%s): a primeira consulta já foi realizada",
+                conversa.id,
             )
-    return criadas
+            continue
+        if await iniciar_entrada(db, conversa, agora):
+            abertas += 1
+    return abertas
 
 
 async def _acompanhar_em_curso(db: AsyncSession, agora: datetime) -> dict:

@@ -16,6 +16,14 @@ from app.services import hamilton_client
 
 logger = logging.getLogger(__name__)
 
+# Fica em `dados_coletados` porque é dado do cadastro, não coluna nova: diz se o
+# paciente foi CRIADO agora ou se a ficha dele já existia no Hamilton (mesmo
+# telefone e mesmo nome). É o que decide se cabe pesquisa de linha de base — o
+# ORS de entrada mede quem está começando, e quem já tem ficha lá em geral já
+# começou. Ausente = não sabemos, e nesse caso não abordamos (conversas
+# cadastradas antes desta chave existir não podem virar disparo retroativo).
+CHAVE_CADASTRO_NOVO = "cadastro_novo"
+
 
 def _normalizar_nome(nome: str | None) -> str:
     """Minúsculas, sem acento e espaços colapsados — pra comparar nomes."""
@@ -49,14 +57,26 @@ def _garantir_telefone(conversa: Conversa, dados: dict) -> dict:
     return dados
 
 
-def _marcar_cadastro(conversa: Conversa) -> None:
+def _marcar_cadastro(conversa: Conversa, novo: bool) -> None:
     """Carimba quando o cadastro deu certo (ancora da pesquisa de linha de base).
 
     So na primeira vez: um reencontro meses depois nao pode reabrir a janela
     de baseline de alguem que ja e paciente ha tempos.
+
+    `novo` guarda se o paciente foi criado agora ou se so linkamos uma ficha que
+    ja existia (ver CHAVE_CADASTRO_NOVO).
     """
     if conversa.cadastrado_em is None:
         conversa.cadastrado_em = datetime.now(timezone.utc)
+        conversa.dados_coletados = {
+            **(conversa.dados_coletados or {}),
+            CHAVE_CADASTRO_NOVO: bool(novo),
+        }
+
+
+def foi_cadastro_novo(conversa: Conversa) -> bool:
+    """O paciente nasceu deste cadastro (não é ficha antiga relinkada)?"""
+    return bool((conversa.dados_coletados or {}).get(CHAVE_CADASTRO_NOVO))
 
 
 async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
@@ -77,7 +97,7 @@ async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
             pid = mesmo.get("pk_paciente")
             conversa.paciente_hamilton_id = pid
             conversa.estado = "cadastrado"
-            _marcar_cadastro(conversa)
+            _marcar_cadastro(conversa, novo=False)
             atualizacao = hamilton_client.mapear_dados_update(dados, mesmo)
             if atualizacao:
                 try:
@@ -92,7 +112,7 @@ async def cadastrar_paciente(db: AsyncSession, conversa: Conversa) -> dict:
         criado = await client.criar_paciente(dados)
         conversa.paciente_hamilton_id = criado.get("pk_paciente")
         conversa.estado = "cadastrado"
-        _marcar_cadastro(conversa)
+        _marcar_cadastro(conversa, novo=True)
         await db.flush()
         return {"status": "cadastrado", "paciente_id": conversa.paciente_hamilton_id}
     except hamilton_client.HamiltonError as exc:

@@ -47,11 +47,21 @@ Cobertura nova deste ciclo: `tests/test_captacao.py` (23), `tests/test_pesquisa.
 **validado por sabotagem**: revertendo o fix, ele falha com o mesmo
 `ForeignKeyViolation` do bug original — um teste que nunca falhou não protege nada.
 
+> 🔄 **Atualização de 10/08/2026 — a pesquisa de ENTRADA (ORS de linha de base)
+> saiu do cron.** Ela existia e passava nos testes, mas **não acontecia**: dependia
+> de 3h de espera, de **duas** voltas do cron e da trava do Hamilton, três condições
+> invisíveis em série. Agora ela **emenda no cadastro** (`pesquisa.iniciar_entrada`,
+> chamada pelo webhook logo depois da fala que confirma o cadastro), tem interruptor
+> próprio (`pesquisa_entrada_ativa` em `/painel/config`, **nasce ligada**) e vale
+> **só pra terapia** — neuro não tem ORS. O cron continua como rede. Detalhe em
+> "Pesquisa de entrada" no fim deste documento.
+
 **O que falta — e nada disso é código:**
 
 1. **Ligar.** `SOFIA_PESQUISAS_ATIVAS=true` (env do Hamilton), `cobranca_ativa`
    (`/painel/config`), e os crons `POST /tasks/pesquisas` e `POST /tasks/cobrancas`
-   no cron-job.org com o `TASKS_TOKEN`. **Sem cron, nada sai.**
+   no cron-job.org com o `TASKS_TOKEN`. **Sem cron, nada sai.** (A pesquisa de
+   entrada é a exceção: emenda no cadastro e não depende de nenhum dos dois.)
 2. **Modelo de avaliação / planilha de qualidade** — os campos existem nos dois
    lados e a pesquisa já grava neles, mas o **modelo de perguntas ainda vai ser
    discutido** com o Paulo (quais perguntas ficam, o que é texto e o que é
@@ -684,7 +694,7 @@ com o Stripe.
    crise. **Nenhuma escalada era registrada e nenhum alerta era disparado** — ela
    prometia acionar um humano e ninguém era acionado.
 2. **`Escalada.resolvida_em` nunca era preenchido** em código de produção. Como
-   `pesquisa._criar_entradas` exclui conversa com escalada aberta, **quem foi escalado
+   `pesquisa._abrir_entradas` exclui conversa com escalada aberta, **quem foi escalado
    uma vez ficava fora da pesquisa de linha de base pra sempre** — e praticamente toda
    conversa escala em algum momento. Agora `devolver_ao_bot` e `arquivar` fecham.
 3. **`arquivar` não zerava `aviso_escalada_em`.** Numa escalada posterior, o paciente
@@ -836,3 +846,110 @@ nenhuma, e fora da janela de 24h da Meta não dá pra iniciar uma com texto livr
 Como a Sofia é recente, **isso provavelmente é a maioria dos pacientes ativos
 hoje**. Precisa ser decidido: template aprovado na Meta, ou esses ficam com a
 equipe?
+
+---
+
+# Pesquisa de entrada — ORS antes da primeira sessão (10/08/2026)
+
+Fechado em grilling com o Paulo (Q1–Q13, 10/08). O código da linha de base já
+existia desde 06/08 e passava nos testes; o que **não** existia era ela acontecer.
+
+## O que estava errado
+
+Quatro condições em série, nenhuma visível de fora:
+
+1. só nascia **3h** depois do cadastro (`HORAS_ESPERA_ENTRADA`);
+2. exigia **duas voltas** do cron — uma criava a `Avaliacao`, a **seguinte** mandava
+   o convite;
+3. o convite dependia de `SOFIA_PESQUISAS_ATIVAS` no **Hamilton**, que é `false` por
+   padrão e faz `GET /avaliacoes/pendentes/` devolver lista vazia;
+4. se a 1ª consulta fosse lançada nesse meio-tempo, a pesquisa de 1ª sessão **ganhava
+   a corrida** e a de entrada ficava pendente pra sempre (avaliação 393, teste de 09/08).
+
+Resultado no teste do Paulo: cadastrou e não veio pesquisa nenhuma. Nada disso
+aparecia em log, e a suite dos dois repos passava — é o mesmo tipo de falha
+silenciosa do `is_parceria`.
+
+## O que mudou
+
+**O gatilho virou o próprio cadastro.** `webhook._responder_turno` chama
+`pesquisa.iniciar_entrada` logo depois de enviar a fala que confirma o cadastro,
+e só quando o paciente foi **criado agora** (`cadastro.CHAVE_CADASTRO_NOVO`). São
+duas mensagens: a confirmação, e o convite. A pessoa está com o celular na mão, a
+janela de 24h da Meta está aberta e ela ainda não teve a primeira sessão — que é
+exatamente a definição de "linha de base".
+
+**O interruptor desacoplou.** `pesquisa_entrada_ativa` em `/painel/config`, e
+**nasce ligada**. As travas `SOFIA_PESQUISAS_*` do Hamilton continuam valendo pros
+outros três questionários: elas existem pra segurar o acumulado de anos de
+pendentes que os signals criaram, e a linha de base não tem acumulado nenhum.
+Amarrar as duas coisas fazia "ligar a linha de base" ser uma decisão de risco alto
+quando devia ser de risco zero.
+
+**Só terapia.** O ORS é instrumento de processo terapêutico; quem procura avaliação
+neuropsicológica não tem "antes e depois do tratamento" pra medir. `pesquisa._e_neuro`
+usa dois sinais: escalada `neuro_reuniao` (mesmo já resolvida — o que ela diz é "o
+assunto aqui foi neuro") e "neuro" no `motivo_busca`/`observacoes`. O Hamilton não
+ajuda: `Paciente` **não tem campo de tipo de serviço** (`fk_modalidade` é
+online/presencial, `max_length=10`).
+
+**Todas as guardas num lugar só** — `pesquisa.motivo_para_pular_entrada`, usada pela
+emenda **e** pela rede do cron, de propósito: duas listas divergiriam na primeira
+mudança. Ela devolve o motivo em texto, e ele vai pro log:
+
+    Pesquisa de entrada dispensada (conversa=N): <motivo>
+
+É por essa linha que se debuga "por que não veio o convite?".
+
+| guarda | por quê |
+|---|---|
+| `pesquisa_entrada_ativa` desligada | interruptor da Thainá |
+| cadastro não concluído | `cadastro_pendente` não tem paciente de verdade no Hamilton |
+| **reencontro** | ficha que já existia não é alguém começando o processo |
+| pesquisa ou cobrança em curso | um assunto por vez |
+| modo humano | a Thainá está conduzindo; emendar seria atropelar um humano |
+| conversa arquivada | — |
+| **acompanhante** | ele não pode responder como **ela** se sente, e sem as 4 notas não sobra pesquisa |
+| **neuro** | o ORS é de terapia |
+
+**A rede continua** (`_abrir_entradas`, no cron): pega cadastro feito pelo painel e
+convite que não conseguiu sair. Espera 3h pra não atropelar a emenda, desiste em 5
+dias, **cria e aborda no mesmo tick** (acabou o ritual das duas voltas) e pula quem
+já teve a 1ª consulta **realizada**.
+
+**A corrida fechou** (`_descartar_entradas_obsoletas`): quando a mesma pessoa tem
+pendente a linha de base **e** uma pesquisa de outro momento, a de entrada é marcada
+`nao_respondeu` e sai da fila. Marcar, e não só ignorar, é o que impede a obsoleta de
+ressuscitar num tick futuro.
+
+## Decisões que valem registrar (e não redescobrir)
+
+- **A `nota_sofia` fica no mesmo bloco**, perguntada minutos depois do atendimento
+  que ela avalia. O viés de cortesia é real e é o mesmo de qualquer CSAT; o ganho é
+  que a pessoa acabou de viver o atendimento. Na 1ª sessão ela já não separa mais o
+  acolhimento da Sofia do terapeuta. *(O Paulo registrou que pode repensar isso.)*
+- **Acompanhante não recebe** a pesquisa de entrada. Ele não pode responder o ORS
+  por ela, e o que sobraria — só a `nota_sofia` — não justifica abrir um questionário
+  pra quem acabou de responder um cadastro inteiro pelo filho. Quando **não se sabe**
+  quem está do outro lado, a Sofia confirma em uma frase e, se for acompanhante,
+  agradece e encerra sem perguntar nada.
+- **As 44h continuam.** Chegou a ser questionado por causa da janela de 24h da Meta,
+  mas elas **não mandam mensagem nenhuma**: são marcação interna (grava o status, tira
+  a conversa do modo pesquisa, libera o encadeamento da cobrança). Quem esbarra na
+  janela de 24h é o **lembrete**, que é às 20h. São maiores que 24h de propósito: se a
+  pessoa responder no dia seguinte, a mensagem **dela** reabre a janela e a pesquisa
+  termina. Remover o prazo prenderia a conversa em modo pesquisa pra sempre.
+- **Sem terapeuta no prompt da linha de base.** O `fk_terapeuta` ali é o **sentinela**
+  (a coordenação ainda não fez o match), e passar esse nome pro modelo faria a Sofia
+  citar como "o terapeuta dela" alguém que não atende ninguém.
+- **O convite diz que é pesquisa, que é opcional e pra que serve** (medir melhora ao
+  longo do processo). Saiu a frase "é uma escala usada internacionalmente": ela
+  justificava a redação estranha das perguntas, mas ao lado de "melhora clínica" vira
+  jargão e cheira a formulário.
+
+## Hamilton
+
+Uma linha: `AvaliacaoEntradaSerializer` passou a devolver `sofia_enviada_em`. O POST
+é idempotente e, quando devolve 200 com uma avaliação que já existia, é esse campo
+que diz se a pessoa **já foi abordada** — sem ele a Sofia reabriria a mesma pesquisa
+a cada tentativa. Nenhuma migration.

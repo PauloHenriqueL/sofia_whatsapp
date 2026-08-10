@@ -46,7 +46,7 @@ async def test_alerta_envia_rotulo_legivel_e_nao_o_codigo():
 class TestResolverEscaladas:
     """`Escalada.resolvida_em` existia mas nunca era preenchido em produção.
 
-    Como `pesquisa._criar_entradas` exclui conversa com escalada aberta, quem foi
+    Como `pesquisa._abrir_entradas` exclui conversa com escalada aberta, quem foi
     escalado uma vez — áudio, anexo, preço, gratuidade, pedido de humano — ficava
     fora da pesquisa de linha de base PARA SEMPRE, sem sintoma nenhum.
     """

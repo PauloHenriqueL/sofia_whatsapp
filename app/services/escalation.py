@@ -54,7 +54,7 @@ async def resolver_abertas(session: AsyncSession, conversa: Conversa) -> int:
     """Fecha as escaladas abertas desta conversa. Devolve quantas fechou.
 
     `Escalada.resolvida_em` existia no modelo desde o Passo 3 mas **nunca era
-    preenchido em código de produção**. Como `pesquisa._criar_entradas` exclui
+    preenchido em código de produção**. Como `pesquisa._abrir_entradas` exclui
     conversas com escalada aberta, o efeito era silencioso e permanente: quem foi
     escalado uma vez — por áudio, anexo, preço, gratuidade ou pedido de humano —
     ficava fora da pesquisa de linha de base **pra sempre**. Como praticamente

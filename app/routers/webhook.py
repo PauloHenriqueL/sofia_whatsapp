@@ -222,6 +222,10 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         argumentos = await _validar_captacao(tc.arguments)
         conversa.dados_coletados = {**(conversa.dados_coletados or {}), **argumentos}
         resultado = await cadastro.cadastrar_paciente(session, conversa)
+        # Sinal deste turno, só na memória (não é coluna): o convite do ORS de
+        # linha de base emenda logo depois da fala de confirmação, e só quando o
+        # paciente foi CRIADO agora — reencontro não é começo de processo.
+        conversa._cadastro_novo_neste_turno = resultado.get("status") == "cadastrado"
         # Avisa a Thainá: sem isto ela só descobre o cadastro se abrir o painel.
         # (Cadastro feito pelo botão do painel não alerta: ela mesma clicou.)
         await escalation.alertar_cadastro(conversa, resultado)
@@ -603,9 +607,18 @@ async def _responder_turno(session, conversa, numero: str) -> None:
 
     resposta = await processar_turno_bot(session, conversa)
     await session.commit()
-    if resposta is None:  # ex.: round-trip pós-tool sem fala final
-        return
-    await _enviar_em_bolhas(session, conversa, numero, resposta)
+    if resposta is not None:  # None: ex. round-trip pós-tool sem fala final
+        await _enviar_em_bolhas(session, conversa, numero, resposta)
+
+    # ORS de linha de base, emendado no cadastro: a Sofia confirma o cadastro e,
+    # na mensagem seguinte, convida pra pesquisa de entrada. Vem DEPOIS do envio
+    # pra não misturar a confirmação com o convite, e é aqui — e não no cron —
+    # porque é o único momento em que a pessoa está com o celular na mão, a
+    # janela de 24h da Meta está aberta e ela ainda não teve a primeira sessão.
+    # `iniciar_entrada` decide sozinha se cabe (terapia, cadastro novo, etc.).
+    if getattr(conversa, "_cadastro_novo_neste_turno", False):
+        conversa._cadastro_novo_neste_turno = False
+        await pesquisa.iniciar_entrada(session, conversa)
 
 
 async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> None:

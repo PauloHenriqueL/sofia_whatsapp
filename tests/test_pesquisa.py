@@ -790,28 +790,141 @@ class TestQuemResponde:
         assert "confirme isso em UMA" in self._prompt("sei la")
 
 
-class TestPesquisaDeEntrada:
-    """A linha de base é a única que a Sofia cria. As guardas são o que a protegem."""
+ENTRADA_CRIADA = {
+    "pk_avaliacao": 77,
+    "fk_paciente": 500,
+    "momento": pesquisa.MOMENTO_LINHA_DE_BASE,
+    "status": "pendente",
+    "sofia_enviada_em": None,
+}
 
-    async def _cadastrada(self, session, horas_atras=4, **kwargs):
+
+def _cliente_de_entrada(**overrides):
+    """Hamilton mockado pro caminho da linha de base."""
+    cliente = AsyncMock()
+    cliente.avaliacoes_pendentes.return_value = []
+    cliente.criar_avaliacao_entrada.return_value = dict(ENTRADA_CRIADA)
+    cliente.status_primeira_consulta.return_value = {}
+    for chave, valor in overrides.items():
+        setattr(cliente, chave, valor)
+    return cliente
+
+
+class TestPesquisaDeEntrada:
+    """A linha de base é a única que a Sofia cria. As guardas são o que a protegem.
+
+    O caminho principal é a EMENDA (`iniciar_entrada`, chamada pelo webhook logo
+    depois do cadastro). O cron é a rede, e as duas passam pelas mesmas guardas
+    de propósito — duas listas divergiriam na primeira mudança.
+    """
+
+    async def _cadastrada(self, session, horas_atras=4, dados=None, **kwargs):
         campos = {
             "paciente_hamilton_id": 500,
             "estado": "cadastrado",
             "modo": "bot",
             "cadastrado_em": AGORA - timedelta(hours=horas_atras),
+            "dados_coletados": {"cadastro_novo": True, **(dados or {})},
         }
         campos.update(kwargs)
         return await _conversa(session, **campos)
 
-    async def _rodar(self, session):
-        cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = []
-        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+    async def _rodar(self, session, cliente=None):
+        cliente = cliente or _cliente_de_entrada()
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "_turno", AsyncMock(return_value="oi")), patch.object(
+            pesquisa, "_enviar", AsyncMock(return_value=True)
+        ):
             resumo = await pesquisa.rodar_pesquisas(session, AGORA)
         return resumo, cliente
 
+    # --- a emenda no cadastro (caminho principal) -------------------------- #
+
     @pytest.mark.asyncio
-    async def test_cria_depois_das_3h(self, session):
+    async def test_emenda_no_cadastro_aborda_na_hora(self, session):
+        """Sem esperar cron, tick duplo nem a trava do Hamilton."""
+        conversa = await self._cadastrada(session, horas_atras=0)
+        await session.commit()
+        cliente = _cliente_de_entrada()
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "_turno", AsyncMock(return_value="oi")), patch.object(
+            pesquisa, "_enviar", AsyncMock(return_value=True)
+        ):
+            assert await pesquisa.iniciar_entrada(session, conversa, AGORA) is True
+        cliente.criar_avaliacao_entrada.assert_awaited_once_with(500)
+        assert conversa.pesquisa_avaliacao_id == 77
+
+    @pytest.mark.asyncio
+    async def test_nao_aborda_de_novo_quem_ja_recebeu_o_convite(self, session):
+        """O POST é idempotente: `sofia_enviada_em` é o que diz que já abordamos."""
+        conversa = await self._cadastrada(session, horas_atras=0)
+        await session.commit()
+        cliente = _cliente_de_entrada()
+        cliente.criar_avaliacao_entrada.return_value = {
+            **ENTRADA_CRIADA,
+            "sofia_enviada_em": "2026-08-06T10:00:00Z",
+        }
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            assert await pesquisa.iniciar_entrada(session, conversa, AGORA) is False
+        assert conversa.pesquisa_avaliacao_id is None
+
+    @pytest.mark.asyncio
+    async def test_neuro_nao_tem_ors_por_escalada(self, session):
+        """Neuro vai pra reunião com a Amanda; não há 'antes e depois' a medir."""
+        conversa = await self._cadastrada(session)
+        session.add(Escalada(conversa_id=conversa.id, motivo="neuro_reuniao", resolvida_em=AGORA))
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    @pytest.mark.asyncio
+    async def test_neuro_nao_tem_ors_pelo_motivo_da_busca(self, session):
+        conversa = await self._cadastrada(
+            session, dados={"motivo_busca": "quero uma avaliação neuropsicológica pro meu filho"}
+        )
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    @pytest.mark.asyncio
+    async def test_terapia_passa(self, session):
+        conversa = await self._cadastrada(session, dados={"motivo_busca": "ansiedade no trabalho"})
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is None
+
+    @pytest.mark.asyncio
+    async def test_acompanhante_nao_recebe(self, session):
+        """Sem as 4 notas não sobra pesquisa — e ele não pode responder por ela."""
+        conversa = await self._cadastrada(session, dados={"quem_fala": "acompanhante"})
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    @pytest.mark.asyncio
+    async def test_reencontro_nao_recebe(self, session):
+        """A ficha já existia no Hamilton: essa pessoa não está começando agora."""
+        conversa = await self._cadastrada(session, dados={"cadastro_novo": False})
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    @pytest.mark.asyncio
+    async def test_conversa_sem_a_marca_de_cadastro_novo_nao_recebe(self, session):
+        """Cadastrada antes desta chave existir: não vira disparo retroativo."""
+        conversa = await self._cadastrada(session)
+        conversa.dados_coletados = {}
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    @pytest.mark.asyncio
+    async def test_desligada_no_painel_nao_aborda(self, session):
+        conversa = await self._cadastrada(session)
+        await session.commit()
+        with patch.object(config_negocio, "valor", return_value=False):
+            assert await pesquisa.motivo_para_pular_entrada(session, conversa) is not None
+
+    # --- a rede do cron ---------------------------------------------------- #
+
+    @pytest.mark.asyncio
+    async def test_rede_aborda_depois_das_3h(self, session):
         await self._cadastrada(session)
         await session.commit()
         resumo, cliente = await self._rodar(session)
@@ -819,8 +932,8 @@ class TestPesquisaDeEntrada:
         cliente.criar_avaliacao_entrada.assert_awaited_once_with(500)
 
     @pytest.mark.asyncio
-    async def test_nao_cria_antes_das_3h(self, session):
-        """As 3h evitam emendar na conversa de acolhimento."""
+    async def test_rede_espera_as_3h(self, session):
+        """A rede não atropela a emenda que acabou de rodar."""
         await self._cadastrada(session, horas_atras=1)
         await session.commit()
         resumo, cliente = await self._rodar(session)
@@ -881,15 +994,89 @@ class TestPesquisaDeEntrada:
         assert resumo["entradas_criadas"] == 0
 
     @pytest.mark.asyncio
+    async def test_quem_ja_teve_a_primeira_consulta_nao_recebe(self, session):
+        """Perguntar 'como você está antes de começar?' a quem já foi atendido."""
+        await self._cadastrada(session)
+        await session.commit()
+        cliente = _cliente_de_entrada()
+        cliente.status_primeira_consulta.return_value = {500: {"primeira_consulta_realizada": True}}
+        resumo, cliente = await self._rodar(session, cliente)
+        assert resumo["entradas_criadas"] == 0
+        cliente.criar_avaliacao_entrada.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_hamilton_fora_no_check_da_consulta_nao_trava_a_rede(self, session):
+        await self._cadastrada(session)
+        await session.commit()
+        cliente = _cliente_de_entrada()
+        cliente.status_primeira_consulta.side_effect = hamilton_client.HamiltonError("502")
+        resumo, _ = await self._rodar(session, cliente)
+        assert resumo["entradas_criadas"] == 1
+
+    @pytest.mark.asyncio
     async def test_falha_do_hamilton_nao_derruba_a_rodada(self, session):
         await self._cadastrada(session)
         await session.commit()
-        cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = []
+        cliente = _cliente_de_entrada()
         cliente.criar_avaliacao_entrada.side_effect = hamilton_client.HamiltonError("502")
-        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
-            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        resumo, _ = await self._rodar(session, cliente)
         assert resumo["entradas_criadas"] == 0
+
+
+class TestLinhaDeBaseObsoleta:
+    """A corrida que deixou a avaliação 393 pendente pra sempre no teste de 09/08."""
+
+    def _entrada(self, pk=77, paciente=500):
+        return {
+            "pk_avaliacao": pk,
+            "fk_paciente": paciente,
+            "momento": pesquisa.MOMENTO_LINHA_DE_BASE,
+            "status": "pendente",
+        }
+
+    @pytest.mark.asyncio
+    async def test_descarta_entrada_de_quem_ja_tem_pesquisa_de_1a_sessao(self, session):
+        conversa = await _conversa(session)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = [self._entrada(), PRIMEIRA_SESSAO]
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        # A de 1ª sessão foi abordada; a de entrada foi marcada e saiu da fila.
+        assert resumo["enviadas"] == 1
+        assert mock_iniciar.await_args.args[2]["pk_avaliacao"] == PRIMEIRA_SESSAO["pk_avaliacao"]
+        cliente.atualizar_avaliacao.assert_awaited_once_with(77, {"status": "nao_respondeu"})
+        assert conversa.id  # a conversa segue existindo, só a avaliação foi descartada
+
+    @pytest.mark.asyncio
+    async def test_entrada_sozinha_na_fila_continua_valendo(self, session):
+        await _conversa(session)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = [self._entrada()]
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_awaited_once()
+        cliente.atualizar_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_entrada_de_outro_paciente_nao_e_afetada(self, session):
+        await _conversa(session)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = [
+            self._entrada(pk=88, paciente=999),
+            PRIMEIRA_SESSAO,
+        ]
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)):
+            await pesquisa.rodar_pesquisas(session, AGORA)
+        cliente.atualizar_avaliacao.assert_not_awaited()
 
 
 class TestMotivosDeAlerta:
