@@ -725,7 +725,18 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
     Falha do Hamilton não derruba nada: a fila continua lá na próxima rodada.
     """
     agora = agora or _agora()
-    resumo = {"enviadas": 0, "lembretes": 0, "encerradas": 0, "entradas_criadas": 0}
+    resumo = {
+        "enviadas": 0,
+        "lembretes": 0,
+        "encerradas": 0,
+        "entradas_criadas": 0,
+        "entradas_encerradas": 0,
+    }
+
+    # Vem ANTES de tudo: derrubar a linha de base de quem já foi atendido libera a
+    # conversa pra pesquisa da 1ª sessão já nesta mesma rodada. No fim da função
+    # custaria um tick inteiro de atraso por pessoa.
+    resumo["entradas_encerradas"] = await _encerrar_entradas_atendidas(db)
 
     # Rede da linha de base: o caminho principal é a emenda no cadastro
     # (`iniciar_entrada`), e isto aqui pega quem escapou dela — cadastro feito
@@ -759,8 +770,10 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
 
     resumo.update(await _acompanhar_em_curso(db, agora))
     logger.info(
-        "Pesquisas: %s entradas abertas, %s enviadas, %s lembretes, %s encerradas",
+        "Pesquisas: %s entradas abertas, %s entradas obsoletas encerradas, "
+        "%s enviadas, %s lembretes, %s encerradas",
         resumo["entradas_criadas"],
+        resumo["entradas_encerradas"],
         resumo["enviadas"],
         resumo["lembretes"],
         resumo["encerradas"],
@@ -769,37 +782,73 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
 
 
 async def _descartar_entradas_obsoletas(pendentes: list[dict]) -> list[dict]:
-    """Tira da fila a linha de base de quem já tem pesquisa de outro momento.
+    """Tira da fila a linha de base de quem já não tem mais um "antes".
 
-    A linha de base mede **quem ainda não começou**. Se a mesma pessoa já tem
-    pendente a pesquisa da 1ª sessão (ou uma de saída), a de entrada perdeu o
-    sentido em dobro: o par pré/pós não existe mais, e disparar significaria
-    perguntar *"como você está antes de começar?"* pra quem já foi atendido e já
-    pagou. Foi o que aconteceu com a avaliação 393 no teste de 09/08.
+    A linha de base mede **quem ainda não começou**. Duas coisas tiram esse
+    sentido, e as duas nasceram do mesmo teste:
+
+    1. A pessoa já tem pendente a pesquisa da 1ª sessão (ou uma de saída): o par
+       pré/pós não existe mais.
+    2. A **primeira sessão já foi realizada**. Este é o critério que manda, e não
+       o item 1: o gatilho da fila é a consulta ser *lançada*, então o item 1 só
+       enxerga quem tem duas pendentes ao mesmo tempo — quem respondeu a da 1ª
+       sessão (ou nunca a recebeu) passava batido.
+
+    Disparar num desses casos significa perguntar *"como você está antes de
+    começar?"* pra quem já foi atendido e já pagou. Foi o que aconteceu com a
+    avaliação 393 no teste de 09/08.
+
+    `is_realizado` e não "consulta lançada" porque **faltar não é ter começado**:
+    quem remarcou a primeira sessão continua sem um "antes" medido, e é o único
+    momento em que esse número pode ser colhido. É o mesmo critério da cobrança.
 
     Marcar como `nao_respondeu` em vez de deixar pendente é o que impede a
     obsoleta de ressuscitar num tick futuro.
     """
+    entradas = [a for a in pendentes if a.get("momento") == MOMENTO_LINHA_DE_BASE]
+    if not entradas:
+        return pendentes
+
     com_outra = {
         a.get("fk_paciente")
         for a in pendentes
         if a.get("momento") != MOMENTO_LINHA_DE_BASE and a.get("fk_paciente")
     }
-    if not com_outra:
-        return pendentes
 
     cliente = hamilton_client.get_hamilton_client()
+
+    ja_atendidos: set[int] = set()
+    ids = [a["fk_paciente"] for a in entradas if a.get("fk_paciente")]
+    if ids:
+        try:
+            status = await cliente.status_primeira_consulta(ids)
+            ja_atendidos = {
+                pid for pid, info in status.items() if info.get("primeira_consulta_realizada")
+            }
+        except hamilton_client.HamiltonError as exc:
+            # Segue com o critério 1 só. Descartar às cegas jogaria fora a única
+            # medida pré-tratamento por causa de um 502 — e ela não tem segunda
+            # chance: depois da primeira sessão não existe mais "antes".
+            logger.warning("Não consegui checar a 1ª consulta das linhas de base: %s", exc)
+
     vivas = []
     for avaliacao in pendentes:
-        obsoleta = (
-            avaliacao.get("momento") == MOMENTO_LINHA_DE_BASE
-            and avaliacao.get("fk_paciente") in com_outra
+        paciente = avaliacao.get("fk_paciente")
+        atendido = paciente in ja_atendidos
+        obsoleta = avaliacao.get("momento") == MOMENTO_LINHA_DE_BASE and (
+            atendido or paciente in com_outra
         )
         if not obsoleta:
             vivas.append(avaliacao)
             continue
         pk = avaliacao.get("pk_avaliacao")
-        logger.info("Linha de base %s descartada: o paciente já tem pesquisa de outro momento", pk)
+        logger.info(
+            "Linha de base %s descartada: %s",
+            pk,
+            "a 1ª sessão já foi realizada"
+            if atendido
+            else "o paciente já tem pesquisa de outro momento",
+        )
         try:
             await cliente.atualizar_avaliacao(pk, {"status": "nao_respondeu"})
         except hamilton_client.HamiltonError as exc:
@@ -807,6 +856,84 @@ async def _descartar_entradas_obsoletas(pendentes: list[dict]) -> list[dict]:
             # ela seguir pro `iniciar` desta rodada.
             logger.error("Não consegui descartar a linha de base %s: %s", pk, exc)
     return vivas
+
+
+async def _encerrar_entradas_atendidas(db: AsyncSession) -> int:
+    """Derruba a linha de base **em curso** de quem já fez a primeira sessão.
+
+    `_descartar_entradas_obsoletas` cuida da fila do Hamilton; isto cuida de quem
+    já foi abordado e está com a pesquisa aberta — caso que nada pegava. A janela
+    da entrada é de 5 dias (`DIAS_LIMITE_ENTRADA`) e o encerramento por silêncio
+    é de 44h (`HORAS_ENCERRAMENTO`), os dois maiores que o tempo típico até a 1ª
+    sessão, então não é borda:
+
+    * a pesquisa da 1ª sessão ficava esperando a faixa (é uma por conversa), e
+    * se a pessoa respondesse depois da sessão, o ORS "de antes" entrava no banco
+      medindo alguém que já está em tratamento. O par pré/pós ficava
+      **corrompido**, não vazio — pior, porque um número errado ninguém percebe.
+
+    Quem não respondeu nada vira `nao_respondeu` sem gastar chamada ao modelo;
+    quem respondeu parte fica `avaliado` com o que deu (`finalizar` decide, e o
+    relatório de ORS filtra pelos quatro itens presentes, não pelo status).
+    `finalizar` também libera a faixa e encadeia a cobrança — quem fez a sessão
+    pode ser cobrado.
+    """
+    conversas = list(
+        (
+            await db.execute(
+                select(Conversa).where(
+                    Conversa.pesquisa_avaliacao_id.isnot(None),
+                    Conversa.paciente_hamilton_id.isnot(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not conversas:
+        return 0
+
+    try:
+        status = await hamilton_client.get_hamilton_client().status_primeira_consulta(
+            [c.paciente_hamilton_id for c in conversas]
+        )
+    except hamilton_client.HamiltonError as exc:
+        # Sem o status não há o que decidir. A pesquisa em curso continua de pé e
+        # o próximo tick tenta de novo; encerrar às cegas apagaria uma pesquisa
+        # legítima por causa de uma falha de rede.
+        logger.warning("Não consegui checar a 1ª consulta das pesquisas em curso: %s", exc)
+        return 0
+    atendidos = {pid for pid, info in status.items() if info.get("primeira_consulta_realizada")}
+    if not atendidos:
+        return 0
+
+    encerradas = 0
+    for conversa in conversas:
+        if conversa.paciente_hamilton_id not in atendidos:
+            continue
+        # O `momento` não é coluna da conversa: só o Hamilton sabe qual das quatro
+        # pesquisas está em curso, e derrubar a errada calaria a pesquisa da 1ª
+        # sessão justamente de quem acabou de ser atendido.
+        try:
+            avaliacao = await _buscar_avaliacao(conversa) or {}
+        except hamilton_client.HamiltonError as exc:
+            logger.warning(
+                "Não consegui ler a avaliação %s da conversa %s: %s",
+                conversa.pesquisa_avaliacao_id,
+                conversa.id,
+                exc,
+            )
+            continue
+        if avaliacao.get("momento") != MOMENTO_LINHA_DE_BASE:
+            continue
+        logger.info(
+            "Linha de base %s encerrada (conversa=%s): a 1ª sessão já foi realizada",
+            conversa.pesquisa_avaliacao_id,
+            conversa.id,
+        )
+        await finalizar(db, conversa, avaliacao, recusou=True)
+        encerradas += 1
+    return encerradas
 
 
 async def _abrir_entradas(db: AsyncSession, agora: datetime) -> int:

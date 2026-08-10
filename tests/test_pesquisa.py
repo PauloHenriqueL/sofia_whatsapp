@@ -406,6 +406,7 @@ class TestRodarPesquisas:
         await session.commit()
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.status_primeira_consulta.return_value = {}
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
@@ -430,6 +431,7 @@ class TestRodarPesquisas:
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
         cliente.obter_avaliacao.return_value = PRIMEIRA_SESSAO
+        cliente.status_primeira_consulta.return_value = {}
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -452,6 +454,7 @@ class TestRodarPesquisas:
         ja_lembrada = {**PRIMEIRA_SESSAO, "sofia_lembrete_em": "2026-08-06T00:00:00+00:00"}
         cliente.avaliacoes_pendentes.return_value = [ja_lembrada]
         cliente.obter_avaliacao.return_value = ja_lembrada
+        cliente.status_primeira_consulta.return_value = {}
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -469,6 +472,7 @@ class TestRodarPesquisas:
         await session.commit()
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.status_primeira_consulta.return_value = {}
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -487,6 +491,7 @@ class TestRodarPesquisas:
         cliente = AsyncMock()
         cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
         cliente.obter_avaliacao.return_value = PRIMEIRA_SESSAO
+        cliente.status_primeira_consulta.return_value = {}
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
@@ -1024,7 +1029,12 @@ class TestPesquisaDeEntrada:
 
 
 class TestLinhaDeBaseObsoleta:
-    """A corrida que deixou a avaliação 393 pendente pra sempre no teste de 09/08."""
+    """A corrida que deixou a avaliação 393 pendente pra sempre no teste de 09/08.
+
+    Duas coisas tiram o sentido do ORS de entrada: já haver pesquisa de outro
+    momento na fila, e a **1ª sessão já ter sido realizada**. O segundo é o que
+    manda — o primeiro só enxerga quem tem duas pendentes ao mesmo tempo.
+    """
 
     def _entrada(self, pk=77, paciente=500):
         return {
@@ -1034,12 +1044,19 @@ class TestLinhaDeBaseObsoleta:
             "status": "pendente",
         }
 
+    def _cliente(self, pendentes, atendidos=None):
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = pendentes
+        cliente.status_primeira_consulta.return_value = {
+            pid: {"primeira_consulta_realizada": True} for pid in (atendidos or [])
+        }
+        return cliente
+
     @pytest.mark.asyncio
     async def test_descarta_entrada_de_quem_ja_tem_pesquisa_de_1a_sessao(self, session):
         conversa = await _conversa(session)
         await session.commit()
-        cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = [self._entrada(), PRIMEIRA_SESSAO]
+        cliente = self._cliente([self._entrada(), PRIMEIRA_SESSAO])
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
@@ -1051,11 +1068,47 @@ class TestLinhaDeBaseObsoleta:
         assert conversa.id  # a conversa segue existindo, só a avaliação foi descartada
 
     @pytest.mark.asyncio
+    async def test_descarta_entrada_de_quem_ja_fez_a_1a_sessao(self, session):
+        """O flanco que o critério "tem outra pendente" não pegava.
+
+        Quem respondeu a pesquisa da 1ª sessão sai da fila de pendentes, então a
+        linha de base ficava sozinha lá e era abordada — perguntando "como você
+        está antes de começar?" pra quem já foi atendido e já pagou.
+        """
+        await _conversa(session)
+        await session.commit()
+        cliente = self._cliente([self._entrada()], atendidos=[500])
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_not_awaited()
+        assert resumo["enviadas"] == 0
+        cliente.atualizar_avaliacao.assert_awaited_once_with(77, {"status": "nao_respondeu"})
+
+    @pytest.mark.asyncio
+    async def test_quem_faltou_a_1a_sessao_mantem_o_ors_de_entrada(self, session):
+        """`is_realizado`, não "consulta lançada": faltar não é ter começado.
+
+        O gatilho da fila é a consulta ser LANÇADA, então quem remarcou tem a
+        pesquisa de 1ª sessão pendente sem ter sido atendido — e é a única chance
+        de medir o "antes" dela.
+        """
+        await _conversa(session)
+        await session.commit()
+        cliente = self._cliente([self._entrada()], atendidos=[])
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_awaited_once()
+        cliente.atualizar_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_entrada_sozinha_na_fila_continua_valendo(self, session):
         await _conversa(session)
         await session.commit()
-        cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = [self._entrada()]
+        cliente = self._cliente([self._entrada()])
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
@@ -1067,16 +1120,118 @@ class TestLinhaDeBaseObsoleta:
     async def test_entrada_de_outro_paciente_nao_e_afetada(self, session):
         await _conversa(session)
         await session.commit()
-        cliente = AsyncMock()
-        cliente.avaliacoes_pendentes.return_value = [
-            self._entrada(pk=88, paciente=999),
-            PRIMEIRA_SESSAO,
-        ]
+        cliente = self._cliente([self._entrada(pk=88, paciente=999), PRIMEIRA_SESSAO])
         with patch.object(
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)):
             await pesquisa.rodar_pesquisas(session, AGORA)
         cliente.atualizar_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_hamilton_fora_no_check_nao_descarta_as_cegas(self, session):
+        """A medida pré-tratamento não tem segunda chance: 502 não pode apagá-la."""
+        await _conversa(session)
+        await session.commit()
+        cliente = self._cliente([self._entrada()])
+        cliente.status_primeira_consulta.side_effect = hamilton_client.HamiltonError("502")
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_awaited_once()
+        cliente.atualizar_avaliacao.assert_not_awaited()
+
+
+class TestLinhaDeBaseEmCursoQuandoASessaoAcontece:
+    """O ORS de entrada aberto de quem já foi atendido.
+
+    A fila é uma coisa; quem já foi abordado e está com a pesquisa aberta é
+    outra, e nada pegava esse caso. A janela da entrada (5 dias) e o
+    encerramento por silêncio (44h) são maiores que o tempo típico até a 1ª
+    sessão, então isso é o caminho comum, não borda.
+    """
+
+    async def _em_curso(self, session, pk=77):
+        conversa = await _conversa(session, pesquisa_avaliacao_id=pk, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        return conversa
+
+    def _cliente(self, avaliacao, atendidos=(500,), pendentes=None):
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = pendentes or []
+        cliente.obter_avaliacao.return_value = avaliacao
+        cliente.status_primeira_consulta.return_value = {
+            pid: {"primeira_consulta_realizada": True} for pid in atendidos
+        }
+        return cliente
+
+    def _entrada_aberta(self):
+        return {
+            "pk_avaliacao": 77,
+            "fk_paciente": 500,
+            "momento": pesquisa.MOMENTO_LINHA_DE_BASE,
+            "status": "pendente",
+        }
+
+    @pytest.mark.asyncio
+    async def test_encerra_e_libera_a_faixa(self, session):
+        conversa = await self._em_curso(session)
+        cliente = self._cliente(self._entrada_aberta())
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 1
+        # Sem resposta nenhuma: `nao_respondeu`, mesmo sem a pessoa ter recusado.
+        cliente.atualizar_avaliacao.assert_awaited_once_with(77, {"status": "nao_respondeu"})
+        assert conversa.pesquisa_avaliacao_id is None
+
+    @pytest.mark.asyncio
+    async def test_a_pesquisa_da_1a_sessao_sai_no_mesmo_tick(self, session):
+        """A faixa liberada tem que servir já nesta rodada, não na seguinte."""
+        await self._em_curso(session)
+        cliente = self._cliente(self._entrada_aberta(), pendentes=[PRIMEIRA_SESSAO])
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 1
+        assert resumo["enviadas"] == 1
+        assert mock_iniciar.await_args.args[2]["pk_avaliacao"] == PRIMEIRA_SESSAO["pk_avaliacao"]
+
+    @pytest.mark.asyncio
+    async def test_nao_derruba_pesquisa_que_nao_e_linha_de_base(self, session):
+        """O caso perigoso: derrubar a da 1ª sessão de quem acabou de ser atendido.
+
+        Todo mundo em pesquisa de 1ª sessão tem `is_realizado=True` — se a guarda
+        não olhasse o `momento`, ela calaria exatamente a pesquisa que deve rodar.
+        """
+        conversa = await self._em_curso(session, pk=10)
+        cliente = self._cliente(PRIMEIRA_SESSAO)
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 0
+        assert conversa.pesquisa_avaliacao_id == 10
+        cliente.atualizar_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sem_primeira_sessao_a_entrada_segue_aberta(self, session):
+        conversa = await self._em_curso(session)
+        cliente = self._cliente(self._entrada_aberta(), atendidos=())
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 0
+        assert conversa.pesquisa_avaliacao_id == 77
+        # Nem chegou a perguntar qual avaliação era: o status já disse que não.
+        cliente.obter_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_hamilton_fora_mantem_a_pesquisa_de_pe(self, session):
+        conversa = await self._em_curso(session)
+        cliente = self._cliente(self._entrada_aberta())
+        cliente.status_primeira_consulta.side_effect = hamilton_client.HamiltonError("502")
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=cliente):
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 0
+        assert conversa.pesquisa_avaliacao_id == 77
 
 
 class TestMotivosDeAlerta:
