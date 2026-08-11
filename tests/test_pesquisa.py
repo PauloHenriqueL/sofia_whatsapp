@@ -24,6 +24,7 @@ from app.database import Base
 from app.models import Conversa, Escalada
 from app.services import (
     acompanhamento,
+    cobranca,
     config_negocio,
     config_prompt,
     hamilton_client,
@@ -1232,6 +1233,77 @@ class TestLinhaDeBaseEmCursoQuandoASessaoAcontece:
             resumo = await pesquisa.rodar_pesquisas(session, AGORA)
         assert resumo["entradas_encerradas"] == 0
         assert conversa.pesquisa_avaliacao_id == 77
+
+    @pytest.mark.asyncio
+    async def test_a_faxina_nao_cobra_ninguem(self, session):
+        """A regressão do Paulo (10/08): faxina não é desfecho de pesquisa.
+
+        Encadear a cobrança aqui punha a pessoa em cobrança E em pesquisa ao mesmo
+        tempo. Como `_responder_turno` dá precedência à pesquisa, a cobrança ficava
+        órfã: o link existia no Stripe e ela não conseguia pagar por caminho nenhum.
+        Quem cobra é o desfecho da pesquisa de 1ª sessão, que vem logo depois.
+        """
+        await self._em_curso(session)
+        cliente = self._cliente(self._entrada_aberta(), pendentes=[PRIMEIRA_SESSAO])
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)), patch.object(
+            cobranca, "encadear", AsyncMock(return_value=True)
+        ) as mock_encadear:
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        assert resumo["entradas_encerradas"] == 1
+        assert resumo["enviadas"] == 1  # a de 1ª sessão saiu, como deve
+        mock_encadear.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_desfecho_de_verdade_continua_cobrando(self, session):
+        """O contrapeso do teste acima: a flag não pode ter desligado a cobrança."""
+        conversa = await self._em_curso(session, pk=10)
+        cliente = self._cliente(PRIMEIRA_SESSAO, atendidos=())
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(cobranca, "encadear", AsyncMock(return_value=True)) as mock_encadear:
+            await pesquisa.finalizar(session, conversa, PRIMEIRA_SESSAO, recusou=True)
+        mock_encadear.assert_awaited_once()
+
+
+class TestPesquisaNaoAtropelaCobranca:
+    """Uma conversa automática por pessoa de cada vez.
+
+    O laço da fila checava só `em_pesquisa` e nunca `em_cobranca`, então uma
+    pesquisa pendente entrava por cima de uma cobrança em curso. Não é enfileirar:
+    `webhook._responder_turno` dá precedência à pesquisa, então a pessoa recebe
+    link e chave Pix e depois não consegue usar nenhum dos dois.
+    """
+
+    @pytest.mark.asyncio
+    async def test_quem_esta_em_cobranca_nao_recebe_pesquisa(self, session):
+        await _conversa(session, cobranca_iniciada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.status_primeira_consulta.return_value = {}
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            resumo = await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_not_awaited()
+        assert resumo["enviadas"] == 0
+        # O pendente não é descartado: volta na fila do Hamilton no próximo tick.
+        cliente.atualizar_avaliacao.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cobranca_encerrada_libera_a_pesquisa(self, session):
+        await _conversa(session, cobranca_iniciada_em=AGORA, cobranca_encerrada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.avaliacoes_pendentes.return_value = [PRIMEIRA_SESSAO]
+        cliente.status_primeira_consulta.return_value = {}
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "iniciar", AsyncMock(return_value=True)) as mock_iniciar:
+            await pesquisa.rodar_pesquisas(session, AGORA)
+        mock_iniciar.assert_awaited_once()
 
 
 class TestMotivosDeAlerta:

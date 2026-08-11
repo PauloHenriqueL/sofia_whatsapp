@@ -484,12 +484,25 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
 
 
 async def finalizar(
-    db: AsyncSession, conversa: Conversa, avaliacao: dict, recusou: bool = False
+    db: AsyncSession,
+    conversa: Conversa,
+    avaliacao: dict,
+    recusou: bool = False,
+    encadear_cobranca: bool = True,
 ) -> None:
     """Extrai as respostas da conversa, grava no Hamilton e sai do modo pesquisa.
 
     Recusa e silêncio caem os dois em `nao_respondeu`: pro time de Qualidade a
     diferença não muda o que fazer, e o Hamilton não tem status separado.
+
+    `encadear_cobranca=False` fecha a pesquisa **sem** disparar a cobrança. Existe
+    por um caso só: a faxina de `_encerrar_entradas_atendidas`, que descarta uma
+    linha de base obsoleta. **Faxina não é desfecho** — ninguém perguntou nada e
+    ninguém respondeu —, e cobrar a partir dela inverte a ordem do produto: a
+    pessoa era cobrada antes de ser perguntada sobre a primeira sessão, e as duas
+    conversas rodavam ao mesmo tempo na mesma pessoa (o `_responder_turno` dá
+    precedência à pesquisa, então a cobrança ficava órfã e ninguém conseguia pagar
+    nem por Pix nem por cartão). Foi o que aconteceu com o Paulo em 10/08.
     """
     pk = conversa.pesquisa_avaliacao_id
     # Resposta parcial vira `avaliado`: quem respondeu 2 de 8 perguntas e sumiu
@@ -539,6 +552,9 @@ async def finalizar(
     # do caminho principal, e sem isso o alerta ficaria cego pra eles.
     await _alertar_se_precisar(db, conversa, {**_valores_gravados(conversa), **payload}, reclamacao)
     await _limpar(db, conversa)
+
+    if not encadear_cobranca:
+        return
 
     # Encadeia a cobrança da mensalidade (Demanda D). Os três desfechos passam por
     # aqui — respondida, recusada e expirada por prazo —, então é o único ponto que
@@ -752,6 +768,10 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
 
     pendentes = await _descartar_entradas_obsoletas(pendentes)
 
+    # Import tardio: `cobranca` importa este módulo no topo, então importar de lá
+    # fecharia o ciclo. Mesmo motivo do import dentro de `finalizar`.
+    from app.services import cobranca
+
     for avaliacao in pendentes:
         conversa = await _conversa_do_paciente(db, avaliacao)
         if conversa is None:
@@ -765,6 +785,19 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
         # exceção pros dois modos, então a resposta da pessoa não cai no vazio.
         if em_pesquisa(conversa):
             continue  # já tem pesquisa em curso, ou a conversa está com a Thainá
+        if cobranca.em_cobranca(conversa):
+            # Uma conversa automática por pessoa de cada vez. `_responder_turno` dá
+            # precedência à pesquisa, então abordar quem está em cobrança não
+            # "enfileira" nada: sequestra a conversa e deixa o pagamento órfão —
+            # a pessoa recebe link e chave Pix e depois não consegue usar nenhum
+            # dos dois, porque quem responde passa a ser o roteiro da pesquisa.
+            # O pendente não se perde: volta na fila do Hamilton no próximo tick.
+            logger.info(
+                "Pesquisa %s adiada (conversa=%s): cobrança em curso",
+                avaliacao.get("pk_avaliacao"),
+                conversa.id,
+            )
+            continue
         if await iniciar(db, conversa, avaliacao, agora):
             resumo["enviadas"] += 1
 
@@ -875,8 +908,14 @@ async def _encerrar_entradas_atendidas(db: AsyncSession) -> int:
     Quem não respondeu nada vira `nao_respondeu` sem gastar chamada ao modelo;
     quem respondeu parte fica `avaliado` com o que deu (`finalizar` decide, e o
     relatório de ORS filtra pelos quatro itens presentes, não pelo status).
-    `finalizar` também libera a faixa e encadeia a cobrança — quem fez a sessão
-    pode ser cobrado.
+
+    **Não encadeia a cobrança** (`encadear_cobranca=False`), e isso é o ponto mais
+    fácil de errar aqui: encadear parece coerente (a pessoa fez a sessão, logo pode
+    ser cobrada), mas quem cobra é o desfecho da pesquisa de 1ª sessão, que sai
+    liberada por esta mesma faxina e acontece **logo depois**. Encadear aqui punha
+    a mesma pessoa em cobrança e em pesquisa ao mesmo tempo, e como
+    `webhook._responder_turno` dá precedência à pesquisa, a cobrança ficava órfã:
+    o link existia no Stripe e a pessoa não conseguia pagar por caminho nenhum.
     """
     conversas = list(
         (
@@ -931,7 +970,7 @@ async def _encerrar_entradas_atendidas(db: AsyncSession) -> int:
             conversa.pesquisa_avaliacao_id,
             conversa.id,
         )
-        await finalizar(db, conversa, avaliacao, recusou=True)
+        await finalizar(db, conversa, avaliacao, recusou=True, encadear_cobranca=False)
         encerradas += 1
     return encerradas
 
