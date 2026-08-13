@@ -14,8 +14,13 @@
 
 ## ➡️ O que precisa ser feito agora
 
-Está em **[`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)**, seção
-"Status". São duas frentes, nesta ordem:
+🔴 **Antes de tudo: [`demandas/04-PENDENCIAS-ABERTAS.md`](demandas/04-PENDENCIAS-ABERTAS.md).**
+Nada ali é código — é clicar, configurar e decidir. O primeiro item (o cron
+`/tasks/stripe`) é dinheiro escapando: sem ele, todo parcelado de neuro novo
+cobra pra sempre.
+
+Depois, o resto está em **[`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)**,
+seção "Status". São duas frentes, nesta ordem:
 
 **1. Modelo da tabela de avaliação + planilha de qualidade**
 → [`demandas/02-modelo-de-avaliacao.md`](demandas/02-modelo-de-avaliacao.md)
@@ -45,6 +50,7 @@ cobrada). Não precisa ser rediscutido, só implementado.
 
 | Arquivo | O que é |
 |---|---|
+| 🔴 **[`04-PENDENCIAS-ABERTAS.md`](demandas/04-PENDENCIAS-ABERTAS.md)** | **Ações fora do código, ordenadas por dinheiro em risco.** O cron que falta, variável de ambiente, e as decisões pendentes sobre pagamentos de pacientes reais. |
 | **[`01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)** | **O documento de trabalho.** Ciclo atual: o que foi entregue, o que falta, bugs corrigidos, riscos aceitos e pendências de deploy. |
 | [`02-modelo-de-avaliacao.md`](demandas/02-modelo-de-avaliacao.md) | Campos da tabela `Avaliacao` no Hamilton: o que foi criado e o que ainda vai ser decidido. |
 | [`03-questionario-atual-da-qualidade.md`](demandas/03-questionario-atual-da-qualidade.md) | O questionário que a Juliana usava à mão no WhatsApp. É a base do que a Sofia pergunta hoje. |

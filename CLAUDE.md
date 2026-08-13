@@ -18,6 +18,19 @@ o ambiente — nenhuma delas exige código novo.
 > "não existe" aqui, confira no código.** As seções de arquitetura são confiáveis;
 > as de status envelhecem.
 
+### 0. 🔴 O cron `/tasks/stripe` não existe — e é dinheiro escapando
+📄 **[`docs/demandas/04-PENDENCIAS-ABERTAS.md`](docs/demandas/04-PENDENCIAS-ABERTAS.md)** ← lista completa
+
+O endpoint está no ar e testado; **nenhum agendador o chama.** Sem ele, toda
+assinatura de parcelado de neuro criada de agora em diante **cobra pra sempre**
+(o `cancel_at` não pode ser gravado na criação — ver a seção de pagamentos). As
+11 antigas já foram travadas em 13/08; o risco é só pras novas, e já há link
+novo em circulação. Margem de ~30 dias, não de horas — mas é o primeiro item.
+
+Junto disso, no mesmo documento: `LINK_CURTO_BASE` no Render, a **assinatura
+duplicada da Tatiane** (~R$ 388 cobrados a mais), duas faturas em aberto, e o
+que fazer com o painel de pagamentos do site.
+
 ### 1. Ligar a pesquisa e a cobrança (nenhuma linha de código)
 - `SOFIA_PESQUISAS_ATIVAS=true` nas env vars do **Hamilton**. Default é `false`, e
   com ela desligada `GET /api/v1/avaliacoes/pendentes/` devolve **lista vazia** —
