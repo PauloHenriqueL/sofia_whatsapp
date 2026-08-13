@@ -122,16 +122,66 @@ async def obter_assinatura(assinatura_id: str) -> dict:
     return await _requisicao("GET", f"/subscriptions/{assinatura_id}")
 
 
+async def atualizar_assinatura(assinatura_id: str, dados: dict) -> dict:
+    """POST /subscriptions/{id} — é AQUI que `cancel_at` existe.
+
+    O parâmetro não é aceito na criação via Checkout Session nem via Payment
+    Link (a API responde 400 `parameter_unknown`), só na assinatura já criada.
+    Por isso o limite do parcelado é reconciliação, não criação.
+    """
+    return await _requisicao("POST", f"/subscriptions/{assinatura_id}", dados=dados)
+
+
 async def listar_assinaturas(
-    status: str | None = None, customer: str | None = None, limite: int = 100
+    status: str | None = None,
+    customer: str | None = None,
+    limite: int = 100,
+    expand: list[str] | None = None,
+    paginas: int = 1,
 ) -> list[dict]:
-    params: dict[str, Any] = {"limit": limite}
-    if status:
-        params["status"] = status
-    if customer:
-        params["customer"] = customer
-    resposta = await _requisicao("GET", "/subscriptions", params=params)
-    return resposta.get("data", [])
+    """`paginas=1` é a página que a tela mostra; o reconciliador pede TODAS.
+
+    Assinatura que ele não enxerga é paciente que continua sendo cobrado depois da
+    última parcela — o exato bug que ele existe pra consertar. Por isso `paginas`
+    alto lá e não aqui: a listagem do painel não precisa varrer a conta inteira a
+    cada carregamento de página.
+    """
+    todas: list[dict] = []
+    depois: str | None = None
+    for _ in range(max(1, paginas)):
+        params: dict[str, Any] = {"limit": limite}
+        if status:
+            params["status"] = status
+        if customer:
+            params["customer"] = customer
+        if expand:
+            params["expand[]"] = expand
+        if depois:
+            params["starting_after"] = depois
+        resposta = await _requisicao("GET", "/subscriptions", params=params)
+        dados = resposta.get("data", [])
+        todas.extend(dados)
+        if not resposta.get("has_more") or not dados:
+            break
+        depois = dados[-1]["id"]
+    return todas
+
+
+async def listar_produtos(limite: int = 100) -> dict[str, str]:
+    """{product_id: nome}, paginado. Só o reconciliador usa (1x por rodada)."""
+    nomes: dict[str, str] = {}
+    depois: str | None = None
+    while True:
+        params: dict[str, Any] = {"limit": limite}
+        if depois:
+            params["starting_after"] = depois
+        resposta = await _requisicao("GET", "/products", params=params)
+        dados = resposta.get("data", [])
+        for produto in dados:
+            nomes[produto["id"]] = produto.get("name") or ""
+        if not resposta.get("has_more") or not dados:
+            return nomes
+        depois = dados[-1]["id"]
 
 
 async def listar_faturas(assinatura_id: str, limite: int = 12) -> list[dict]:
@@ -145,9 +195,30 @@ async def obter_checkout_session(session_id: str) -> dict:
     return await _requisicao("GET", f"/checkout/sessions/{session_id}")
 
 
-async def listar_payment_links(limite: int = 100) -> list[dict]:
-    resposta = await _requisicao("GET", "/payment_links", params={"limit": limite})
-    return resposta.get("data", [])
+async def obter_payment_link(plink_id: str) -> dict:
+    return await _requisicao("GET", f"/payment_links/{plink_id}")
+
+
+async def listar_payment_links(limite: int = 100, paginas: int = 10) -> list[dict]:
+    """Payment links, paginado.
+
+    Só serve pra resolver referência antiga guardada como URL (a URL não carrega
+    o `plink_`). Como agora nasce um link por paciente, a conta passa de 100
+    rápido — sem paginar, um vínculo antigo viraria "não encontrado" em silêncio.
+    """
+    todos: list[dict] = []
+    depois: str | None = None
+    for _ in range(paginas):
+        params: dict[str, Any] = {"limit": limite}
+        if depois:
+            params["starting_after"] = depois
+        resposta = await _requisicao("GET", "/payment_links", params=params)
+        dados = resposta.get("data", [])
+        todos.extend(dados)
+        if not resposta.get("has_more") or not dados:
+            break
+        depois = dados[-1]["id"]
+    return todos
 
 
 async def listar_sessions_do_payment_link(plink_id: str, limite: int = 20) -> list[dict]:

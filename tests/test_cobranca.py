@@ -336,13 +336,13 @@ class TestAssinaturaSemProRata:
 
         async def _fake(payload):
             capturado.update(payload)
-            return {"url": "https://checkout", "id": "cs_1"}
+            return {"url": "https://buy.stripe.com/abc", "id": "plink_1"}
 
-        with patch.object(stripe_client, "criar_checkout_session", _fake), patch.object(
+        with patch.object(stripe_client, "criar_payment_link", _fake), patch.object(
             stripe_client, "obter_preco", AsyncMock(side_effect=stripe_client.StripeError("x"))
         ):
             resultado = await pagamentos.criar_assinatura_mensalidade(
-                nome="Maria", valor_mensal=200, agora=AGORA
+                nome="Maria", valor_mensal=200
             )
         sub = capturado["subscription_data"]
         # Nenhum dos três: anchor e pro-rata produziriam valor de entrada diferente
@@ -355,14 +355,14 @@ class TestAssinaturaSemProRata:
 
     @pytest.mark.asyncio
     async def test_email_e_opcional(self):
-        """A Sofia nunca coletou e-mail; o Checkout pede se não vier."""
+        """Payment Link não tem `customer_email`; o checkout pede se não vier."""
         capturado = {}
 
         async def _fake(payload):
             capturado.update(payload)
-            return {"url": "https://checkout", "id": "cs_1"}
+            return {"url": "https://buy.stripe.com/abc", "id": "plink_1"}
 
-        with patch.object(stripe_client, "criar_checkout_session", _fake), patch.object(
+        with patch.object(stripe_client, "criar_payment_link", _fake), patch.object(
             stripe_client, "obter_preco", AsyncMock(side_effect=stripe_client.StripeError("x"))
         ):
             await pagamentos.criar_assinatura_mensalidade(nome="Maria", valor_mensal=200)

@@ -1,6 +1,6 @@
 """Testes dos pagamentos (Stripe): links, assinatura dia 10, vínculo e status."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -86,30 +86,50 @@ class TestCriarLinkNeuro:
             r = await pagamentos.criar_link_neuro("Maria", "m@x.com", 1200, parcelas=1)
 
         assert r["link"] == "https://buy.stripe.com/x"
-        assert r["ref"] == "https://buy.stripe.com/x"  # a URL é a referência do vínculo
+        assert r["ref"] == "plink_1"  # o id do link é a referência do vínculo
         assert preco.await_args.args[0]["unit_amount"] == 120000  # centavos
         assert "recurring" not in preco.await_args.args[0]
         assert r["resumo"]["valor_total"] == "R$ 1.200,00"
+        assert plink.await_args.args[0]["restrictions"]["completed_sessions"]["limit"] == 1
 
     @pytest.mark.asyncio
-    async def test_parcelado_vira_assinatura_com_cancel_at(self):
-        """3x = assinatura mensal da parcela que se cancela após ~90 dias (bug do
-        original corrigido: sem cancel_at ela cobraria pra sempre)."""
-        preco = AsyncMock(return_value={"id": "price_1"})
-        sessao = AsyncMock(return_value={"id": "cs_test_1", "url": "https://checkout.stripe.com/1"})
-        with patch("app.services.pagamentos.stripe_client.criar_preco", preco), patch(
-            "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
-        ):
-            r = await pagamentos.criar_link_neuro("Maria", "m@x.com", 1200, parcelas=3, agora=AGORA)
+    async def test_parcelado_vira_assinatura_mensal_com_plano_no_metadata(self):
+        """3x = assinatura mensal da parcela, e o N vai no metadata.
 
-        assert r["ref"] == "cs_test_1"
+        `cancel_at` NÃO é mandado aqui: o Stripe responde 400 `parameter_unknown`
+        na criação (foi esse o bug — o teste antigo mockava a chamada e "provava"
+        um parâmetro que a API nunca aceitou). Quem encerra é `limitar_parcelado`,
+        e o único jeito de ele saber o N é `parcelas_total`.
+        """
+        preco = AsyncMock(return_value={"id": "price_1"})
+        plink = AsyncMock(return_value={"id": "plink_1", "url": "https://buy.stripe.com/y"})
+        with patch("app.services.pagamentos.stripe_client.criar_preco", preco), patch(
+            "app.services.pagamentos.stripe_client.criar_payment_link", plink
+        ):
+            r = await pagamentos.criar_link_neuro("Maria", "m@x.com", 1200, parcelas=3)
+
+        assert r["ref"] == "plink_1"
         assert preco.await_args.args[0]["unit_amount"] == 40000  # 1200/3 em centavos
         assert preco.await_args.args[0]["recurring"]["interval"] == "month"
-        dados = sessao.await_args.args[0]
-        assert dados["subscription_data"]["cancel_at"] == int(
-            (AGORA + timedelta(days=90)).timestamp()
-        )
+        dados = plink.await_args.args[0]
+        assert "cancel_at" not in dados["subscription_data"]
         assert dados["subscription_data"]["metadata"]["parcelas_total"] == "3"
+        # O paciente vê "R$ 400,00 por mês" no checkout; esta linha é o único
+        # lugar onde ele lê que são três e que acaba.
+        assert "3 cobranças mensais" in dados["subscription_data"]["description"]
+        assert "após a 3ª" in dados["subscription_data"]["description"]
+
+    @pytest.mark.asyncio
+    async def test_parcelado_grava_paciente_do_hamilton(self):
+        preco = AsyncMock(return_value={"id": "price_1"})
+        plink = AsyncMock(return_value={"id": "plink_1", "url": "u"})
+        with patch("app.services.pagamentos.stripe_client.criar_preco", preco), patch(
+            "app.services.pagamentos.stripe_client.criar_payment_link", plink
+        ):
+            await pagamentos.criar_link_neuro(
+                "Maria", "m@x.com", 1200, parcelas=3, paciente_id=4321
+            )
+        assert plink.await_args.args[0]["metadata"]["paciente_id"] == "4321"
 
     @pytest.mark.asyncio
     async def test_desconto_aplicado_com_round(self):
@@ -150,27 +170,45 @@ class TestAssinaturaMensalidade:
 
     @pytest.mark.asyncio
     async def test_sem_ancora_sem_pro_rata_sem_trial(self):
-        sessao = AsyncMock(return_value={"id": "cs_t_1", "url": "https://checkout.stripe.com/2"})
-        with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
+        plink = AsyncMock(return_value={"id": "plink_t1", "url": "https://buy.stripe.com/2"})
+        with patch("app.services.pagamentos.stripe_client.criar_payment_link", plink):
             r = await pagamentos.criar_assinatura_mensalidade(
-                nome="Ana", valor_mensal=200, email="a@x.com", agora=AGORA
+                nome="Ana", valor_mensal=200, email="a@x.com"
             )
 
-        sub = sessao.await_args.args[0]["subscription_data"]
+        dados = plink.await_args.args[0]
+        sub = dados["subscription_data"]
         assert "billing_cycle_anchor" not in sub
         assert "proration_behavior" not in sub
         assert "trial_end" not in sub  # é o que faria o checkout dizer "avaliação gratuita"
-        assert len(sessao.await_args.args[0]["line_items"]) == 1
+        assert len(dados["line_items"]) == 1
         assert r["valor_entrada"] == "R$ 200,00"
         assert r["valor_mensal"] == "R$ 200,00"
+        assert r["ref"] == "plink_t1"
+
+    @pytest.mark.asyncio
+    async def test_mensalidade_nunca_ganha_plano_de_parcelas(self):
+        """`parcelas_total` na terapia faria o reconciliador cancelar quem paga em dia.
+
+        É o erro oposto ao do parcelado e o mais caro dos dois: a mensalidade da
+        terapia é contínua por definição.
+        """
+        plink = AsyncMock(return_value={"id": "plink_t2", "url": "u"})
+        with patch("app.services.pagamentos.stripe_client.criar_payment_link", plink):
+            await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
+        dados = plink.await_args.args[0]
+        assert "parcelas_total" not in dados["subscription_data"]["metadata"]
+        assert "parcelas_total" not in dados["metadata"]
+        assert dados["subscription_data"]["metadata"]["tipo"] == "clinica"
+        assert pagamentos.tipo_da_assinatura({"metadata": dados["metadata"]}) == "clinica"
 
     @pytest.mark.asyncio
     async def test_email_e_opcional(self):
-        """A Sofia nunca coletou e-mail; o Checkout pergunta se não vier."""
-        sessao = AsyncMock(return_value={"id": "cs_t_0", "url": "u"})
-        with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
+        """Payment Link não tem `customer_email`; o checkout pergunta."""
+        plink = AsyncMock(return_value={"id": "plink_t0", "url": "u"})
+        with patch("app.services.pagamentos.stripe_client.criar_payment_link", plink):
             await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
-        assert "customer_email" not in sessao.await_args.args[0]
+        assert "customer_email" not in plink.await_args.args[0]
 
     @pytest.mark.asyncio
     async def test_email_invalido_e_rejeitado(self):
@@ -191,10 +229,10 @@ class TestAssinaturaMensalidade:
         original = settings.stripe_preco_mensal_id
         settings.stripe_preco_mensal_id = "price_catalogo"
         preco = AsyncMock(return_value={"id": "price_catalogo", "unit_amount": 20000})
-        sessao = AsyncMock(return_value={"id": "cs_t_3", "url": "u"})
+        sessao = AsyncMock(return_value={"id": "plink_t3", "url": "u"})
         try:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
-                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+                "app.services.pagamentos.stripe_client.criar_payment_link", sessao
             ):
                 await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
         finally:
@@ -207,10 +245,10 @@ class TestAssinaturaMensalidade:
         original = settings.stripe_preco_mensal_id
         settings.stripe_preco_mensal_id = "price_catalogo"
         preco = AsyncMock(return_value={"id": "price_catalogo", "unit_amount": 20000})
-        sessao = AsyncMock(return_value={"id": "cs_t_4", "url": "u"})
+        sessao = AsyncMock(return_value={"id": "plink_t4", "url": "u"})
         try:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
-                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+                "app.services.pagamentos.stripe_client.criar_payment_link", sessao
             ):
                 await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=150)
         finally:
@@ -223,27 +261,35 @@ class TestAssinaturaMensalidade:
         original = settings.stripe_preco_mensal_id
         settings.stripe_preco_mensal_id = "price_catalogo"
         preco = AsyncMock(side_effect=StripeError("down"))
-        sessao = AsyncMock(return_value={"id": "cs_t_5", "url": "u"})
+        sessao = AsyncMock(return_value={"id": "plink_t5", "url": "u"})
         try:
             with patch("app.services.pagamentos.stripe_client.obter_preco", preco), patch(
-                "app.services.pagamentos.stripe_client.criar_checkout_session", sessao
+                "app.services.pagamentos.stripe_client.criar_payment_link", sessao
             ):
                 r = await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
         finally:
             settings.stripe_preco_mensal_id = original
-        assert r["ref"] == "cs_t_5"
+        assert r["ref"] == "plink_t5"
         assert "price_data" in sessao.await_args.args[0]["line_items"][0]
 
 
-class TestUrlDeCancelamento:
+class TestUrlDeRetorno:
     @pytest.mark.asyncio
-    async def test_cancelamento_volta_pra_pagina_da_sofia(self):
-        sessao = AsyncMock(return_value={"id": "cs_y", "url": "u"})
-        with patch("app.services.pagamentos.stripe_client.criar_checkout_session", sessao):
+    async def test_sucesso_volta_pra_pagina_da_sofia(self):
+        """Payment Link tem `after_completion`, não `success_url`/`cancel_url`.
+
+        Não existe fluxo de cancelamento num Payment Link — quem desiste fecha a
+        aba. A rota /pagamento-cancelado continua de pé só pros links de checkout
+        antigos, que ainda podem estar no WhatsApp de alguém.
+        """
+        plink = AsyncMock(return_value={"id": "plink_y", "url": "u"})
+        with patch("app.services.pagamentos.stripe_client.criar_payment_link", plink):
             await pagamentos.criar_assinatura_mensalidade(nome="Ana", valor_mensal=200)
-        assert sessao.await_args.args[0]["cancel_url"] == (
-            f"{settings.base_url}/pagamento-cancelado"
+        dados = plink.await_args.args[0]
+        assert dados["after_completion"]["redirect"]["url"] == (
+            f"{settings.base_url}/pagamento-sucesso"
         )
+        assert "cancel_url" not in dados
 
 
 class TestStatusDaReferencia:
@@ -530,3 +576,195 @@ class TestPaginasPublicas:
         resp = await client.get(url)
         assert resp.status_code == 200
         assert trecho in resp.text
+
+
+class TestPlanoDeLimite:
+    """A decisão do reconciliador — lógica pura, sem rede.
+
+    O comportamento de cobrança em si (a assinatura realmente parar na Nª) é
+    verificado contra o Stripe de verdade em `scripts/validar_parcelado.py`, com
+    test clock. Teste com mock não pega contrato de API quebrado: foi exatamente
+    um mock que deixou `subscription_data[cancel_at]` passar por meses.
+    """
+
+    def _sub(self, **campos):
+        base = {
+            "id": "sub_x",
+            "status": "active",
+            "billing_cycle_anchor": int(datetime(2026, 5, 13, 12, tzinfo=timezone.utc).timestamp()),
+            "metadata": {"parcelas_total": "5", "nome_cliente": "Bruna"},
+        }
+        base.update(campos)
+        return base
+
+    def test_corta_um_dia_antes_da_parcela_que_sobra(self):
+        plano = pagamentos.plano_de_limite(self._sub(), pagas=2)
+        assert plano["acao"] == "cancel_at"
+        # Fatura 5 sai em 13/09; a 6ª sairia em 13/10 — cortar em 12/10 mata só ela.
+        quando = datetime.fromtimestamp(plano["quando"], timezone.utc)
+        assert (quando.day, quando.month, quando.year) == (12, 10, 2026)
+
+    def test_mes_curto_nao_desloca_a_ancora(self):
+        """31/01 + 1 mês é 28/02, mas 31/01 + 2 meses volta pro dia 31.
+
+        Iterando mês a mês o dia iria encolhendo e o corte cairia cedo demais —
+        cancelando ANTES da última parcela devida, que é perder dinheiro.
+        """
+        anc = int(datetime(2026, 1, 31, 12, tzinfo=timezone.utc).timestamp())
+        plano = pagamentos.plano_de_limite(
+            self._sub(billing_cycle_anchor=anc, metadata={"parcelas_total": "3"}), pagas=1
+        )
+        # Faturas: 31/01, 28/02, 31/03 (a 3ª e última). A 4ª sairia em 30/04
+        # (31/04 não existe), então o corte é 29/04 — depois da 3ª, antes da 4ª.
+        quando = datetime.fromtimestamp(plano["quando"], timezone.utc)
+        assert (quando.day, quando.month) == (29, 4)
+
+    def test_ja_pagou_tudo_vira_nao_renovar(self):
+        plano = pagamentos.plano_de_limite(self._sub(), pagas=5)
+        assert plano["acao"] == "nao_renovar"
+        assert plano["quando"] is None
+
+    def test_excedente_aparece_no_motivo(self):
+        """O caso real: plano de 4x que cobrou 5. Reporta; estorno é decisão humana."""
+        plano = pagamentos.plano_de_limite(self._sub(metadata={"parcelas_total": "4"}), pagas=5)
+        assert "JÁ COBROU 1 A MAIS" in plano["motivo"]
+
+    def test_mensalidade_da_terapia_e_intocavel(self):
+        """Sem `parcelas_total` = contínua. Cancelar aqui é o erro caro."""
+        assert pagamentos.plano_de_limite(self._sub(metadata={"tipo": "clinica"}), pagas=9) is None
+
+    @pytest.mark.parametrize("ja", [{"cancel_at": 123}, {"cancel_at_period_end": True}])
+    def test_nao_sobrescreve_fim_ja_definido(self, ja):
+        """Se alguém ajustou à mão no dashboard, o cron não desfaz."""
+        assert pagamentos.plano_de_limite(self._sub(**ja), pagas=1) is None
+
+
+class TestLimitarParcelado:
+    def _sub(self, sid, total, status="active"):
+        return {
+            "id": sid,
+            "status": status,
+            "billing_cycle_anchor": int(datetime(2026, 5, 13, tzinfo=timezone.utc).timestamp()),
+            "metadata": {"parcelas_total": str(total), "nome_cliente": sid},
+            "items": {"data": [{"price": {"recurring": {"interval": "month"}, "product": "p1"}}]},
+        }
+
+    @pytest.mark.asyncio
+    async def test_simular_nao_escreve_nada(self):
+        escrever = AsyncMock()
+        with patch(
+            "app.services.pagamentos.stripe_client.listar_assinaturas",
+            AsyncMock(return_value=[self._sub("sub_a", 5)]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_faturas",
+            AsyncMock(return_value=[{"status": "paid"}]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.atualizar_assinatura", escrever
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_produtos", AsyncMock(return_value={})
+        ):
+            r = await pagamentos.limitar_parcelado(simular=True)
+        escrever.assert_not_awaited()
+        assert len(r["planejadas"]) == 1
+        assert r["simulado"] is True
+
+    @pytest.mark.asyncio
+    async def test_aplica_e_ignora_cancelada(self):
+        escrever = AsyncMock()
+        with patch(
+            "app.services.pagamentos.stripe_client.listar_assinaturas",
+            AsyncMock(return_value=[self._sub("sub_a", 5), self._sub("sub_morta", 5, "canceled")]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_faturas",
+            AsyncMock(return_value=[{"status": "paid"}]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.atualizar_assinatura", escrever
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_produtos", AsyncMock(return_value={})
+        ):
+            r = await pagamentos.limitar_parcelado(simular=False)
+        assert [c.args[0] for c in escrever.await_args_list] == ["sub_a"]
+        assert r["planejadas"][0]["aplicado"] is True
+
+    @pytest.mark.asyncio
+    async def test_teto_por_rodada_nao_some_com_o_resto(self):
+        escrever = AsyncMock()
+        with patch(
+            "app.services.pagamentos.stripe_client.listar_assinaturas",
+            AsyncMock(return_value=[self._sub(f"sub_{i}", 5) for i in range(25)]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_faturas",
+            AsyncMock(return_value=[{"status": "paid"}]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.atualizar_assinatura", escrever
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_produtos", AsyncMock(return_value={})
+        ):
+            r = await pagamentos.limitar_parcelado(simular=False, limite=20)
+        assert r["truncado"] is True
+        assert escrever.await_count == 20
+
+    @pytest.mark.asyncio
+    async def test_faturas_ilegiveis_nao_viram_cancelamento(self):
+        """Sem saber quantas foram pagas não dá pra decidir — e o default é não mexer."""
+        escrever = AsyncMock()
+        with patch(
+            "app.services.pagamentos.stripe_client.listar_assinaturas",
+            AsyncMock(return_value=[self._sub("sub_a", 5)]),
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_faturas",
+            AsyncMock(side_effect=StripeError("down")),
+        ), patch(
+            "app.services.pagamentos.stripe_client.atualizar_assinatura", escrever
+        ), patch(
+            "app.services.pagamentos.stripe_client.listar_produtos", AsyncMock(return_value={})
+        ):
+            r = await pagamentos.limitar_parcelado(simular=False)
+        escrever.assert_not_awaited()
+        assert r["planejadas"] == []
+
+    @pytest.mark.asyncio
+    async def test_neuro_sem_plano_vira_alerta_e_nao_e_tocado(self):
+        """Formato de metadata mudou -> aparece na tela, não some em silêncio."""
+        orfa = {
+            "id": "sub_orfa",
+            "status": "active",
+            "metadata": {},
+            "items": {"data": [{"price": {"recurring": {"interval": "month"}, "product": "p9"}}]},
+        }
+        escrever = AsyncMock()
+        with patch(
+            "app.services.pagamentos.stripe_client.listar_assinaturas",
+            AsyncMock(return_value=[orfa]),
+        ), patch("app.services.pagamentos.stripe_client.atualizar_assinatura", escrever), patch(
+            "app.services.pagamentos.stripe_client.listar_produtos",
+            AsyncMock(return_value={"p9": "Neuro Avaliação Neuropsicológica - Alguém"}),
+        ):
+            r = await pagamentos.limitar_parcelado(simular=False)
+        escrever.assert_not_awaited()
+        assert r["alertas"][0]["id"] == "sub_orfa"
+
+
+class TestLegadoNoPainel:
+    """As 48 assinaturas criadas fora da Sofia precisam fazer sentido na tela."""
+
+    def test_neuro_antigo_e_reconhecido_pelo_plano_de_parcelas(self):
+        """`metadata.tipo` só existe nas 3 criadas pela Sofia; sem este fallback as
+        18 de neuro do painel do site apareciam rotuladas como Terapia."""
+        assert pagamentos.tipo_da_assinatura({"metadata": {"parcelas_total": "4"}}) == "neuro"
+
+    def test_sem_metadata_nenhum_e_terapia(self):
+        assert pagamentos.tipo_da_assinatura({"metadata": {}}) == "clinica"
+
+    @pytest.mark.parametrize(
+        "sub,esperado",
+        [
+            ({"metadata": {"nome_cliente": "Bruna"}}, "Bruna"),
+            ({"metadata": {"patient_name": "Luciana"}}, "Luciana"),
+            ({"metadata": {}, "customer": {"name": "Alex A C Santos"}}, "Alex A C Santos"),
+            ({"metadata": {}, "customer": "cus_sem_expand"}, "(sem nome)"),
+            ({"metadata": {}}, "(sem nome)"),
+        ],
+    )
+    def test_cadeia_de_fallback_do_nome(self, sub, esperado):
+        assert pagamentos.nome_do_cliente(sub) == esperado

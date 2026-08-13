@@ -188,7 +188,11 @@ async def _criar_link(db: AsyncSession, conversa: Conversa) -> str | None:
     nome = (conversa.dados_coletados or {}).get("nome_completo") or conversa.numero_whatsapp
     try:
         resultado = await pagamentos.criar_assinatura_mensalidade(
-            nome=nome, valor_mensal=valor_mensal(conversa)
+            nome=nome,
+            valor_mensal=valor_mensal(conversa),
+            # Elo com o prontuário: é por ele que a contabilidade casa a
+            # assinatura do Stripe com o paciente do Hamilton.
+            paciente_id=conversa.paciente_hamilton_id,
         )
     except (pagamentos.ErroValidacao, stripe_client.StripeError) as exc:
         logger.error("Não consegui gerar o link de cobrança da conversa %s: %s", conversa.id, exc)
@@ -405,20 +409,27 @@ async def _mandar_lembrete(db: AsyncSession, conversa: Conversa, agora: datetime
 
 
 async def _link_atual(conversa: Conversa) -> str | None:
-    """Recupera o link do checkout já criado pra esta conversa.
+    """Recupera o link de pagamento já criado pra esta conversa.
 
-    O `stripe_ref` guarda o id da sessão (`cs_...`); a URL fica no Stripe. Buscar
-    ao vivo evita guardar uma segunda cópia que poderia divergir.
+    O `stripe_ref` guarda o id (`plink_...` hoje; `cs_...` no que foi criado antes
+    da troca de Checkout Session por Payment Link) e a URL fica no Stripe. Buscar
+    ao vivo evita guardar uma segunda cópia que poderia divergir — e é o que faz a
+    Sofia repetir o MESMO link nos turnos seguintes em vez de gerar outro.
     """
     ref = (conversa.stripe_ref or "").strip()
-    if not ref.startswith("cs_"):
-        return None
     try:
-        sessao = await stripe_client.obter_checkout_session(ref)
+        if ref.startswith("plink_"):
+            return (await stripe_client.obter_payment_link(ref)).get("url")
+        if ref.startswith("cs_"):
+            # Legado: a URL da Session morre 24h depois de criada. Se já venceu,
+            # é melhor não ter link (a Sofia oferece o Pix) que mandar um morto.
+            sessao = await stripe_client.obter_checkout_session(ref)
+            return None if sessao.get("status") == "expired" else sessao.get("url")
+        if ref.startswith("https://buy.stripe.com/"):
+            return ref
     except stripe_client.StripeError:
-        logger.warning("Não recuperei o link do checkout da conversa %s", conversa.id)
-        return None
-    return sessao.get("url")
+        logger.warning("Não recuperei o link de pagamento da conversa %s", conversa.id)
+    return None
 
 
 async def _turno(

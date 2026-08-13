@@ -115,6 +115,13 @@ class Settings(BaseSettings):
     # mensalidade pedida bate com o valor dele, a assinatura reusa esse preço
     # (relatórios unificados com o site da Allos) em vez de criar um novo.
     stripe_preco_mensal_id: str = ""
+    # Chaves do MODO DE TESTE do Stripe. Nenhum código da app lê estas duas: a app
+    # sempre usa `stripe_secret_key`. Existem pro `scripts/validar_parcelado.py`,
+    # que roda o ciclo inteiro do parcelado com test clock (avança 6 meses e
+    # confere que a cobrança parou) sem tocar em dinheiro real. Declaradas aqui
+    # porque Settings rejeita chaves desconhecidas no .env. NÃO setar no Render.
+    test_stripe_secret_key: str = ""
+    test_stripe_publishable_key: str = ""
     # URL pública da Sofia — monta as páginas de retorno do checkout
     # (/pagamento-sucesso e /pagamento-cancelado). Sem barra no final.
     base_url: str = "https://sofia-whatsapp.onrender.com"

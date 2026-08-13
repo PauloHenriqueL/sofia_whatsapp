@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_db
-from app.services import cobranca, pesquisa, seguimento
+from app.services import cobranca, config_negocio, pagamentos, pesquisa, seguimento, stripe_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -66,3 +66,27 @@ async def disparar_cobrancas(request: Request, db: AsyncSession = Depends(get_db
     if not _token_valido(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     return await cobranca.rodar_cobrancas(db)
+
+
+@router.post("/stripe")
+async def disparar_stripe(request: Request, simular: bool = False):
+    """Põe o fim da linha nas assinaturas de parcelado (chamado pelo cron externo).
+
+    Endpoint SEPARADO do `/tasks/cobrancas` de propósito: aquele só faz algo com
+    `cobranca_ativa` ligada, que hoje está desligada — pendurar isto lá
+    significaria que o conserto do parcelado não roda até alguém ligar a cobrança
+    automática, que é uma decisão sem relação nenhuma com esta.
+
+    `?simular=1` devolve exatamente o que faria, sem escrever no Stripe.
+    """
+    if not _token_valido(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    if not stripe_client.configurado():
+        return {"desligado": "stripe"}
+    if not simular and not config_negocio.valor("limitar_parcelado_ativo"):
+        return {"desligado": "limitar_parcelado_ativo"}
+    try:
+        return await pagamentos.limitar_parcelado(simular=simular)
+    except stripe_client.StripeError:
+        logger.error("Rodada de limite do parcelado falhou ao falar com o Stripe")
+        return JSONResponse({"error": "stripe_indisponivel"}, status_code=503)

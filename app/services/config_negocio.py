@@ -107,6 +107,19 @@ CAMPOS: dict[str, Campo] = {
         "de base. Sem isso não dá pra medir a evolução do paciente depois.",
         "automacoes",
     ),
+    # Nasce LIGADA, e aqui a convenção das outras chaves se INVERTE: em pesquisa e
+    # cobrança, desligado = a Sofia não faz nada. Nesta, desligado = as assinaturas
+    # de parcelado seguem cobrando depois da última parcela combinada. O estado
+    # seguro é ligado.
+    "limitar_parcelado_ativo": Campo(
+        "Encerrar o parcelado na última parcela",
+        True,
+        "bool",
+        "A avaliação neuropsicológica parcelada é uma assinatura mensal, e o Stripe não "
+        "aceita marcar o fim na criação. Ligada, a Sofia marca o encerramento assim que a "
+        "pessoa paga. <em>Desligada, a cobrança não para sozinha.</em>",
+        "automacoes",
+    ),
     "transcrever_audio": Campo(
         "Ouvir áudios",
         settings.transcrever_audio,

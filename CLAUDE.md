@@ -27,8 +27,10 @@ o ambiente — nenhuma delas exige código novo.
   10/08 ela emenda no cadastro, tem interruptor próprio (`pesquisa_entrada_ativa`
   em `/painel/config`, **nasce ligada**) e não passa pela fila de pendentes.
 - **`cobranca_ativa`** em `/painel/config`. Mesmo desenho: nasce desligada.
-- **Crons** no cron-job.org, mesmo `TASKS_TOKEN`: `POST /tasks/pesquisas` e
-  `POST /tasks/cobrancas`. **Sem cron, nada sai.**
+- **Crons** no cron-job.org, mesmo `TASKS_TOKEN`: `POST /tasks/pesquisas`,
+  `POST /tasks/cobrancas` e **`POST /tasks/stripe`** (diário; encerra o parcelado
+  do neuro na última parcela — sem ele a assinatura cobra pra sempre, e isso já
+  aconteceu com 18 pacientes). **Sem cron, nada sai.**
 - `alembic upgrade head` (head atual: **`a7b8c9d0e1f2`**).
 
 ### 2. Modelo da tabela de avaliação + planilha de qualidade
@@ -134,6 +136,20 @@ Skills do projeto: **`/test`** (suite) e **`/security-review`** (audit antes de 
 > perde esses frames e reporta rotas cobertas como **não** cobertas (o router do painel
 > aparecia com 63% quando a cobertura real é 90%). Não "conserte" cobertura sem antes
 > checar se a linha realmente não executa. Use `--cov` (sem `=app`), que lê a config.
+
+> 🔴 **A suite não fala com a internet — `tests/conftest.py` trava o transporte.**
+> Ele existe por um motivo só, e não tem fixture compartilhada (o desenho de "cada
+> teste sobe o seu SQLite e mocka o que precisa" continua valendo). O motivo: um
+> teste de pagamento mockava `criar_checkout_session`; quando o serviço passou a
+> chamar `criar_payment_link`, o mock deixou de cobrir o caminho e o `pytest`
+> **criou quatro Payment Links na conta LIVE do Stripe**, com a chave real do
+> `.env`. A mesma trava revelou que 13 testes do webhook faziam `GET` de verdade em
+> `/api/v1/captacoes/` do Hamilton a cada turno.
+> A trava é em `httpx.AsyncHTTPTransport`/`HTTPTransport`, **não** no `Client` — o
+> `TestClient` do FastAPI também é httpx, sobre `ASGITransport`, e travar o cliente
+> derruba a suite do painel inteira. `RedeBloqueada` herda de `httpx.TransportError`
+> pra que o código exercite a degradação que já sabe fazer em vez de estourar.
+> Teste que precise mesmo de rede: `@pytest.mark.rede`.
 
 > ⚠️ **Gotcha — precisa de `.env` até pra rodar testes.** `app/config.py` faz
 > `settings = Settings()` **no import**, e `Settings` tem campos obrigatórios sem
@@ -320,6 +336,7 @@ peça que eu te lembro onde fica cada uma.
    └─ Tasks: POST /tasks/seguimentos (cron → follow-up de lead parado)
              POST /tasks/pesquisas   (cron → pesquisa de satisfação)
              POST /tasks/cobrancas   (cron → mensalidade pós-1ª sessão)
+             POST /tasks/stripe      (cron → encerra o parcelado do neuro na Nª parcela)
       ↕
 [Thainá: PC ou celular]
 ```
@@ -686,25 +703,68 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
 - **Não é substituível por prompt** (o prompt reforça, mas LLM não garante formato).
 
 ### Pagamentos Stripe (`pagamentos.py` + `stripe_client.py`, `/painel/pagamentos`)
-- Portado do painel do site da Allos (guia `reproduzir-painel-pagamentos.md` no repo
-  Allos-site), **com os bugs do original corrigidos**: parcelado tem `cancel_at`
-  (senão cobraria pra sempre), metadata padronizada (`nome_cliente`), tipo via
-  `metadata.tipo`, `apiVersion` fixada (header `Stripe-Version`).
+
+🔴 **Leia isto antes de mexer: `cancel_at` NÃO existe na criação.** Nem em Checkout
+Session nem em Payment Link — a API responde `400 parameter_unknown: Received unknown
+parameter: subscription_data[cancel_at]`. Ele só existe em `POST /subscriptions/{id}`,
+ou seja, **depois** que a pessoa paga.
+- **O estrago (descoberto em 13/08):** o código mandava esse parâmetro achando que
+  limitava o parcelado, e o teste unitário "provava" que funcionava porque **mockava**
+  `criar_checkout_session`. Suite verde, feature morta: nenhum link parcelado jamais
+  foi gerado pelo painel da Sofia (todo POST dava 400). Na conta real, as 18
+  assinaturas de parcelado vindas do painel do site **cobravam pra sempre** — uma
+  delas cobrou 5 parcelas num plano de 4 (R$ 250 a mais, estornado por Pix à parte).
+- **Lição, de novo a mesma:** mock não pega contrato de API quebrado. Por isso existe
+  `scripts/validar_parcelado.py` — roda o ciclo inteiro no modo de teste com **test
+  clock**, avança 6 meses e confere que a cobrança parou. Rode depois de mexer aqui.
+- **Como o limite funciona agora:** a criação só grava `parcelas_total` no metadata;
+  quem encerra é **`limitar_parcelado`** (`POST /tasks/stripe`, cron diário, flag
+  `limitar_parcelado_ativo` que **nasce ligada**). Ele calcula `âncora + N meses − 1
+  dia` e grava `cancel_at`. Latência não importa: a cobrança indevida só viria um mês
+  depois do checkout.
+- ⚠️ **O discriminador é `metadata.parcelas_total`, e só ele.** Na conta real separa
+  com precisão total (18/18 neuro têm; 0/30 mensalidades de terapia têm). Confundir
+  cancela a terapia contínua de quem paga em dia — o erro oposto e mais caro. O que
+  parece neuro e não tem o campo **não é tocado**: vira alerta (`_neuro_sem_plano`).
+  Teto de 20 por rodada, pra um bug não virar cancelamento em massa.
+
+- **Tudo sai como Payment Link, nunca Checkout Session.** A Session tem URL de 300+
+  caracteres (`checkout.stripe.com/c/pay/cs_...#fid...`) e **expira em 24h** — num
+  link que vai por WhatsApp e fica dias parado, isso é uma cobrança que não acontece
+  e ninguém fica sabendo. Payment Link é `buy.stripe.com/<10 chars>` e não vence; em
+  troca é reutilizável, então todo link nasce com `restrictions.completed_sessions.limit=1`.
+  Consequências: **não há `customer_email`** (o checkout pergunta) e **não há
+  `cancel_url`** (quem desiste fecha a aba; `/pagamento-cancelado` só serve pros
+  links antigos). O `ref` agora é sempre `plink_...`.
+- **`subscription_data.description`** é o único lugar em que o paciente lê o combinado
+  antes de autorizar — a tela do Stripe mostra só "R$ 200,00 por mês" e um botão de
+  assinar. Sem data absoluta de propósito: o link nasce antes do pagamento.
+- **`paciente_id` no metadata** é o elo com o prontuário do Hamilton (o painel do site
+  já gravava; 27 assinaturas têm). Não dá pra preencher depois — tem que ir na criação.
+  `terapeuta_id` não tem equivalente: no cadastro pela Sofia o paciente é lead sem terapeuta.
 - **Sem webhook e sem tabela local por escolha**: o Stripe é a única fonte de verdade;
   a listagem chama a API ao vivo. `stripe_client.py` é httpx puro (form-encoded,
   `_achatar` gera a notação de colchetes). `STRIPE_SECRET_KEY` vazia = tela desligada
   (aviso), nada quebra.
-- 3 partes na mesma página (`?aba=`): **gerar link** neuro 1x (Payment Link) ou 2-6x
-  (assinatura mensal da parcela com `cancel_at` — NÃO é parcelamento de cartão;
-  explicar ao paciente que são N cobranças mensais), **assinatura terapia** (recorrente,
-  ancorada no dia 10, pro-rata na 1ª fatura) e **listagem** com faturas.
+- 3 partes na mesma página (`?aba=`): **gerar link** neuro 1x (pagamento único) ou
+  2-6x (assinatura mensal da parcela — NÃO é parcelamento de cartão, que o Stripe não
+  oferece no Brasil; explicar ao paciente que são N cobranças mensais), **assinatura
+  terapia** (recorrente, sem fim, valor cheio na entrada, sem pro-rata e sem dia fixo)
+  e **listagem** com faturas.
+- **A listagem entende o legado.** `metadata.tipo` só existe nas 3 criadas pela Sofia;
+  `tipo_da_assinatura` cai pra `parcelas_total` (senão as 18 de neuro apareciam como
+  "Terapia" e o filtro vinha vazio) e `nome_do_cliente` cai pra `customer.name` (que
+  exige `expand=data.customer`). Cobre 47 das 51; 4 ficam "(sem nome)". **Nada é
+  escrito no Stripe pra isso** — é tudo fallback de leitura.
 - **Vínculo paciente ↔ Stripe**: `conversa.stripe_ref` aceita `sub_...`, `cs_...`,
   `cus_...`, `plink_...` ou a URL do link (buy.stripe.com) — `interpretar_referencia`
   normaliza, `status_da_referencia` resolve ao vivo num estado unificado (pago/ativa/
   atrasada/aguardando/...). Aparece na página da conversa (card Pagamento) e na fila
   "Pronto pra cobrança" do acompanhamento (`anotar_pagamentos`, tolerante a falha).
   Link criado com "Vincular ao paciente" já sai amarrado. Parcelado cancelado após
-  quitar as N parcelas conta como **pago**, não "cancelada".
+  quitar as N parcelas conta como **pago**, não "cancelada". ⚠️ Payment Link de
+  **assinatura** precisa do desvio pra `_status_da_assinatura` — sem ele todo
+  parcelado apareceria "Pago" já na 1ª parcela.
 - `/pagamento-sucesso` e `/pagamento-cancelado` são **públicas** (o paciente cai nelas
   ao voltar do checkout) e **não confirmam pagamento** — cortesia visual; a verdade é
   a API. Timestamps do Stripe são em SEGUNDOS (filtro Jinja `data_unix`); valores em
@@ -1016,7 +1076,7 @@ sofia/
 │   │   ├── auth.py           # GET/POST /login, /logout (sessão)
 │   │   ├── api.py            # API JSON do painel
 │   │   ├── painel.py         # /painel (Hoje), /painel/conversas, /config, /metricas
-│   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas,cobrancas} (cron, X-Tasks-Token)
+│   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas,cobrancas,stripe} (cron, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
 │   ├── services/
@@ -1053,13 +1113,15 @@ sofia/
 │
 ├── scripts/
 │   ├── gerar_icones.py       # (legado) ícones do PWA com o "S" da Fraunces
-│   └── gerar_marca.py        # Regera marca + ícones do PWA a partir da logo (dev-only)
+│   ├── gerar_marca.py        # Regera marca + ícones do PWA a partir da logo (dev-only)
+│   ├── validar_parcelado.py  # Prova com test clock que o parcelado PARA na Nª (modo de teste)
+│   └── relatorio_parcelado.py # Simula/aplica o fim de linha nas assinaturas antigas
 │
 ├── alembic/
 │   ├── env.py
 │   └── versions/             # Migration files
 │
-├── tests/                    # sem conftest.py; cada teste sobe SQLite in-memory e mocka externos
+├── tests/                    # conftest.py SÓ trava rede; cada teste sobe seu SQLite e mocka externos
 │   ├── test_webhook.py, test_conversation.py, test_escalation.py
 │   ├── test_cadastro.py, test_hamilton.py, test_llm.py
 │   ├── test_painel.py, test_metricas.py, test_seguimento.py

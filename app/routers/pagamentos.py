@@ -107,6 +107,19 @@ async def _vincular(db: AsyncSession, conversa_id: int | None, ref: str) -> None
     await db.commit()
 
 
+async def _paciente_hamilton(db: AsyncSession, conversa_id: int | None) -> int | None:
+    """Id do prontuário, pra gravar no metadata da assinatura.
+
+    O painel antigo do site gravava `paciente_id` e é por ele que a contabilidade
+    casa assinatura com prontuário. Precisa ser lido ANTES de criar o link — vai
+    no metadata, que não dá pra preencher depois de a pessoa assinar.
+    """
+    if not conversa_id:
+        return None
+    conversa = await painel.obter_conversa(db, conversa_id)
+    return conversa.paciente_hamilton_id if conversa else None
+
+
 @router.post("/criar-link")
 async def criar_link(
     request: Request,
@@ -127,7 +140,14 @@ async def criar_link(
         "conversa_id": conversa_id,
     }
     try:
-        resultado = await pagamentos.criar_link_neuro(nome, email, valor_total, parcelas, desconto)
+        resultado = await pagamentos.criar_link_neuro(
+            nome,
+            email,
+            valor_total,
+            parcelas,
+            desconto,
+            paciente_id=await _paciente_hamilton(db, conversa_id),
+        )
         await _vincular(db, conversa_id, resultado["ref"])
         ctx = await _contexto(request, db, "gerar", resultado=resultado)
     except pagamentos.ErroValidacao as exc:
@@ -155,7 +175,10 @@ async def criar_assinatura(
         # própria com pro-rata ancorado no dia 10, e um paciente cobrado pelo painel
         # pagava valor diferente do cobrado pela Sofia.
         resultado = await pagamentos.criar_assinatura_mensalidade(
-            nome=nome, valor_mensal=valor_mensal, email=email
+            nome=nome,
+            valor_mensal=valor_mensal,
+            email=email,
+            paciente_id=await _paciente_hamilton(db, conversa_id),
         )
         await _vincular(db, conversa_id, resultado["ref"])
         ctx = await _contexto(request, db, "terapia", resultado=resultado)

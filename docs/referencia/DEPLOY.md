@@ -151,6 +151,43 @@ Sem `TASKS_TOKEN` o endpoint responde 403 (follow-up fica desligado).
 
 ---
 
+## 8b. Encerrar o parcelado do neuro na última parcela (cron externo) 🧑‍💻
+
+🔴 **Este cron não é opcional.** A avaliação neuropsicológica "parcelada" é, no
+Stripe, uma **assinatura mensal** — o Stripe não oferece parcelamento de cartão no
+Brasil. E não dá pra marcar o fim na criação: `subscription_data[cancel_at]` não
+existe na API (responde `400 parameter_unknown`), só `POST /subscriptions/{id}`
+aceita `cancel_at`, o que só é possível **depois** que a pessoa paga.
+
+Sem este cron, **toda assinatura de parcelado cobra para sempre**. Isso já
+aconteceu: 18 assinaturas ficaram sem fim e uma cobrou 5 parcelas num plano de 4.
+
+- **Método**: `POST`
+- **URL**: `https://SUA-URL/tasks/stripe`
+- **Header**: `X-Tasks-Token: <o TASKS_TOKEN>`
+- **Frequência**: diária (`0 4 * * *`). Não precisa ser mais que isso: a cobrança
+  indevida só viria um mês depois do checkout — a margem é de 30 dias.
+
+Conferir sem escrever nada (simulação):
+
+```bash
+curl -X POST "https://SUA-URL/tasks/stripe?simular=1" -H "X-Tasks-Token: <TOKEN>"
+```
+
+Localmente, o mesmo em formato de tabela — e é assim que se aplica nas assinaturas
+antigas, uma conferência antes:
+
+```bash
+python scripts/relatorio_parcelado.py             # só mostra
+python scripts/relatorio_parcelado.py --aplicar   # grava no Stripe
+```
+
+A rodada respeita a chave **`limitar_parcelado_ativo`** do `/painel/config`, que
+**nasce ligada** — ao contrário das outras automações, aqui "desligado" significa
+continuar cobrando indevidamente.
+
+---
+
 ## Checklist de credenciais (`.env` / Render)
 
 | Variável | De onde vem |

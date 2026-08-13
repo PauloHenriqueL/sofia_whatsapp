@@ -109,8 +109,10 @@
       <i class="bi bi-link-45deg"></i> Gerar link
     </button>
     <div class="muted" style="font-size:12px; margin-top:10px">
-      Parcelado (2x a 6x) são <b>N cobranças mensais no cartão</b> (uma assinatura que
-      se encerra sozinha), não parcelamento da fatura — explique isso ao paciente.
+      Parcelado são <b>N cobranças mensais no cartão</b> (uma assinatura que se
+      encerra sozinha), não parcelamento da fatura — explique isso ao paciente.
+      O paciente também lê isso na tela do Stripe antes de autorizar.
+      O link <b>não vence</b> e vale pra uma pessoa só.
     </div>
   </form>
   {% endif %}
@@ -188,12 +190,30 @@
     <div class="muted" style="margin-top:6px">
       {% if sub.tipo == 'neuro' and sub.parcelas_total %}
         {{ sub.parcelas_pagas }} de {{ sub.parcelas_total }} parcelas pagas
+        {% if sub.cancela_em %}· encerra em {{ sub.cancela_em | data_unix }}
+        {% elif sub.nao_renova %}· não renova
+        {% endif %}
       {% else %}
         {{ sub.parcelas_pagas }} mensalidade(s) paga(s) · recorrente
       {% endif %}
       {% if sub.parcelas_atrasadas %}
         · <span style="color:var(--red-text); font-weight:600">{{ sub.parcelas_atrasadas }} atrasada(s)</span>
       {% endif %}
+      {% if sub.paciente_id %}· paciente #{{ sub.paciente_id }}{% endif %}
+    </div>
+    {# Parcelado sem data de encerramento = vai cobrar depois da última parcela.
+       Fica na cara em vez de só no log do cron: era esse o bug, e assinatura
+       antiga que o reconciliador não conseguir ajustar reaparece aqui. #}
+    {% if sub.sem_limite %}
+    <div class="muted" style="margin-top:6px; color:var(--red-text); font-weight:600">
+      <i class="bi bi-exclamation-triangle"></i>
+      Sem data de encerramento — vai continuar cobrando depois da {{ sub.parcelas_total }}ª parcela.
+    </div>
+    {% endif %}
+    <div class="muted" style="margin-top:6px; font-size:12px">
+      <code>{{ sub.id }}</code>
+      <button class="btn" type="button" data-copiar="{{ sub.id }}" style="padding:1px 7px; font-size:11px">copiar</button>
+      <span>— cole em "Pagamento" na conversa do paciente pra vincular</span>
     </div>
     {% if sub.faturas %}
     <details style="margin-top:8px">
