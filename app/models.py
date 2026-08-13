@@ -224,6 +224,39 @@ class Configuracao(Base):
     )
 
 
+class LinkCurto(Base):
+    """`allos.org.br/p/k7m2xq` -> a URL do Stripe.
+
+    Mora AQUI e não no banco do site por um motivo: "quem é o paciente X e quanto
+    ele paga" é dado financeiro/de saúde, e o dono desse dado já é a Sofia. O site
+    fica sendo proxy burro — pergunta e redireciona.
+
+    Por que existe: link de pagamento chegando por WhatsApp de um domínio que a
+    pessoa não conhece (`buy.stripe.com`) tem exatamente o formato que as pessoas
+    foram treinadas a desconfiar. O ganho é no momento em que ela decide clicar —
+    depois do clique o Stripe aparece na barra de qualquer jeito.
+
+    O `slug` é ALEATÓRIO, nunca o nome do paciente: a URL vai pro WhatsApp (é
+    encaminhável) e pros logs de Cloudflare e Railway, que não são nossos.
+    """
+
+    __tablename__ = "link_curto"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    destino: Mapped[str] = mapped_column(Text)
+    # Sem CASCADE e nullable: apagar a conversa ("Reiniciar conversa") não pode
+    # matar um link de cobrança que já está no WhatsApp de alguém.
+    conversa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("conversa.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    cliques: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    ultimo_clique_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Escalada(Base):
     __tablename__ = "escalada"
 

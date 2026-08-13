@@ -188,6 +188,28 @@ continuar cobrando indevidamente.
 
 ---
 
+## 8c. Link curto de pagamento (`allos.org.br/p/xxxxxxx`) 🧑‍💻
+
+Cobrança chegando por WhatsApp com domínio `buy.stripe.com` tem o formato que as
+pessoas foram treinadas a desconfiar. O link curto troca isso pelo domínio da Allos.
+
+São **dois deploys**, e eles são independentes:
+
+1. **Sofia (Render)**: `alembic upgrade head` (cria a tabela `link_curto`) e
+   `LINK_CURTO_BASE=https://allos.org.br/p` nas env vars.
+2. **Site (Railway, repo `associacao-allos/allos-site`)**: o arquivo
+   `src/app/p/[codigo]/route.ts` já está no repo. Opcionalmente
+   `SOFIA_API_URL` (o padrão já é `https://sofia-whatsapp.onrender.com`).
+
+**Sem o passo 2, nada quebra**: enquanto `LINK_CURTO_BASE` estiver vazia, os links
+saem como `https://sofia-whatsapp.onrender.com/l/<slug>` e funcionam igual — só não
+levam o domínio da Allos. Configure `LINK_CURTO_BASE` **depois** que o site subir.
+
+⚠️ A Sofia é Render free e pode estar dormindo; o handler do site espera até 25s e
+guarda o destino em memória, então o segundo clique é instantâneo.
+
+---
+
 ## Checklist de credenciais (`.env` / Render)
 
 | Variável | De onde vem |

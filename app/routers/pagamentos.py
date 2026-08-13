@@ -20,7 +20,7 @@ from app.dependencies import get_db, requer_login_pagina, verificar_origem
 
 # Reusa o ambiente Jinja do painel (filtros `data`, `desde` etc. já registrados).
 from app.routers.painel import templates
-from app.services import config_negocio, pagamentos, painel, stripe_client
+from app.services import config_negocio, links, pagamentos, painel, stripe_client
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,19 @@ async def _vincular(db: AsyncSession, conversa_id: int | None, ref: str) -> None
     await db.commit()
 
 
+async def _encurtar(db: AsyncSession, resultado: dict, conversa_id: int | None) -> dict:
+    """Troca o link do Stripe pelo curto na tela. Nunca quebra a criação.
+
+    A Thainá copia o que está na tela pra colar no WhatsApp, então o encurtamento
+    tem que acontecer aqui — mostrar o link do Stripe e guardar o curto no banco
+    seria ter feito o trabalho e não usar.
+    """
+    resultado["link_stripe"] = resultado["link"]
+    resultado["link"] = await links.encurtar(db, resultado["link"], conversa_id)
+    await db.commit()
+    return resultado
+
+
 async def _paciente_hamilton(db: AsyncSession, conversa_id: int | None) -> int | None:
     """Id do prontuário, pra gravar no metadata da assinatura.
 
@@ -149,6 +162,7 @@ async def criar_link(
             paciente_id=await _paciente_hamilton(db, conversa_id),
         )
         await _vincular(db, conversa_id, resultado["ref"])
+        resultado = await _encurtar(db, resultado, conversa_id)
         ctx = await _contexto(request, db, "gerar", resultado=resultado)
     except pagamentos.ErroValidacao as exc:
         ctx = await _contexto(request, db, "gerar", erro=str(exc), form=form)
@@ -181,6 +195,7 @@ async def criar_assinatura(
             paciente_id=await _paciente_hamilton(db, conversa_id),
         )
         await _vincular(db, conversa_id, resultado["ref"])
+        resultado = await _encurtar(db, resultado, conversa_id)
         ctx = await _contexto(request, db, "terapia", resultado=resultado)
     except pagamentos.ErroValidacao as exc:
         ctx = await _contexto(request, db, "terapia", erro=str(exc), form=form)

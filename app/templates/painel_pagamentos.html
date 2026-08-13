@@ -56,6 +56,18 @@
         </span>
       {% endif %}
     </div>
+    {% if resultado.link_stripe and resultado.link_stripe != resultado.link %}
+    {# O link do Stripe fica à mão como plano B: se o site sair do ar, o curto
+       para de resolver e a cobrança não pode ficar refém disso. #}
+    <details style="margin-top:10px">
+      <summary class="muted" style="cursor:pointer; font-size:12px">
+        Link direto do Stripe (use só se o link acima não abrir)
+      </summary>
+      <div class="link-gerado" style="margin-top:6px; font-size:12px">{{ resultado.link_stripe }}</div>
+      <button class="btn" type="button" data-copiar="{{ resultado.link_stripe }}"
+              style="margin-top:6px; padding:2px 8px; font-size:11px">copiar</button>
+    </details>
+    {% endif %}
   </div>
   {% endif %}
 

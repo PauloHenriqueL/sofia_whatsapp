@@ -46,6 +46,7 @@ from app.services import (
     config_prompt,
     conversation,
     hamilton_client,
+    links,
     llm_client,
     pagamentos,
     stripe_client,
@@ -202,7 +203,7 @@ async def _criar_link(db: AsyncSession, conversa: Conversa) -> str | None:
     if not conversa.stripe_ref:
         conversa.stripe_ref = resultado["ref"]
         await db.flush()
-    return resultado["link"]
+    return await links.encurtar(db, resultado["link"], conversa.id)
 
 
 async def iniciar(db: AsyncSession, conversa: Conversa, agora: datetime | None = None) -> bool:
@@ -239,7 +240,7 @@ async def iniciar(db: AsyncSession, conversa: Conversa, agora: datetime | None =
 
 async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
     """Conduz um turno da cobrança (no lugar do turno normal do bot)."""
-    link = await _link_atual(conversa)
+    link = await _link_atual(db, conversa)
     historico = await conversation.carregar_historico(db, conversa)
     try:
         resposta = await _turno(db, conversa, link, historico=historico)
@@ -408,28 +409,33 @@ async def _mandar_lembrete(db: AsyncSession, conversa: Conversa, agora: datetime
 # --------------------------------------------------------------------------- #
 
 
-async def _link_atual(conversa: Conversa) -> str | None:
-    """Recupera o link de pagamento já criado pra esta conversa.
+async def _link_atual(db: AsyncSession, conversa: Conversa) -> str | None:
+    """Recupera o link de pagamento já criado pra esta conversa, encurtado.
 
     O `stripe_ref` guarda o id (`plink_...` hoje; `cs_...` no que foi criado antes
     da troca de Checkout Session por Payment Link) e a URL fica no Stripe. Buscar
     ao vivo evita guardar uma segunda cópia que poderia divergir — e é o que faz a
     Sofia repetir o MESMO link nos turnos seguintes em vez de gerar outro.
+
+    O encurtamento é idempotente por destino, então o slug também é o mesmo em
+    todos os turnos: a pessoa não recebe dois endereços diferentes pro mesmo
+    pagamento.
     """
     ref = (conversa.stripe_ref or "").strip()
+    url = None
     try:
         if ref.startswith("plink_"):
-            return (await stripe_client.obter_payment_link(ref)).get("url")
-        if ref.startswith("cs_"):
+            url = (await stripe_client.obter_payment_link(ref)).get("url")
+        elif ref.startswith("cs_"):
             # Legado: a URL da Session morre 24h depois de criada. Se já venceu,
             # é melhor não ter link (a Sofia oferece o Pix) que mandar um morto.
             sessao = await stripe_client.obter_checkout_session(ref)
-            return None if sessao.get("status") == "expired" else sessao.get("url")
-        if ref.startswith("https://buy.stripe.com/"):
-            return ref
+            url = None if sessao.get("status") == "expired" else sessao.get("url")
+        elif ref.startswith("https://buy.stripe.com/"):
+            url = ref
     except stripe_client.StripeError:
         logger.warning("Não recuperei o link de pagamento da conversa %s", conversa.id)
-    return None
+    return await links.encurtar(db, url, conversa.id) if url else None
 
 
 async def _turno(

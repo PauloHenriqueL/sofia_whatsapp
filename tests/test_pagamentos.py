@@ -7,13 +7,14 @@ import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.models import Conversa
-from app.services import pagamentos
+from app.models import Conversa, LinkCurto
+from app.services import links, pagamentos
 from app.services.pagamentos import ErroValidacao
 from app.services.stripe_client import StripeError, _achatar
 
@@ -475,7 +476,7 @@ class TestPaginaPagamentos:
         criar = AsyncMock(
             return_value={
                 "link": "https://buy.stripe.com/x",
-                "ref": "https://buy.stripe.com/x",
+                "ref": "plink_1",
                 "resumo": {
                     "valor_total": "R$ 100,00",
                     "parcelas": 1,
@@ -497,9 +498,17 @@ class TestPaginaPagamentos:
                 },
             )
         assert resp.status_code == 200
-        assert "https://buy.stripe.com/x" in resp.text
+        # O link em destaque é o CURTO (é o que a Thainá copia pro WhatsApp);
+        # encurtar e continuar exibindo o original seria trabalho à toa. O do
+        # Stripe fica só no plano B recolhido, pro caso de o site sair do ar.
         async with maker() as s:
-            assert (await s.get(Conversa, cid)).stripe_ref == "https://buy.stripe.com/x"
+            curto = (await s.execute(select(LinkCurto))).scalars().one()
+        assert f'id="link-gerado">{links.url_de(curto.slug)}<' in resp.text
+        assert "Link direto do Stripe" in resp.text
+        async with maker() as s:
+            assert (await s.get(Conversa, cid)).stripe_ref == "plink_1"
+            curto = (await s.execute(select(LinkCurto))).scalars().all()
+            assert [c.destino for c in curto] == ["https://buy.stripe.com/x"]
 
     @pytest.mark.asyncio
     async def test_validacao_reaparece_no_form(self, ambiente, stripe_ligado):

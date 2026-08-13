@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.models import Conversa
-from app.services import cobranca, config_negocio, hamilton_client, pagamentos, stripe_client
+from app.services import cobranca, config_negocio, hamilton_client, links, pagamentos, stripe_client
 
 AGORA = datetime(2026, 8, 8, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -388,7 +388,10 @@ class TestVinculoStripe:
             AsyncMock(return_value={"link": "https://x", "ref": "cs_novo"}),
         ):
             link = await cobranca._criar_link(session, conversa)
-        assert link == "https://x"
+        # A Sofia manda o link CURTO pro paciente, não a URL do Stripe: cobrança
+        # chegando por WhatsApp de um domínio desconhecido é formato de golpe.
+        assert link.startswith(links.base_publica() + "/")
+        assert await links.resolver(session, link.rsplit("/", 1)[-1]) == "https://x"
         assert conversa.stripe_ref == "sub_neuro_existente"
 
     @pytest.mark.asyncio

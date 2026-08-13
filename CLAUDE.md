@@ -31,7 +31,7 @@ o ambiente — nenhuma delas exige código novo.
   `POST /tasks/cobrancas` e **`POST /tasks/stripe`** (diário; encerra o parcelado
   do neuro na última parcela — sem ele a assinatura cobra pra sempre, e isso já
   aconteceu com 18 pacientes). **Sem cron, nada sai.**
-- `alembic upgrade head` (head atual: **`a7b8c9d0e1f2`**).
+- `alembic upgrade head` (head atual: **`c9e1f4a7b3d8`**).
 
 ### 2. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
@@ -361,6 +361,12 @@ conversa
 ├─ stripe_ref (vínculo paciente ↔ Stripe; sub_/cs_/cus_/plink_/URL)
 ├─ desconto_oferecido_em, desconto_valor, desconto_motivo (auditoria)
 └─ criada_em, atualizada_em
+
+link_curto  (allos.org.br/p/xxxxxxx -> URL do Stripe)
+├─ id, slug (unique), destino
+├─ conversa_id (SET NULL: apagar a conversa não mata link já enviado)
+├─ cliques, ultimo_clique_em
+└─ criado_em
 
 configuracao  (chave/valor — valores editáveis no painel /painel/config)
 ├─ id, chave (unique), valor (Text; int, "true"/"false" OU texto livre —
@@ -770,6 +776,34 @@ ou seja, **depois** que a pessoa paga.
   a API. Timestamps do Stripe são em SEGUNDOS (filtro Jinja `data_unix`); valores em
   CENTAVOS (`fmt_centavos`).
 
+### Link curto de pagamento (`links.py`, `allos.org.br/p/xxxxxxx`)
+- **O problema não é comprimento** — depois da troca por Payment Link o link do Stripe
+  já é curto. É **confiança**: cobrança chegando por WhatsApp com domínio
+  `buy.stripe.com` tem exatamente o formato de golpe que as pessoas foram treinadas a
+  desconfiar. O ganho é no instante em que ela decide clicar.
+- ⚠️ **Depois do clique o Stripe aparece na barra de endereço de qualquer jeito.** É
+  redirect, não proxy — a página de checkout é do Stripe (domínio, cookies, antifraude).
+  Limitação conhecida e aceita.
+- **O dado mora na Sofia** (tabela `link_curto`), não no banco do site: "quem é o
+  paciente X e quanto ele paga" é dado financeiro. O site é proxy burro.
+- **Duas pontas**: `GET /l/{slug}` (redireciona, público) e `GET /api/links/{slug}`
+  (JSON, é o que o `/p/[codigo]` do site consome pra dar **um** redirect só, sem o
+  `onrender.com` aparecer no meio). A API não devolve nada além do destino.
+- **Degrada sozinho**: sem `LINK_CURTO_BASE`, o link sai apontando pra própria Sofia
+  (`{base_url}/l`). O deploy daqui não fica preso ao do site.
+- **Idempotente por destino**: a Sofia remonta o link a cada turno da cobrança; slug
+  novo por turno faria ela mandar endereços diferentes pro mesmo pagamento.
+- **Slug aleatório, nunca o nome do paciente** — a URL vai pro WhatsApp (encaminhável)
+  e pros logs de Cloudflare e Railway, que não são nossos. Alfabeto sem `0/O/1/l/I`
+  (o link é lido em voz alta e digitado à mão mais do que se imagina).
+- `conversa_id` é **SET NULL**, não CASCADE: "Reiniciar conversa" não pode matar um
+  link de cobrança que já está no WhatsApp de alguém.
+- **Lado do site** (`Allos-site/src/app/p/[codigo]/route.ts`): cache em memória por
+  instância (o destino de um código nunca muda) e timeout de 25s, porque a Sofia é
+  Render free e pode estar dormindo. ⚠️ Usa URL **absoluta** no redirect — o
+  `new URL(path, req.url)` das outras rotas do site sai apontando pra
+  `https://localhost:8080/` no Railway (bug que já existe em `/[slug]` e `/grupo/[slug]`).
+
 ### Cobrança da mensalidade (`cobranca.py` + `/tasks/cobrancas`) — Demanda D
 A Sofia cobra a mensalidade sozinha depois da primeira sessão. Exige ler
 `cobranca.py` + `pesquisa.finalizar` + o portão do `webhook` juntos:
@@ -1076,6 +1110,7 @@ sofia/
 │   │   ├── auth.py           # GET/POST /login, /logout (sessão)
 │   │   ├── api.py            # API JSON do painel
 │   │   ├── painel.py         # /painel (Hoje), /painel/conversas, /config, /metricas
+│   │   ├── links.py          # GET /l/{slug} e /api/links/{slug} (públicas — link curto)
 │   │   ├── tasks.py          # POST /tasks/{seguimentos,pesquisas,cobrancas,stripe} (cron, X-Tasks-Token)
 │   │   └── health.py         # GET /health
 │   │
@@ -1095,6 +1130,7 @@ sofia/
 │   │   ├── hoje.py           # Fila única do que precisa de uma pessoa (home do painel)
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
+│   │   ├── links.py          # Encurtador dos links de pagamento (allos.org.br/p/...)
 │   │   ├── pagamentos.py     # Regra do Stripe (links, assinaturas, status unificado)
 │   │   ├── stripe_client.py  # Wrapper REST do Stripe (httpx puro, form-encoded)
 │   │   └── painel.py         # Queries/ações do painel da Thainá
@@ -1127,6 +1163,7 @@ sofia/
 │   ├── test_painel.py, test_metricas.py, test_seguimento.py
 │   ├── test_captacao.py, test_pesquisa.py   # Demandas A e C
 │   ├── test_cobranca.py, test_pagamentos.py # Demanda D + painel de pagamentos
+│   ├── test_links.py                        # encurtador de link de pagamento
 │   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)
@@ -1305,6 +1342,7 @@ STRIPE_SECRET_KEY=                 # mesma conta do site da Allos; só no Render
 STRIPE_PUBLISHABLE_KEY=            # pk_...; o checkout hospedado não usa (documentação)
 STRIPE_PRECO_MENSAL_ID=            # price_... do catálogo; reusado se a mensalidade bater
 BASE_URL=https://sofia-whatsapp.onrender.com   # monta /pagamento-sucesso|cancelado
+LINK_CURTO_BASE=https://allos.org.br/p         # vazio = link curto aponta pra própria Sofia (/l)
 
 # Geral
 LOG_LEVEL=INFO

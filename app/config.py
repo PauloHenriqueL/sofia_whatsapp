@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     # URL pública da Sofia — monta as páginas de retorno do checkout
     # (/pagamento-sucesso e /pagamento-cancelado). Sem barra no final.
     base_url: str = "https://sofia-whatsapp.onrender.com"
+    # Prefixo do link curto de pagamento. Vazio = os links saem apontando pra
+    # própria Sofia (`{base_url}/l`), que funciona igual — só não tem o domínio
+    # da Allos. Assim o deploy daqui não fica preso ao deploy do site.
+    # Em produção: https://allos.org.br/p
+    link_curto_base: str = ""
 
     # Painel
     painel_user: str = "thaina"
