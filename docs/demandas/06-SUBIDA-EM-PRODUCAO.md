@@ -17,9 +17,9 @@
 
 | Bloco | O que é | Risco se pular |
 |---|---|---|
-| **Branch** | Merjar `feat/avaliacao-pesquisas-sofia` (Demandas A e C, prontas desde 08/08) | Paciente de convênio cobrado; nenhuma pesquisa sai |
+| **Branches** | Merjar `feat/avaliacao-pesquisas-sofia` (Demandas A e C) e `feat/contrato-autentique` (Demanda E), **nesta ordem** | Paciente de convênio cobrado; nenhuma pesquisa sai; contrato não existe |
 | **Banco** | 6 migrations: 2 de schema, 2 de dado, 1 de permissão, 1 tabela nova | Erro de coluna inexistente no primeiro request da Sofia |
-| **Backend** | Pacote `principais/contratos/` (novo) + 5 rotas | Contrato não gera |
+| **Backend** | Pacote `principais/contratos/` + 5 rotas (vem no merge) | Contrato não gera |
 | **Front** | `ContratoPaciente` não está em tela nenhuma | Coordenação não vê contrato nem baixa o PDF assinado |
 | **Config** | 4 env vars no Hamilton, 4 na Sofia, 1 webhook externo | Feature desligada em silêncio (503), ou bot mudo |
 
@@ -32,15 +32,25 @@ Testes hoje: Sofia **737 passando**; Hamilton **33 do contrato** (SQLite in-memo
 
 ## 🔴 Comece por aqui: qual branch merjar
 
-O `hamilton-api` tem **quatro** branches abertas. Duas são tentativas concorrentes
-do mesmo trabalho, e **a que tem menos commits não é a mais antiga**.
+O `hamilton-api` tem **cinco** branches abertas. **Duas você merja**; duas outras são
+tentativas concorrentes do mesmo trabalho, e a que tem menos commits não é a mais
+antiga.
+
+> **Nada deste ciclo foi para a `main`** — ela está no `163b45c`, exatamente onde
+> estava. Tudo passa por branch e review.
 
 | Branch | Data | Commits | |
 |---|---|---|---|
-| **`feat/avaliacao-pesquisas-sofia`** | 08/08 | 5 | ✅ **merjar esta** |
+| **`feat/avaliacao-pesquisas-sofia`** | 08/08 | 5 | ✅ **merjar 1º** (Demandas A e C) |
+| **`feat/contrato-autentique`** | 18/08 | 1 | ✅ **merjar 2º** (Demanda E) — ver a ordem abaixo |
 | `feat/sofia-captacao-e-avaliacao` | 06/08 | 1 (squash) | ❌ apagar |
 | `feat/sofia-api-db-teste` | — | 1 | só um ícone, ignorar |
 | `fix/db-credential-hardcoded` | — | 1 | ⚠️ ver ressalva |
+
+> **A ordem não é preferência.** As duas trazem uma migration numerada
+> `principais/0005`. Merjando a de avaliação primeiro, a cadeia dela fecha em
+> `0007` e a do contrato é renumerada para `0008` num passo só. Na ordem inversa
+> você renumera duas vezes.
 
 **O que a de 06/08 não tem:**
 
@@ -268,6 +278,13 @@ Depois de merjar:
 Alternativa: `python manage.py makemigrations --merge`. Prefira renomear à mão —
 a cadeia fica linear e legível.
 
+> 🔴 **Renomeie ANTES de qualquer deploy.** O `build.sh:15` do Hamilton roda
+> `python manage.py migrate` a cada deploy. Se a `0005_contratopaciente` for
+> aplicada com esse nome e só depois virar `0008`, o Django a verá como migration
+> nova e tentará criar a tabela **de novo** — `relation "contrato_paciente"
+> already exists`. Se isso acontecer, a saída é
+> `python manage.py migrate principais 0008 --fake`.
+
 ---
 
 ### 🔴 As migrations não estão no git
@@ -354,7 +371,7 @@ Dois pontos:
 > banco**. Enquanto `SOFIA_API_DATABASE_URL` estiver vazia em produção não faz
 > mal, mas é uma armadilha armada. Não bloqueia esta subida.
 
-### 2.3 Pacote `principais/contratos/` (não commitado)
+### 2.3 Pacote `principais/contratos/` (branch `feat/contrato-autentique`)
 
 ~1.100 linhas, cinco arquivos.
 
@@ -429,9 +446,9 @@ não pode disparar dezenas de chamadas externas.
 | GET | `/api/v1/avaliacoes/pendentes/` | ❌ só na branch |
 | POST | `/api/v1/avaliacoes/` | ❌ só na branch |
 | GET · PATCH | `/api/v1/avaliacoes/{pk}/` | ❌ só na branch |
-| POST · GET | `/api/v1/contratos/` | ❌ não commitado |
-| GET | `/api/v1/contratos/pendentes/` | ❌ não commitado |
-| POST | `/api/v1/contratos/previa/` | ❌ não commitado |
+| POST · GET | `/api/v1/contratos/` | ❌ branch `feat/contrato-autentique` |
+| GET | `/api/v1/contratos/pendentes/` | ❌ branch `feat/contrato-autentique` |
+| POST | `/api/v1/contratos/previa/` | ❌ branch `feat/contrato-autentique` |
 
 Auth: **JWT** (usuário `sofia-bot`). O cliente re-autentica uma vez no 401.
 
@@ -568,12 +585,13 @@ só quando alguém consulta.)
 ```bash
 # 0. ONDE ESTOU?  (timeline_id + SOFIA_API_DATABASE_URL no Render)
 
-# 1. merjar a branch certa
+# 1. merjar as duas branches, NESTA ordem
 git checkout main
-git merge origin/feat/avaliacao-pesquisas-sofia
+git merge origin/feat/avaliacao-pesquisas-sofia     # traz principais 0005..0007
+git merge origin/feat/contrato-autentique           # traz o 0005 que vai colidir
 git push origin --delete feat/sofia-captacao-e-avaliacao
 
-# 2. renumerar a migration do contrato
+# 2. renumerar a migration do contrato  (ANTES de qualquer deploy!)
 #    principais/0005_contratopaciente.py -> 0008_contratopaciente.py
 #    dependencies: 0004_backfill_vinculo_stripe -> 0007_permissao_api_sofia
 
