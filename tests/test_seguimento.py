@@ -169,7 +169,12 @@ class TestEndpoint:
         finally:
             config.settings.tasks_token = original
         assert resp.status_code == 200
-        assert resp.json() == {"enviados": 0}
+        # O mesmo cron também resgata quem sumiu antes de confirmar o cadastro —
+        # pendurado aqui pra não exigir um cron novo. Ele PREPARA a ficha; quem
+        # cadastra é gente, na tela Hoje (ver test_cadastro_abandonado.py).
+        corpo = resp.json()
+        assert corpo["enviados"] == 0
+        assert corpo["resgates_de_cadastro"] == {"avaliadas": 0, "prontas": 0}
 
 
 class TestPesquisaNaoRecebeFollowUp:

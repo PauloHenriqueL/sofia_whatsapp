@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_db
-from app.services import cobranca, config_negocio, pagamentos, pesquisa, seguimento, stripe_client
+from app.services import (
+    cadastro_abandonado,
+    cobranca,
+    config_negocio,
+    pagamentos,
+    pesquisa,
+    seguimento,
+    stripe_client,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -34,7 +42,14 @@ async def disparar_seguimentos(request: Request, db: AsyncSession = Depends(get_
     if not _token_valido(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     enviados = await seguimento.rodar_seguimentos(db)
-    return {"enviados": enviados}
+    # Pendurado aqui de propósito, em vez de um cron novo: cron que alguém
+    # precisa lembrar de criar no painel externo é feature que nunca roda. As
+    # duas rodadas tratam do mesmo caso (lead que parou de responder), só que em
+    # janelas diferentes — o follow-up tenta trazer de volta em 20h, e este
+    # deixa pronta, depois de 24h de silêncio, a ficha do que ela já tinha
+    # contado. **Não cadastra**: quem confirma é gente, na tela Hoje.
+    resgates = await cadastro_abandonado.rodar_resgates(db)
+    return {"enviados": enviados, "resgates_de_cadastro": resgates}
 
 
 @router.post("/pesquisas")

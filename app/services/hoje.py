@@ -30,9 +30,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada
-from app.services import acompanhamento
+from app.services import acompanhamento, cadastro_abandonado
 from app.services import cobranca as cobranca_mod
-from app.services import config_negocio, hamilton_client, tools
+from app.services import config_negocio
+from app.services import contrato as contrato_mod
+from app.services import hamilton_client, tools
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +53,16 @@ PRIORIDADE = {
     "cadastro_falhou": 1,
     "alerta_pesquisa": 2,
     "cobranca_travada": 3,
+    # Depois das travas, antes do "de olho": tem ficha esperando um clique, e
+    # ninguém está bloqueado — mas a pessoa acha que já se cadastrou.
+    "cadastro_a_confirmar": 4,
     # "de olho" usa o mesmo dedupe; espera longa vence cobrança sem resposta
     "primeira_consulta": 10,
     "cobranca_sem_resposta": 11,
+    # Contrato por último de propósito: quem não pagou é mais urgente que quem
+    # não assinou, e costuma ser a mesma pessoa. Acima, a fila mostraria
+    # "contrato pendente" pra alguém cujo problema real é o pagamento.
+    "contrato_pendente": 12,
 }
 
 ROTULOS = {
@@ -61,8 +70,10 @@ ROTULOS = {
     "cadastro_falhou": "Cadastro falhou",
     "alerta_pesquisa": "Alerta",
     "cobranca_travada": "Cobrança travada",
+    "cadastro_a_confirmar": "Cadastro a confirmar",
     "primeira_consulta": "1ª consulta",
     "cobranca_sem_resposta": "Sem resposta",
+    "contrato_pendente": "Contrato",
 }
 
 
@@ -108,6 +119,27 @@ async def _cadastros_falhos(db: AsyncSession) -> list[dict[str, Any]]:
             "quando": c.atualizada_em,
         }
         for c in (await db.execute(q)).scalars().all()
+    ]
+
+
+async def _cadastros_a_confirmar(db: AsyncSession) -> list[dict[str, Any]]:
+    """Quem passou os dados e sumiu antes de confirmar (`cadastro_abandonado`).
+
+    A Sofia releu a conversa e deixou a ficha montada; falta alguém olhar o
+    histórico e clicar em "Cadastrar no Hamilton". **Não é cadastro pendente de
+    erro** — o Hamilton nem foi chamado ainda, de propósito: dá pra saber que a
+    pessoa passou os dados, não que ela quis ser cadastrada.
+    """
+    return [
+        {
+            "tipo": "cadastro_a_confirmar",
+            "conversa_id": c.id,
+            "nome": _nome(c),
+            "numero": c.numero_whatsapp,
+            "texto": "passou os dados e sumiu antes de confirmar — revise e cadastre",
+            "quando": c.atualizada_em,
+        }
+        for c in await cadastro_abandonado.aguardando_confirmacao(db)
     ]
 
 
@@ -174,6 +206,7 @@ async def listar_pendencias(db: AsyncSession) -> list[dict[str, Any]]:
         + await _cadastros_falhos(db)
         + await _alertas(db)
         + await _cobrancas_travadas(db)
+        + await _cadastros_a_confirmar(db)
     )
     for i in itens:
         i["rotulo"] = ROTULOS[i["tipo"]]
@@ -243,9 +276,74 @@ async def _de_olho(db: AsyncSession, agora: datetime, hamilton) -> tuple[list, s
         logger.error("Hamilton fora ao montar 'de olho': %s", exc)
         erro = "Não consegui falar com o Hamilton agora — a espera pela 1ª consulta não está aqui."
 
+    itens.extend(await _contratos_pendentes(db, agora, hamilton))
+
     # Espera longa primeiro; o resto por recência.
     itens.sort(key=lambda i: i.get("dias") or 0, reverse=True)
     return _dedupe(itens), erro
+
+
+async def _contratos_pendentes(db: AsyncSession, agora: datetime, hamilton) -> list[dict[str, Any]]:
+    """Quem recebeu o contrato e ainda não assinou (Demanda E).
+
+    Sem recorte de tempo, como o resto da tela: contrato esquecido há um mês é
+    exatamente o que não pode sumir da vista.
+
+    O estado mora no Hamilton, então isto é uma chamada em lote — e, como todo o
+    "de olho", **degrada em silêncio**: Hamilton fora, a linha some e o resto da
+    fila continua de pé. Contrato pendente não é urgência; virar erro na tela
+    seria pior que não aparecer.
+    """
+    if not contrato_mod.ativo():
+        return []
+    cliente = hamilton or hamilton_client.get_hamilton_client()
+    try:
+        pendentes = await cliente.contratos_pendentes()
+    except hamilton_client.HamiltonError as exc:
+        logger.warning("Não consegui listar contratos pendentes: %s", exc)
+        return []
+    if not pendentes:
+        return []
+
+    por_paciente = {p["paciente_id"]: p for p in pendentes if p.get("paciente_id")}
+    q = select(Conversa).where(
+        Conversa.paciente_hamilton_id.in_(list(por_paciente)),
+        Conversa.arquivada_em.is_(None),
+    )
+    itens: list[dict[str, Any]] = []
+    for c in (await db.execute(q)).scalars().all():
+        dado = por_paciente.get(c.paciente_hamilton_id)
+        if not dado:
+            continue
+        enviado = _quando(dado.get("enviado_em"))
+        dias = (agora - enviado).days if enviado else 0
+        itens.append(
+            {
+                "tipo": "contrato_pendente",
+                "rotulo": ROTULOS["contrato_pendente"],
+                "conversa_id": c.id,
+                "nome": _nome(c),
+                "numero": c.numero_whatsapp,
+                "texto": (
+                    f"contrato enviado há {dias} dias e ainda não assinado"
+                    if dias
+                    else "contrato enviado e ainda não assinado"
+                ),
+                "quando": enviado,
+            }
+        )
+    return itens
+
+
+def _quando(iso: str | None) -> datetime | None:
+    """ISO do Hamilton -> datetime aware. Data ilegível vira None, não exceção."""
+    if not iso:
+        return None
+    try:
+        valor = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
 
 
 async def _contar(db: AsyncSession, coluna, desde: datetime) -> int:
