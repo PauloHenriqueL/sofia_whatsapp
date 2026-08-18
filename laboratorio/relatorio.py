@@ -73,13 +73,19 @@ def escrever_transcricoes(resultados: list[dict], personas: dict[str, dict], des
                 marca = f" _(bolha {i}/{len(t['sofia'])}, {len(bolha)} caracteres)_"
                 partes.append(f"**Atendente:**{marca}\n\n{bolha}\n")
             for tc in t.get("tool_calls", []):
-                partes.append(f"> _[ação interna: {tc['nome']} {json.dumps(tc['argumentos'], ensure_ascii=False)}]_\n")
+                partes.append(
+                    f"> _[ação interna: {tc['nome']} {json.dumps(tc['argumentos'], ensure_ascii=False)}]_\n"
+                )
         partes.append(f"\n_Fim: {r['motivo_parada']}._\n")
     destino.write_text("\n".join(partes), encoding="utf-8")
 
 
 def _delta(atual, anterior) -> str:
-    if anterior is None or not isinstance(atual, (int, float)) or not isinstance(anterior, (int, float)):
+    if (
+        anterior is None
+        or not isinstance(atual, (int, float))
+        or not isinstance(anterior, (int, float))
+    ):
         return ""
     d = round(atual - anterior, 1)
     if d == 0:
@@ -88,7 +94,11 @@ def _delta(atual, anterior) -> str:
 
 
 def escrever_resumo(
-    agregado: dict, metricas: list[dict], resultados: list[dict], anterior: dict | None, destino: Path
+    agregado: dict,
+    metricas: list[dict],
+    resultados: list[dict],
+    anterior: dict | None,
+    destino: Path,
 ) -> None:
     ant = (anterior or {}).get("agregado", {})
     L = [
@@ -112,6 +122,14 @@ def escrever_resumo(
         ("Conversas com repetição", "conversas_com_repeticao"),
         ("Conversas com termo proibido", "conversas_com_termo_proibido"),
         ("**Desistências**", "desistencias"),
+        # Zero é o único valor aceitável: a Sofia afirmou ter registrado ou
+        # acionado alguém, e não chamou tool nenhuma. Ver `_prometeu_sem_agir`.
+        ("🔴 **Prometeu e não fez**", "conversas_prometeu_e_nao_fez"),
+        # Escalar nos 2 primeiros turnos. Some dentro de "chamou tool", por isso
+        # tem linha própria — mas ZERO NÃO É A META: há persona cujo desfecho
+        # certo é escalar cedo. É número de comparação entre modelos, não alarme.
+        ("🔴 **Escalada precoce** (≤2 turnos)", "conversas_escalada_precoce"),
+        ("Escaladas com motivo `outro`", "escaladas_motivo_outro"),
         ("Vezes que a saida.limpar() cortou algo", "saida_bloqueios_total"),
     ]:
         v = agregado.get(chave)
@@ -127,7 +145,9 @@ def escrever_resumo(
             L.append(f"- `{termo}`: {n}×")
 
     L.append("\n## Por conversa\n")
-    L.append("| persona | fim | turnos | 1ª bolha | bolha média | maior | Sofia:pessoa | repet. | tools |")
+    L.append(
+        "| persona | fim | turnos | 1ª bolha | bolha média | maior | Sofia:pessoa | repet. | tools |"
+    )
     L.append("|---|---|---:|---:|---:|---:|---:|---:|---|")
     for m, r in zip(metricas, resultados):
         if m.get("erro"):

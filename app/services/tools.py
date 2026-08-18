@@ -41,7 +41,12 @@ MOTIVOS_ESCALADA = [
     "preco",
     "prefeitura",
     "gratuidade",
-    "presencial",
+    # `presencial` SAIU: pedir presencial não é caso de humano. A Sofia segue o
+    # fluxo normal, cadastra, e registra o pedido em `observacoes` — que é o que
+    # a coordenação lê na hora do match, que é exatamente quando a informação
+    # importa. Escalar tirava a pessoa do fluxo e a punha em modo humano por um
+    # pedido que não precisa de decisão. O rótulo continua abaixo por causa das
+    # escaladas antigas já gravadas no banco.
     "menor_11",
     "crise",
     "outro",

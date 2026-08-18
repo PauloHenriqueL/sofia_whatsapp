@@ -57,7 +57,9 @@ def carregar_personas(filtro: list[str] | None, controle: bool = False) -> list[
     faltando = set(filtro) - {p["nome"] for p in escolhidas}
     if faltando:
         disponiveis = ", ".join(p["nome"] for p in todas)
-        raise SystemExit(f"Persona não encontrada: {', '.join(faltando)}\nDisponíveis: {disponiveis}")
+        raise SystemExit(
+            f"Persona não encontrada: {', '.join(faltando)}\nDisponíveis: {disponiveis}"
+        )
     return escolhidas
 
 
@@ -69,10 +71,14 @@ async def _rodar_uma(persona: dict, rep: int, pasta: Path, turnos_max: int, sem:
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             str(LAB / "conversa.py"),
-            "--persona", persona["_arquivo"],
-            "--saida", str(saida),
-            "--db", str(pasta / f"{rotulo}.db"),
-            "--turnos-max", str(turnos_max),
+            "--persona",
+            persona["_arquivo"],
+            "--saida",
+            str(saida),
+            "--db",
+            str(pasta / f"{rotulo}.db"),
+            "--turnos-max",
+            str(turnos_max),
             cwd=str(RAIZ),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -83,9 +89,17 @@ async def _rodar_uma(persona: dict, rep: int, pasta: Path, turnos_max: int, sem:
         detalhe = (err or b"").decode("utf-8", "replace")[-1500:]
         saida.write_text(
             json.dumps(
-                {"persona": persona["nome"], "titulo": persona.get("titulo", ""), "turnos": [],
-                 "motivo_parada": "erro", "erro": "subprocesso morreu", "traceback": detalhe},
-                ensure_ascii=False, indent=2),
+                {
+                    "persona": persona["nome"],
+                    "titulo": persona.get("titulo", ""),
+                    "turnos": [],
+                    "motivo_parada": "erro",
+                    "erro": "subprocesso morreu",
+                    "traceback": detalhe,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
     r = json.loads(saida.read_text(encoding="utf-8"))
@@ -124,12 +138,21 @@ async def principal(args) -> None:
     destino = LAB / "relatorios" / carimbo
     destino.mkdir(parents=True, exist_ok=True)
     anterior = mod_relatorio.rodada_anterior(LAB / "relatorios", destino)
-    mod_relatorio.escrever_resumo(agregado, lista_metricas, resultados, anterior, destino / "resumo.md")
+    mod_relatorio.escrever_resumo(
+        agregado, lista_metricas, resultados, anterior, destino / "resumo.md"
+    )
     (destino / "dados.json").write_text(
         json.dumps(
-            {"rodada": carimbo, "agregado": agregado,
-             "por_conversa": [dict(m, persona=r["persona"]) for m, r in zip(lista_metricas, resultados)]},
-            ensure_ascii=False, indent=2),
+            {
+                "rodada": carimbo,
+                "agregado": agregado,
+                "por_conversa": [
+                    dict(m, persona=r["persona"]) for m, r in zip(lista_metricas, resultados)
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     # A transcrição também vai pro relatório: sem ela, o resumo é número sem prova.
@@ -145,21 +168,32 @@ def _somar_uso(resultados: list[dict]) -> dict:
     total: dict[str, dict[str, int]] = {}
     for r in resultados:
         for modelo, v in (r.get("uso", {}).get("por_modelo") or {}).items():
-            alvo = total.setdefault(modelo, {"chamadas": 0, "entrada": 0, "entrada_cache": 0, "saida": 0})
+            alvo = total.setdefault(
+                modelo, {"chamadas": 0, "entrada": 0, "entrada_cache": 0, "saida": 0}
+            )
             for k in alvo:
                 alvo[k] += v.get(k, 0)
     return total
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--persona", action="append", help="roda só esta persona (pode repetir a flag)")
-    p.add_argument("--controle", action="store_true",
-                   help="roda as personas de CONTROLE (personas-controle/) em vez das de treino. "
-                        "Elas existem pra medir, não pra ajustar: não mude o prompt olhando pra elas")
-    p.add_argument("--repetir", type=int, default=1,
-                   help="conversas por persona. Repetição é pra DECISÃO (confirmar um achado "
-                        "antes de mexer no prompt), não pra rodada de rotina.")
+    p.add_argument(
+        "--controle",
+        action="store_true",
+        help="roda as personas de CONTROLE (personas-controle/) em vez das de treino. "
+        "Elas existem pra medir, não pra ajustar: não mude o prompt olhando pra elas",
+    )
+    p.add_argument(
+        "--repetir",
+        type=int,
+        default=1,
+        help="conversas por persona. Repetição é pra DECISÃO (confirmar um achado "
+        "antes de mexer no prompt), não pra rodada de rotina.",
+    )
     p.add_argument("--turnos-max", type=int, default=25)
     p.add_argument("--concorrencia", type=int, default=4)
     p.add_argument("--sequencial", action="store_true", help="uma conversa por vez")

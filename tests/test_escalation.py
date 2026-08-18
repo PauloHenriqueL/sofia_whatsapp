@@ -22,8 +22,21 @@ def test_todo_motivo_da_escalada_tem_rotulo():
 
 def test_motivos_novos_disponiveis_pro_modelo():
     # Motivos que o LLM pode escolher (inclui os roteamentos da v2).
-    for motivo in ("neuro_reuniao", "preco", "presencial", "menor_11", "crise"):
+    for motivo in ("neuro_reuniao", "preco", "menor_11", "crise"):
         assert motivo in tools.MOTIVOS_ESCALADA
+
+
+def test_presencial_nao_e_mais_escalada():
+    """Pedir presencial não tira a pessoa do fluxo.
+
+    A Sofia cadastra normalmente e registra o pedido em `observacoes`, que é o
+    que a coordenação lê no match. Escalar punha a conversa em modo humano por
+    um pedido que não exige decisão na hora. O RÓTULO continua existindo: há
+    escaladas antigas com esse motivo gravadas no banco, e sem ele a tela da
+    Thainá mostraria o código cru.
+    """
+    assert "presencial" not in tools.MOTIVOS_ESCALADA
+    assert "presencial" in tools.MOTIVO_LABELS
 
 
 @pytest.mark.asyncio
