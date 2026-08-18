@@ -50,7 +50,8 @@ async def _rodar(persona: dict, saida: Path, turnos_max: int, modelo_paciente: s
     from app.database import Base, async_session, engine
     from app.models import Escalada, Mensagem  # noqa: F401  (registra o metadata)
     from app.routers import webhook
-    from app.services import captacao, conversation, hamilton_client, llm_client, saida as saida_mod
+    from app.services import captacao, conversation, hamilton_client, llm_client
+    from app.services import saida as saida_mod
 
     if not settings.envio_whatsapp_bloqueado:
         raise SystemExit("ABORTADO: o envio real de WhatsApp está ligado.")
@@ -78,6 +79,14 @@ async def _rodar(persona: dict, saida: Path, turnos_max: int, modelo_paciente: s
     llm_client.get_llm_client.cache_clear()
     cliente_contado = llm_client.OpenAIClient(
         temperature=settings.openai_temperature,
+        # 🔴 O `esforco` PRECISA vir junto. Sem ele o laboratório não é a Sofia:
+        # com function calling, o gpt-5.6 em /v1/chat/completions recusa qualquer
+        # reasoning_effort diferente de "none" (400), e todo turno cai no texto
+        # de fallback — nove conversas de "tive um probleminha técnico", com zero
+        # tool calls e o modelo da Sofia sem aparecer no consumo. O relatório sai
+        # inteiro e parece um resultado ruim de prompt, não uma configuração
+        # diferente da produção. Aconteceu em 17/08.
+        esforco=settings.openai_reasoning_effort,
         client=envolver_openai(settings.openai_api_key, contador),
     )
     llm_client.get_llm_client = lambda: cliente_contado  # type: ignore[assignment]
@@ -117,7 +126,10 @@ async def _rodar(persona: dict, saida: Path, turnos_max: int, modelo_paciente: s
             for fala in falas:
                 historico_paciente.append({"role": "assistant", "content": fala})
                 await conversation.registrar_mensagem_recebida(
-                    db, conversa, tipo="texto", texto=fala,
+                    db,
+                    conversa,
+                    tipo="texto",
+                    texto=fala,
                     whatsapp_message_id=f"lab.{numero}.{n}.{len(historico_paciente)}",
                 )
             await db.commit()
@@ -175,9 +187,7 @@ async def _rodar(persona: dict, saida: Path, turnos_max: int, modelo_paciente: s
             "paciente_hamilton_id": conversa.paciente_hamilton_id,
             "dados_coletados": conversa.dados_coletados or {},
         }
-        resultado["escaladas"] = [
-            {"motivo": e.motivo, "contexto": e.contexto} for e in escaladas
-        ]
+        resultado["escaladas"] = [{"motivo": e.motivo, "contexto": e.contexto} for e in escaladas]
 
     resultado["hamilton"] = falso.chamadas
     resultado["saida_bloqueios"] = saida_mod.bloqueios()

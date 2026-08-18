@@ -65,6 +65,21 @@ class Settings(BaseSettings):
     # raciocínio) só aceitam o padrão e rejeitam um valor custom. Se um modelo
     # rejeitar o valor configurado, o llm_client reenvia sem temperature sozinho.
     openai_temperature: float | None = 0.7
+    # Esforço de raciocínio dos modelos novos (gpt-5.x): "none" | "low" | "medium" |
+    # "high" | "xhigh" | "max". Vazio = não envia o parâmetro (usa o padrão do
+    # modelo, que no 5.6 é "medium").
+    #
+    # `none` na CONVERSA de propósito: o turno da Sofia é seguir roteiro e escolher
+    # tool, não raciocinar. Com o padrão "medium" cada turno ganharia segundos de
+    # latência — em cima do debounce que já existe — e os tokens de raciocínio são
+    # cobrados como saída. Na EXTRAÇÃO da pesquisa (conversa -> JSON) vale o
+    # contrário: ninguém está esperando a resposta e errar ali contamina relatório.
+    #
+    # Mora aqui e não no /painel/config porque quem mede isso (com o `laboratorio/`)
+    # é quem mexe no deploy, não a Thainá — e "esforço de raciocínio" numa tela
+    # operacional é um botão sem significado pra quem opera.
+    openai_reasoning_effort: str = "none"
+    openai_reasoning_effort_extracao: str = "low"
 
     @field_validator("openai_temperature", mode="before")
     @classmethod
@@ -115,13 +130,39 @@ class Settings(BaseSettings):
     # mensalidade pedida bate com o valor dele, a assinatura reusa esse preço
     # (relatórios unificados com o site da Allos) em vez de criar um novo.
     stripe_preco_mensal_id: str = ""
-    # Chaves do MODO DE TESTE do Stripe. Nenhum código da app lê estas duas: a app
-    # sempre usa `stripe_secret_key`. Existem pro `scripts/validar_parcelado.py`,
-    # que roda o ciclo inteiro do parcelado com test clock (avança 6 meses e
-    # confere que a cobrança parou) sem tocar em dinheiro real. Declaradas aqui
-    # porque Settings rejeita chaves desconhecidas no .env. NÃO setar no Render.
+    # Chaves do MODO DE TESTE do Stripe. Fora de `production`, são ELAS que a app
+    # usa (ver `stripe_key` abaixo). NÃO setar no Render.
     test_stripe_secret_key: str = ""
     test_stripe_publishable_key: str = ""
+
+    @property
+    def stripe_modo_teste(self) -> bool:
+        """Fora de produção, o Stripe é o de teste. Sem exceção e sem escotilha."""
+        return self.environment.strip().lower() != "production"
+
+    @property
+    def stripe_key(self) -> str:
+        """A chave que o código DEVE usar. **Nunca leia `stripe_secret_key` direto.**
+
+        🔴 Esta propriedade existe porque o `.env` de desenvolvimento carrega uma
+        chave `sk_live_`, e o Stripe não tem um "dry run" como a Meta: toda
+        chamada cria coisa de verdade. Sem isto, rodar a app no laptop — ou um
+        teste mal mockado — cria Payment Link, preço e assinatura na conta real
+        da Allos. Já aconteceu **duas vezes**: um `pytest` criou quatro Payment
+        Links, e a validação da cobrança criou mais um em 17/08.
+
+        Fora de produção devolve a chave de TESTE. Se ela estiver vazia, devolve
+        **vazio** — e o Stripe fica desligado, que é um estado que a app já sabe
+        viver (a tela de Pagamentos mostra aviso, a cobrança marca `erro_link` e
+        oferece só o Pix). **Nunca cai pra chave live**: era esse o buraco.
+
+        Não há escotilha de propósito. A do WhatsApp existe porque há um caso
+        legítimo (mandar mensagem pro próprio número num teste); aqui não há —
+        pra ver dado real existe o dashboard do Stripe. Escotilha acaba ligada e
+        esquecida.
+        """
+        return self.test_stripe_secret_key if self.stripe_modo_teste else self.stripe_secret_key
+
     # URL pública da Sofia — monta as páginas de retorno do checkout
     # (/pagamento-sucesso e /pagamento-cancelado). Sem barra no final.
     base_url: str = "https://sofia-whatsapp.onrender.com"
@@ -130,6 +171,15 @@ class Settings(BaseSettings):
     # da Allos. Assim o deploy daqui não fica preso ao deploy do site.
     # Em produção: https://allos.org.br/p
     link_curto_base: str = ""
+
+    # Autentique (assinatura eletrônica do contrato terapêutico — Demanda E).
+    #
+    # ⚠️ TEMPORÁRIO NESTE REPO. Quem fala com a Autentique é o HAMILTON (é lá que
+    # o contrato é gerado e o assinado é guardado); esta chave sai daqui quando a
+    # Demanda E subir. Está declarada porque o `.env` já a tem, e o pydantic-settings
+    # recusa chave desconhecida em arquivo de env (`extra_forbidden`) — sem isto
+    # `Settings()` explode no import e NADA sobe, nem os testes.
+    api_authentic: str = ""
 
     # Painel
     painel_user: str = "thaina"

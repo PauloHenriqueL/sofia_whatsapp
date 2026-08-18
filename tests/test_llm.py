@@ -123,3 +123,113 @@ class TestOpenAIClient:
         assert chamadas[0].kwargs.get("temperature") == 0.7  # 1ª tentativa, com temperature
         assert "temperature" not in chamadas[1].kwargs  # retry, sem temperature
         assert client._omitir_temperature is True  # aprendeu a não enviar mais
+
+    @pytest.mark.asyncio
+    async def test_esforco_vai_como_reasoning_effort(self):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))
+        client = llm_client.OpenAIClient(client=fake_client, esforco="none")
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert fake_client.chat.completions.create.await_args.kwargs["reasoning_effort"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_esforco_da_chamada_vence_o_da_instancia(self):
+        # É como a extração da pesquisa pensa mais que a conversa, sem instância própria.
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))
+        client = llm_client.OpenAIClient(client=fake_client, esforco="none")
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}], esforco="low")
+
+        assert fake_client.chat.completions.create.await_args.kwargs["reasoning_effort"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_esforco_invalido_e_ignorado(self):
+        # Erro de digitação no env viraria 400 em TODO turno; melhor cair no padrão.
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))
+        client = llm_client.OpenAIClient(client=fake_client, esforco="baixo")
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert "reasoning_effort" not in fake_client.chat.completions.create.await_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_reenvia_sem_reasoning_effort_quando_modelo_nao_conhece(self):
+        # Modelo antigo (gpt-4o e afins) não conhece o parâmetro. Trocar de modelo
+        # não pode virar conversa derrubada.
+        fake_client = MagicMock()
+        erro = OpenAIError("Unrecognized request argument supplied: reasoning_effort")
+        fake_client.chat.completions.create = AsyncMock(
+            side_effect=[erro, _resposta_openai("respondi sem esforço")]
+        )
+        client = llm_client.OpenAIClient(
+            model="gpt-4o-mini", client=fake_client, temperature=None, esforco="none"
+        )
+
+        resposta = await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert resposta.texto == "respondi sem esforço"
+        chamadas = fake_client.chat.completions.create.await_args_list
+        assert chamadas[0].kwargs.get("reasoning_effort") == "none"
+        assert "reasoning_effort" not in chamadas[1].kwargs
+        assert client._omitir_esforco is True
+
+    @pytest.mark.asyncio
+    async def test_forca_none_quando_o_modelo_exige_com_tools(self):
+        """O gpt-5.6 recusa tools com reasoning != none em /v1/chat/completions.
+
+        A mensagem de erro cita `reasoning_effort`, então a regra genérica o
+        REMOVERIA — e sem o parâmetro vale o padrão (`medium`), que é justamente
+        o que foi recusado. O conserto automático deixaria a Sofia muda.
+        """
+        fake_client = MagicMock()
+        erro = OpenAIError(
+            "Error code: 400 - Function tools with reasoning_effort are not supported "
+            "for gpt-5.6-terra in /v1/chat/completions. To use function tools, use "
+            "/v1/responses or set reasoning_effort to 'none'."
+        )
+        fake_client.chat.completions.create = AsyncMock(
+            side_effect=[erro, _resposta_openai("respondi com none")]
+        )
+        client = llm_client.OpenAIClient(
+            model="gpt-5.6-terra", client=fake_client, temperature=None, esforco="medium"
+        )
+
+        resposta = await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert resposta.texto == "respondi com none"
+        chamadas = fake_client.chat.completions.create.await_args_list
+        assert chamadas[0].kwargs["reasoning_effort"] == "medium"
+        # Forçou 'none' em vez de remover o parâmetro.
+        assert chamadas[1].kwargs["reasoning_effort"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_nao_insiste_se_ja_estava_em_none(self):
+        fake_client = MagicMock()
+        erro = OpenAIError(
+            "Function tools with reasoning_effort are not supported. "
+            "set reasoning_effort to 'none'."
+        )
+        fake_client.chat.completions.create = AsyncMock(side_effect=erro)
+        client = llm_client.OpenAIClient(
+            model="gpt-5.6-terra", client=fake_client, temperature=None, esforco="none"
+        )
+
+        with pytest.raises(llm_client.LLMError):
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+        assert fake_client.chat.completions.create.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_erro_sem_culpado_nao_vira_retry_infinito(self):
+        # O laço do _criar tem teto: erro genérico sobe como LLMError na hora.
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(side_effect=OpenAIError("503 upstream"))
+        client = llm_client.OpenAIClient(client=fake_client, temperature=0.7, esforco="low")
+
+        with pytest.raises(llm_client.LLMError):
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert fake_client.chat.completions.create.await_count == 1

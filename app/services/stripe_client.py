@@ -31,7 +31,13 @@ class StripeError(Exception):
 
 
 def configurado() -> bool:
-    return bool(settings.stripe_secret_key)
+    """Há chave utilizável **neste ambiente**?
+
+    Fora de produção isso pergunta pela chave de TESTE — ver `settings.stripe_key`.
+    Em dev sem `TEST_STRIPE_SECRET_KEY`, devolve False e o Stripe fica desligado:
+    a tela de Pagamentos mostra o aviso e a cobrança oferece só o Pix.
+    """
+    return bool(settings.stripe_key)
 
 
 def _achatar(dados: dict, prefixo: str = "") -> dict[str, Any]:
@@ -63,9 +69,13 @@ async def _requisicao(
     metodo: str, caminho: str, dados: dict | None = None, params: dict | None = None
 ) -> dict:
     if not configurado():
-        raise StripeError("Stripe não configurado (STRIPE_SECRET_KEY vazia)")
+        qual = "TEST_STRIPE_SECRET_KEY" if settings.stripe_modo_teste else "STRIPE_SECRET_KEY"
+        raise StripeError(f"Stripe não configurado ({qual} vazia)")
+    # 🔴 `settings.stripe_key`, NUNCA `settings.stripe_secret_key`. Fora de
+    # produção a primeira é a chave de teste; a segunda é a live que está no
+    # `.env` de desenvolvimento e cria coisa de verdade na conta da Allos.
     headers = {
-        "Authorization": f"Bearer {settings.stripe_secret_key}",
+        "Authorization": f"Bearer {settings.stripe_key}",
         "Stripe-Version": API_VERSION,
     }
     try:

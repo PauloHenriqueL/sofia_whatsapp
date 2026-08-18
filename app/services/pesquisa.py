@@ -55,6 +55,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import Conversa, Escalada
 from app.services import (
     cadastro,
@@ -657,8 +658,15 @@ async def extrair_respostas(historico: list[dict], avaliacao: dict) -> dict:
         raise PesquisaError("Sem transcrição pra extrair")
 
     instrucao = config_prompt.texto("prompt_pesquisa_extracao")
+    # Esforço de raciocínio maior que o da conversa, de propósito: aqui ninguém
+    # está esperando do outro lado (roda depois que a pesquisa acabou) e o custo
+    # de errar é um relatório contaminado, não uma resposta lenta. A `_normalizar_
+    # extracao` abaixo é a defesa contra campo inventado — mas ela não pega uma
+    # nota LIDA errado, e é justamente isso que o raciocínio a mais evita.
     resposta = await llm_client.get_llm_client().gerar_resposta(
-        [{"role": "user", "content": transcricao}], system_prompt=instrucao
+        [{"role": "user", "content": transcricao}],
+        system_prompt=instrucao,
+        esforco=settings.openai_reasoning_effort_extracao,
     )
     return _normalizar_extracao(resposta.texto, avaliacao)
 

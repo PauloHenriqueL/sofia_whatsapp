@@ -17,6 +17,7 @@ Duas garantias que este módulo dá:
 import logging
 import re
 
+import httpx
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,16 @@ class Paciente:
         self.persona = persona
         self._modelo = modelo
         self._contador = contador
-        self._cliente = AsyncOpenAI(api_key=api_key)
+        # Timeout explícito: o padrão do SDK tem `connect=5s`, e com quatro
+        # subprocessos abrindo conexão ao mesmo tempo isso estoura. O sintoma é
+        # traiçoeiro — `APITimeoutError` no PRIMEIRO turno, a conversa vai pro
+        # relatório como "⚠️ erro" e some das médias, e quem lê acha que foi a
+        # Sofia que falhou. Aconteceu com 4 de 9 personas em 17/08.
+        self._cliente = AsyncOpenAI(
+            api_key=api_key,
+            timeout=httpx.Timeout(120.0, connect=30.0),
+            max_retries=3,
+        )
         self._system = _system_prompt(persona)
         self._pendentes = list(persona.get("falas_obrigatorias") or [])
 
@@ -144,9 +154,7 @@ class Paciente:
             *historico_sofia,
             *self._cobranca(turno),
         ]
-        resp = await self._cliente.chat.completions.create(
-            model=self._modelo, messages=mensagens
-        )
+        resp = await self._cliente.chat.completions.create(model=self._modelo, messages=mensagens)
         self._contador.registrar(self._modelo, getattr(resp, "usage", None))
         texto = (resp.choices[0].message.content or "").strip()
 

@@ -1,5 +1,6 @@
 """Testes dos pagamentos (Stripe): links, assinatura dia 10, vínculo e status."""
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -14,33 +15,125 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, LinkCurto
-from app.services import links, pagamentos
+from app.services import links, pagamentos, stripe_client
 from app.services.pagamentos import ErroValidacao
 from app.services.stripe_client import StripeError, _achatar
 
 AGORA = datetime(2026, 7, 18, 12, 0, 0, tzinfo=timezone.utc)
 
 
+@contextmanager
+def _chaves_stripe(valor: str):
+    """Fixa AS DUAS chaves do Stripe.
+
+    As duas, e não só a live: o que a app lê é `settings.stripe_key`, que fora de
+    `production` devolve a de TESTE. Mexer só na live faria o `stripe_desligado`
+    não desligar nada na máquina de quem tem `TEST_STRIPE_SECRET_KEY` no `.env` —
+    e o teste passaria ou falharia conforme o `.env` de cada um.
+    """
+    antes = (settings.stripe_secret_key, settings.test_stripe_secret_key)
+    settings.stripe_secret_key = valor
+    settings.test_stripe_secret_key = valor
+    try:
+        yield
+    finally:
+        settings.stripe_secret_key, settings.test_stripe_secret_key = antes
+
+
 @pytest.fixture
 def stripe_ligado():
     """Liga o Stripe nos testes (a chave dummy nunca é usada: o client é mockado)."""
-    original = settings.stripe_secret_key
-    settings.stripe_secret_key = "sk_test_dummy"
-    yield
-    settings.stripe_secret_key = original
+    with _chaves_stripe("sk_test_dummy"):
+        yield
 
 
 @pytest.fixture
 def stripe_desligado():
     """Desliga o Stripe explicitamente.
 
-    Sem isto o teste dependeria do .env de quem roda: quem tem
-    STRIPE_SECRET_KEY preenchida (o .env copiado do Render) via o teste falhar.
+    Sem isto o teste dependeria do .env de quem roda: quem tem chave preenchida
+    (o .env copiado do Render) via o teste falhar.
     """
-    original = settings.stripe_secret_key
-    settings.stripe_secret_key = ""
-    yield
-    settings.stripe_secret_key = original
+    with _chaves_stripe(""):
+        yield
+
+
+class TestChaveDoAmbiente:
+    """A app NUNCA pode falar com a conta live fora de produção.
+
+    O Stripe não tem dry-run: toda chamada cria coisa de verdade. E o `.env` de
+    desenvolvimento carrega uma chave `sk_live_`, porque é cópia do Render. Sem
+    esta trava, rodar a app no laptop cria Payment Link e assinatura na conta da
+    Allos — o que já aconteceu duas vezes, a última em 17/08.
+    """
+
+    @contextmanager
+    def _ambiente(self, environment: str, live: str, teste: str):
+        antes = (settings.environment, settings.stripe_secret_key, settings.test_stripe_secret_key)
+        settings.environment = environment
+        settings.stripe_secret_key = live
+        settings.test_stripe_secret_key = teste
+        try:
+            yield
+        finally:
+            (
+                settings.environment,
+                settings.stripe_secret_key,
+                settings.test_stripe_secret_key,
+            ) = antes
+
+    def test_fora_de_producao_usa_a_chave_de_teste(self):
+        with self._ambiente("development", "sk_live_REAL", "sk_test_FAKE"):
+            assert settings.stripe_key == "sk_test_FAKE"
+            assert settings.stripe_modo_teste is True
+
+    def test_em_producao_usa_a_chave_live(self):
+        with self._ambiente("production", "sk_live_REAL", "sk_test_FAKE"):
+            assert settings.stripe_key == "sk_live_REAL"
+            assert settings.stripe_modo_teste is False
+
+    def test_sem_chave_de_teste_o_stripe_fica_DESLIGADO(self):
+        """O ponto do exercício: nunca, jamais, cair pra live."""
+        with self._ambiente("development", "sk_live_REAL", ""):
+            assert settings.stripe_key == ""
+            assert stripe_client.configurado() is False
+
+    @pytest.mark.parametrize("ambiente", ["development", "dev", "", "PRODUCTION_"])
+    def test_qualquer_coisa_que_nao_seja_production_e_teste(self, ambiente):
+        with self._ambiente(ambiente, "sk_live_REAL", "sk_test_FAKE"):
+            assert settings.stripe_key == "sk_test_FAKE"
+
+    @pytest.mark.asyncio
+    async def test_a_requisicao_manda_a_chave_do_ambiente(self):
+        """Não basta a propriedade estar certa: é ela que tem que ir no header."""
+        capturado = {}
+
+        class _RespostaFalsa:
+            status_code = 200
+
+            def json(self):
+                return {"id": "x"}
+
+        class _ClienteFalso:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def request(self, metodo, url, **kwargs):
+                capturado.update(kwargs.get("headers") or {})
+                return _RespostaFalsa()
+
+        with self._ambiente("development", "sk_live_REAL", "sk_test_FAKE"):
+            with patch("app.services.stripe_client.httpx.AsyncClient", _ClienteFalso):
+                await stripe_client._requisicao("GET", "/v1/payment_links")
+
+        assert capturado["Authorization"] == "Bearer sk_test_FAKE"
+        assert "sk_live_REAL" not in capturado["Authorization"]
 
 
 class TestAchatar:
