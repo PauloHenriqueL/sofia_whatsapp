@@ -2,56 +2,69 @@
 
 ## 👋 Começando agora no projeto? Leia nesta ordem
 
-1. **[`referencia/workflow.md`](referencia/workflow.md)** — como o sistema
-   funciona no dia a dia: paciente, Sofia, Thainá e Hamilton. Comece por aqui,
-   são 5 minutos e o resto faz sentido depois.
-2. **[`../CLAUDE.md`](../CLAUDE.md)** — a arquitetura de verdade: onde mora cada
+1. **[`MUDANCAS-AGOSTO-2026.md`](MUDANCAS-AGOSTO-2026.md)** — o que mudou no
+   último ciclo e por quê. Se você acabou de receber este projeto, comece aqui.
+2. **[`referencia/workflow.md`](referencia/workflow.md)** — como o sistema
+   funciona no dia a dia: paciente, Sofia, Thainá e Hamilton. São 5 minutos e o
+   resto faz sentido depois.
+3. **[`../CLAUDE.md`](../CLAUDE.md)** — a arquitetura de verdade: onde mora cada
    coisa, e principalmente **os porquês não óbvios** (por que a saída do bot é
    sanitizada, por que a pesquisa faz polling em vez de webhook, por que o
    telefone cai pro número do WhatsApp). É o documento mais importante do repo.
-3. **[`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)** — o que foi
-   feito neste ciclo, o que falta, os bugs encontrados e os riscos aceitos.
+4. **[`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)** — histórico
+   dos ciclos anteriores, bugs encontrados e riscos aceitos.
 
 ## ➡️ O que precisa ser feito agora
 
-🔴 **Antes de tudo: [`demandas/04-PENDENCIAS-ABERTAS.md`](demandas/04-PENDENCIAS-ABERTAS.md).**
-Nada ali é código — é clicar, configurar e decidir. O primeiro item (o cron
-`/tasks/stripe`) é dinheiro escapando: sem ele, todo parcelado de neuro novo
-cobra pra sempre.
+**Tudo o que falta está em
+[`demandas/06-SUBIDA-EM-PRODUCAO.md`](demandas/06-SUBIDA-EM-PRODUCAO.md)** — o
+runbook do ciclo de agosto/2026, na ordem de execução. Nenhuma linha de código
+nova é necessária; é merjar, migrar, configurar e ligar.
 
-Depois, o resto está em **[`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)**,
-seção "Status". São duas frentes, nesta ordem:
+Os três itens que mordem primeiro:
 
-**1. Modelo da tabela de avaliação + planilha de qualidade**
-→ [`demandas/02-modelo-de-avaliacao.md`](demandas/02-modelo-de-avaliacao.md)
+🔴 **O cron `POST /tasks/stripe` não existe** e é dinheiro escapando: sem ele,
+todo parcelado de neuro novo cobra pra sempre. Junto dele, o resto de
+[`demandas/04-PENDENCIAS-ABERTAS.md`](demandas/04-PENDENCIAS-ABERTAS.md).
 
-Os campos já existem no banco e a pesquisa já grava neles. Falta **decidir com o
-Paulo** quais perguntas ficam no questionário definitivo, o que é texto e o que é
-estruturado, e **editar a planilha** que o time de Qualidade usa (ela pressupõe
-uma pessoa coletando; agora quem coleta é a Sofia).
+🔴 **Duas branches do Hamilton fazem a mesma demanda, e a errada parece a certa.**
+Merjar a de 06/08 em vez da de 08/08 deixa paciente de convênio sendo cobrado e a
+pesquisa de entrada sem terapeuta pra gravar. A comparação abre o
+[`06`](demandas/06-SUBIDA-EM-PRODUCAO.md).
 
-**2. Stripe + Pix (Demanda D)**
-→ [`demandas/01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md), seção "Demanda D"
+⚠️ **Falta uma tela no Hamilton.** O contrato assinado funciona pela API, mas a
+coordenação não consegue vê-lo pela interface — não está no admin nem na página
+do paciente.
 
-**Nada foi feito** — nenhuma linha de Stripe foi tocada. O desenho já está
-**fechado** (a Sofia fala direto com o Stripe, chave Pix fixa no painel, cobrança
-encadeada no fim da pesquisa, comprovante escala pra Thainá, parceria nunca é
-cobrada). Não precisa ser rediscutido, só implementado.
+Depois disso, o que continua aberto e **depende de decisão, não de código**: o
+modelo da tabela de avaliação e a planilha de qualidade
+([`demandas/02`](demandas/02-modelo-de-avaliacao.md)) — os campos já existem e a
+pesquisa já grava neles; falta decidir com o Paulo quais perguntas ficam e o que
+fazer com a planilha que o time de Qualidade usa hoje.
 
-> ⚠️ **Antes de subir qualquer coisa**, leia "Pendências que bloqueiam o deploy"
-> em `01-EM-ANDAMENTO.md`. Em especial a das **migrations do Hamilton**, que o
-> `.gitignore` de lá ignora e por isso não chegam ao GitHub sozinhas.
+> ⚠️ **Antes de subir qualquer coisa**: as **migrations do Hamilton** estão no
+> `.gitignore` de lá e não chegam ao GitHub sozinhas (`git add -f`). E confira o
+> `SOFIA_API_DATABASE_URL` no serviço do Hamilton no Render — setado em produção,
+> ele manda paciente real pro banco de teste.
 
 ---
 
 ## Mapa dos arquivos
 
+### Na raiz de `docs/`
+
+| Arquivo | O que é |
+|---|---|
+| **[`MUDANCAS-AGOSTO-2026.md`](MUDANCAS-AGOSTO-2026.md)** | **O que mudou no último ciclo, em uma página, e por quê.** Contrato assinável, troca de modelo, cadastro automático, ajustes de conversa — mais as decisões que dependem do Paulo. Ponto de entrada pra quem está recebendo o projeto. |
+
 ### `demandas/` — o que foi, o que é e o que vem
 
 | Arquivo | O que é |
 |---|---|
+| 🔴 **[`06-SUBIDA-EM-PRODUCAO.md`](demandas/06-SUBIDA-EM-PRODUCAO.md)** | **O runbook.** Tudo que mudou no ciclo de agosto/2026, o contrato de API entre Sofia e Hamilton, e a ordem exata de merge, migration, env e configuração. É o documento de quem vai executar. |
 | 🔴 **[`04-PENDENCIAS-ABERTAS.md`](demandas/04-PENDENCIAS-ABERTAS.md)** | **Ações fora do código, ordenadas por dinheiro em risco.** O cron que falta, variável de ambiente, e as decisões pendentes sobre pagamentos de pacientes reais. |
-| **[`01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)** | **O documento de trabalho.** Ciclo atual: o que foi entregue, o que falta, bugs corrigidos, riscos aceitos e pendências de deploy. |
+| **[`01-EM-ANDAMENTO.md`](demandas/01-EM-ANDAMENTO.md)** | Ciclo de 08/08: o que foi entregue, bugs corrigidos, riscos aceitos e pendências de deploy. **Histórico** — o ciclo atual está no `06`. |
+| **[`05-contrato-assinatura.md`](demandas/05-contrato-assinatura.md)** | **Demanda E (ciclo de 17/08/2026): contrato terapêutico assinado pelo paciente via Autentique**, junto do turno de cobrança. Desenho fechado, registro das decisões, alternativas descartadas e ordem de execução. Inclui a troca do modelo pro `gpt-5.6-terra`. |
 | [`02-modelo-de-avaliacao.md`](demandas/02-modelo-de-avaliacao.md) | Campos da tabela `Avaliacao` no Hamilton: o que foi criado e o que ainda vai ser decidido. |
 | [`03-questionario-atual-da-qualidade.md`](demandas/03-questionario-atual-da-qualidade.md) | O questionário que a Juliana usava à mão no WhatsApp. É a base do que a Sofia pergunta hoje. |
 | [`00-ORIGINAL-com-premissas-erradas.md`](demandas/00-ORIGINAL-com-premissas-erradas.md) | O pedido original. **Não implemente a partir dele:** foi escrito por quem não conhecia o fluxo real e errou várias premissas (elas estão listadas e corrigidas no `01`). Fica só como histórico. |

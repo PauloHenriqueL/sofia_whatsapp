@@ -6,11 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # ⏭️ ESTADO ATUAL E PRÓXIMO PASSO (leia primeiro)
 
-**Data deste registro:** 08/08/2026.
+**Data deste registro:** 18/08/2026.
+
+> 📄 **O runbook do ciclo atual é [`docs/demandas/06-SUBIDA-EM-PRODUCAO.md`](docs/demandas/06-SUBIDA-EM-PRODUCAO.md).**
+> Ele tem o inventário completo das mudanças de agosto/2026, o contrato de API
+> entre Sofia e Hamilton, e a ordem exata de merge/migration/env. A visão geral,
+> em uma página, está em [`docs/MUDANCAS-AGOSTO-2026.md`](docs/MUDANCAS-AGOSTO-2026.md).
 
 O sistema está **em produção** e o MVP (P0–P6) foi entregue há tempos. As Demandas
-A, B, C e D estão **implementadas e testadas**. O que falta é **ligar** e conferir
-o ambiente — nenhuma delas exige código novo.
+A, B, C, D e **E (contrato assinável)** estão **implementadas e testadas**. O que
+falta é **merjar, migrar e ligar** — nenhuma delas exige código novo na Sofia.
+
+🔴 **Duas armadilhas do ciclo, as duas no Hamilton:**
+1. **Há duas branches fazendo a mesma demanda** (captação/parceria/avaliação), e a
+   errada parece a certa. A boa é `feat/avaliacao-pesquisas-sofia` (08/08, 5
+   commits); `feat/sofia-captacao-e-avaliacao` (06/08) é uma tentativa anterior sem
+   o terapeuta sentinela, sem a permissão da API e sem o backfill de parceria.
+2. **`ContratoPaciente` não está em tela nenhuma** — nem no admin, nem na página do
+   paciente. A API funciona ponta a ponta; a interface não existe.
 
 > ⚠️ **Aviso de leitura.** As seções de status deste arquivo já ficaram velhas duas
 > vezes (diziam "Demanda D não iniciada" com o Stripe inteiro implementado, e
@@ -1321,8 +1334,10 @@ ALERT_TEMPLATE_NAME=alerta_thaina  # Nome do template
 
 # OpenAI
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini       # ex.: gpt-5.4 (precisa do SDK openai 2.x)
+OPENAI_MODEL=gpt-4o-mini       # produção: gpt-5.6-terra (precisa do SDK openai 2.x)
 OPENAI_TEMPERATURE=0.7         # vazio/none = não envia (usa padrão do modelo)
+OPENAI_REASONING_EFFORT=none   # none|low|medium|high|xhigh|max — a CONVERSA roda em none
+OPENAI_REASONING_EFFORT_EXTRACAO=low  # a extração da pesquisa pensa mais (ninguém espera)
 OPENAI_AUDIO_MODEL=whisper-1   # transcrição de áudio (STT)
 
 # Banco
@@ -1351,7 +1366,11 @@ SECRET_KEY=                        # assina o cookie de sessão (trocar em prod)
 TASKS_TOKEN=
 
 # Stripe (links de pagamento no painel; vazio = tela desligada, mostra aviso)
+# 🔴 Fora de ENVIRONMENT=production a app usa a TEST_STRIPE_SECRET_KEY, não esta.
+#    Sem chave de teste, o Stripe fica DESLIGADO — nunca cai pra live. Ver
+#    settings.stripe_key; o código nunca deve ler stripe_secret_key direto.
 STRIPE_SECRET_KEY=                 # mesma conta do site da Allos; só no Render
+TEST_STRIPE_SECRET_KEY=            # sk_test_...; é o que roda em dev
 STRIPE_PUBLISHABLE_KEY=            # pk_...; o checkout hospedado não usa (documentação)
 STRIPE_PRECO_MENSAL_ID=            # price_... do catálogo; reusado se a mensalidade bater
 BASE_URL=https://sofia-whatsapp.onrender.com   # monta /pagamento-sucesso|cancelado
