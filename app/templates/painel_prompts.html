@@ -17,7 +17,8 @@
     atendimento normal vale o <b>prompt principal</b> + a <b>base de
     conhecimento</b>. Durante uma <b>pesquisa</b> ou uma <b>cobrança</b>, o prompt
     principal é <b>substituído</b> pelo do modo — editar o principal não muda como
-    ela conduz esses dois. O contrato é só referência (não vai pro bot).
+    ela conduz esses dois. O <b>contrato</b> não é prompt: é o texto que vira o
+    documento assinado pelo paciente.
   </div>
 
   {% for p in prompts %}
@@ -25,7 +26,9 @@
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px">
       <h2 style="font-size:16px; margin:0">
         {{ p.rotulo }}
-        {% if p.vai_pro_bot %}
+        {% if p.destino == "documento" %}
+          <span class="badge" style="background:var(--red-bg); color:var(--red-text)">documento assinado</span>
+        {% elif p.vai_pro_bot %}
           <span class="badge" style="background:var(--green-bg); color:var(--green-text)">vai pro bot</span>
         {% else %}
           <span class="badge">só referência</span>
@@ -37,6 +40,18 @@
         <span class="muted" style="font-size:12px">usando o texto padrão</span>
       {% endif %}
     </div>
+
+    {% if p.destino == "documento" %}
+    <div class="aviso aviso--erro" style="margin-bottom:10px">
+      <i class="bi bi-exclamation-triangle"></i>
+      <span>
+        Este texto <b>não é um prompt</b>: é o contrato que o paciente assina. O que
+        você salvar aqui vale para os próximos contratos — os já assinados ficam
+        guardados como estão. Os <code>{{ '{{MARCADORES}}' }}</code> viram os dados
+        do paciente; se apagar um, o contrato sai sem aquele dado.
+      </span>
+    </div>
+    {% endif %}
 
     {% if salvo == p.chave %}
     <div class="aviso" style="margin-bottom:10px">
@@ -50,6 +65,12 @@
 
     <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap">
       <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> Salvar</button>
+      {% if p.destino == "documento" %}
+      <button class="btn btn-ghost" type="submit" formaction="/painel/prompts/{{ p.chave }}/previa"
+              formtarget="_blank" title="Baixa o documento com dados de exemplo, sem salvar">
+        <i class="bi bi-file-earmark-word"></i> Ver como fica
+      </button>
+      {% endif %}
       {% if p.customizado %}
       <button class="btn btn-ghost" type="submit" formaction="/painel/prompts/{{ p.chave }}/resetar"
               onclick="return confirm('Voltar esse texto pro padrão? Sua versão editada será descartada.')">

@@ -316,6 +316,67 @@ class HamiltonClient:
             )
         return resp.json()
 
+    async def gerar_contrato(self, paciente_id: int, valor_mensal: int, texto: str) -> dict:
+        """Pede ao Hamilton o contrato do paciente e devolve `{link, status, ...}`.
+
+        **O texto vai no corpo.** Ele é editado em `/painel/prompts` e essa é a
+        única fonte: guardar uma cópia no Hamilton faria as duas divergirem no
+        primeiro ajuste, e ninguém saberia qual o paciente assinou.
+
+        Idempotente do outro lado: chamar de novo com o mesmo valor devolve o
+        MESMO contrato (a Sofia remonta o link a cada turno da cobrança). Um 422
+        é a guarda de lá dizendo "não é caso de contrato" — não adianta repetir,
+        então vira `HamiltonError` com `recusado=True` no texto pra quem loga.
+        """
+        resp = await self._request(
+            "POST",
+            "/api/v1/contratos/",
+            json={
+                "paciente_id": paciente_id,
+                "valor_mensal": valor_mensal,
+                "texto": texto,
+            },
+        )
+        if resp.status_code in (200, 201):
+            return resp.json()
+        if resp.status_code == 422:
+            raise HamiltonError(f"contrato recusado: {resp.text[:200]}")
+        raise HamiltonError(f"Geração de contrato falhou ({resp.status_code}): {resp.text[:200]}")
+
+    async def previa_contrato(self, texto: str) -> bytes:
+        """Renderiza o contrato com dados fictícios e devolve o `.docx`.
+
+        Não toca na Autentique. É o que sustenta o botão "prévia" do painel:
+        quem edita vê o resultado antes de valer, e quem revisa o texto (o Paulo)
+        lê no formato de sempre em vez de num campo de texto.
+        """
+        resp = await self._request("POST", "/api/v1/contratos/previa/", json={"texto": texto})
+        if resp.status_code != 200:
+            raise HamiltonError(
+                f"Prévia do contrato falhou ({resp.status_code}): {resp.text[:200]}"
+            )
+        return resp.content
+
+    async def contratos_pendentes(self) -> list[dict]:
+        """Todos os contratos ainda não assinados, numa chamada só.
+
+        É pra tela Hoje: uma requisição por conversa faria o painel disparar
+        dezenas de chamadas a cada polling.
+        """
+        resp = await self._request("GET", "/api/v1/contratos/pendentes/")
+        if resp.status_code != 200:
+            raise HamiltonError(f"Contratos pendentes falhou ({resp.status_code})")
+        return resp.json() or []
+
+    async def status_contrato(self, paciente_id: int) -> dict:
+        """Estado do contrato do paciente. `{}` quando não há nenhum."""
+        if not paciente_id:
+            return {}
+        resp = await self._request("GET", f"/api/v1/contratos/?paciente_id={paciente_id}")
+        if resp.status_code != 200:
+            raise HamiltonError(f"Status do contrato falhou ({resp.status_code})")
+        return resp.json() or {}
+
     async def criar_paciente(self, dados: dict) -> dict:
         """Cria o paciente no Hamilton e devolve o registro criado."""
         payload = mapear_dados(dados)

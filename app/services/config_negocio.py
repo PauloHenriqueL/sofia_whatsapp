@@ -90,6 +90,24 @@ CAMPOS: dict[str, Campo] = {
         "<em>Ligada, ela fala de dinheiro com o paciente sem passar por você.</em>",
         "automacoes",
     ),
+    # Contrato terapêutico assinado (Demanda E). Desligado por padrão, e com
+    # chave PRÓPRIA — não pendurada na `cobranca_ativa`.
+    #
+    # A cobrança nunca rodou em produção. Estrear as duas ao mesmo tempo, no mesmo
+    # turno que fala de dinheiro com paciente, é o tipo de risco que este projeto
+    # já pagou: o parcelado do Stripe subiu sem ter rodado de verdade uma vez e
+    # passou 18 assinaturas cobrando pra sempre. Liga-se a cobrança primeiro,
+    # sozinha, e o contrato semanas depois.
+    "contrato_ativo": Campo(
+        "Mandar o contrato pra assinar",
+        False,
+        "bool",
+        "Junto da cobrança da mensalidade, a Sofia manda o contrato terapêutico "
+        "pra pessoa assinar pelo celular. <em>Assinar não trava o atendimento: quem "
+        "não assinar aparece na tela Hoje.</em> O texto fica em "
+        '<a href="/painel/prompts">Prompts</a>.',
+        "automacoes",
+    ),
     # Interruptor da pesquisa de ENTRADA (ORS de linha de base), e só dela.
     #
     # Nasce LIGADA, ao contrário da cobrança: ela não fala de dinheiro e não tem

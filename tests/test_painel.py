@@ -812,7 +812,13 @@ class TestPaginasDoPainel:
     @pytest.mark.asyncio
     async def test_todas_as_paginas_exigem_login(self, ambiente):
         client, _ = ambiente
-        for url in ("/painel/", "/painel/conversas", "/painel/config", "/painel/metricas", "/painel/prompts"):
+        for url in (
+            "/painel/",
+            "/painel/conversas",
+            "/painel/config",
+            "/painel/metricas",
+            "/painel/prompts",
+        ):
             assert (await client.get(url)).status_code == 303, url
 
 

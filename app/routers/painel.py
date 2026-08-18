@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import acompanhamento, cadastro, config_negocio, config_prompt
+from app.services import acompanhamento, cadastro, config_negocio, config_prompt, hamilton_client
 from app.services import hoje as hoje_service
 from app.services import metricas, midia, painel, whatsapp_client
 
@@ -233,12 +233,13 @@ async def pagina_prompts(request: Request, salvo: str = ""):
     prompts = [
         {
             "chave": chave,
-            "rotulo": rotulo,
-            "vai_pro_bot": vai_pro_bot,
+            "rotulo": p.rotulo,
+            "vai_pro_bot": p.vai_pro_bot,
+            "destino": p.destino,
             "texto": config_prompt.texto(chave),
             "customizado": config_prompt.customizado(chave),
         }
-        for chave, (rotulo, _caminho, vai_pro_bot) in config_prompt.PROMPTS.items()
+        for chave, p in config_prompt.PROMPTS.items()
     ]
     return templates.TemplateResponse(
         "painel_prompts.html",
@@ -258,6 +259,38 @@ async def resetar_prompt(chave: str, db: AsyncSession = Depends(get_db)):
     if chave in config_prompt.PROMPTS:
         await config_prompt.resetar(db, chave)
     return RedirectResponse(f"/painel/prompts?salvo={chave}", status_code=303)
+
+
+@router.post("/prompts/{chave}/previa")
+async def previa_documento(chave: str, texto: str = Form(...)):
+    """Baixa o documento montado com o texto que está na tela, sem salvar nada.
+
+    Só faz sentido pro contrato (`destino == "documento"`). Serve pra duas coisas
+    com o mesmo código: quem edita vê o resultado **antes** de valer, e quem
+    revisa o texto lê num `.docx`, não num campo de texto.
+
+    Quem renderiza é o Hamilton — é ele que tem o `python-docx` e é ele que vai
+    gerar o documento de verdade. Usar o mesmo caminho aqui é o que garante que a
+    prévia mostre o que o paciente vai receber, e não uma aproximação.
+    """
+    campo = config_prompt.PROMPTS.get(chave)
+    if campo is None or campo.destino != "documento":
+        raise HTTPException(status_code=404, detail="Não há prévia pra este texto")
+    try:
+        arquivo = await hamilton_client.get_hamilton_client().previa_contrato(texto)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Prévia do contrato falhou: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="Não consegui montar a prévia agora. Tente de novo."
+        ) from exc
+    return Response(
+        content=arquivo,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": 'attachment; filename="contrato-previa.docx"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/acompanhamento")

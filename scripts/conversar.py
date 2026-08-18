@@ -183,8 +183,12 @@ async def _mostrar_estado(numero: str) -> None:
     dados = dict(c.dados_coletados or {})
     gravados = dados.pop("pesquisa_respostas_gravadas", None)
     print(f"{AMARELO}estado{RESET}       {c.estado}   modo={c.modo}")
-    print(f"{AMARELO}hamilton{RESET}     paciente_id={c.paciente_hamilton_id} cadastrado_em={c.cadastrado_em}")
-    print(f"{AMARELO}pesquisa{RESET}     avaliacao_id={c.pesquisa_avaliacao_id} iniciada={c.pesquisa_iniciada_em}")
+    print(
+        f"{AMARELO}hamilton{RESET}     paciente_id={c.paciente_hamilton_id} cadastrado_em={c.cadastrado_em}"
+    )
+    print(
+        f"{AMARELO}pesquisa{RESET}     avaliacao_id={c.pesquisa_avaliacao_id} iniciada={c.pesquisa_iniciada_em}"
+    )
     print(f"{AMARELO}alerta{RESET}       {c.alerta_pesquisa_em} {c.alerta_pesquisa_motivos or ''}")
     print(f"{AMARELO}coletado{RESET}     {json.dumps(dados, ensure_ascii=False)}")
     if gravados is not None:
@@ -198,6 +202,37 @@ async def _rodar_pesquisas() -> None:
     async with async_session() as db:
         resumo = await pesquisa.rodar_pesquisas(db)
     print(f"{AMARELO}cron de pesquisas{RESET} {resumo}")
+
+
+async def _rodar_cobrancas() -> None:
+    """Roda o cron da cobrança agora (Demanda D + contrato da Demanda E).
+
+    A cobrança só pega quem já teve a **primeira consulta marcada como
+    realizada** no Hamilton — o gatilho é `is_realizado`, não a pesquisa. Se o
+    resumo vier zerado, é quase sempre isso: marque a consulta no Hamilton local
+    e rode de novo.
+    """
+    from app.services import cobranca
+
+    async with async_session() as db:
+        resumo = await cobranca.rodar_cobrancas(db)
+    print(f"{AMARELO}cron de cobranças{RESET} {resumo}")
+
+
+async def _mostrar_contrato(numero: str) -> None:
+    """Mostra o contrato deste paciente, como o Hamilton o reporta."""
+    from app.services import contrato
+
+    async with async_session() as db:
+        c = await _conversa(db, numero)
+        if c is None or not c.paciente_hamilton_id:
+            print(f"{CINZA}(sem paciente no Hamilton ainda){RESET}")
+            return
+        dados = await contrato.estado(db, c)
+        motivo = await contrato.motivo_para_pular(db, c)
+    if motivo:
+        print(f"{AMARELO}contrato{RESET}     pulado: {motivo}")
+    print(f"{AMARELO}contrato{RESET}     {json.dumps(dados, ensure_ascii=False, default=str)}")
 
 
 async def _mostrar_avaliacao(numero: str) -> None:
@@ -250,12 +285,28 @@ async def principal(base_url: str, numero: str, espera: float) -> None:
             f"cria paciente de verdade. Suba o Hamilton local e aponte "
             f"HAMILTON_API_URL pra ele.{RESET}"
         )
-    print(f"{CINZA}/estado /pesquisas /avaliacao /adiantar N /sair{RESET}\n")
+    print(
+        f"{CINZA}/estado /pesquisas /cobrancas /contrato /avaliacao " f"/adiantar N /sair{RESET}\n"
+    )
+
+    # Os comandos que rodam regra de negócio (`/cobrancas`, `/contrato`) executam
+    # NESTE processo, não no uvicorn — e o cache de configuração só é populado no
+    # startup da app. Sem isto, o script lê os padrões do código e reporta
+    # "desligado no painel" para chaves que estão ligadas no banco.
+    from app.services import config_negocio, config_prompt
+
+    async with async_session() as db:
+        await config_negocio.carregar_do_banco(db)
+        await config_prompt.carregar_do_banco(db)
 
     desde_id = await _ultimo_id(numero)
     while True:
         try:
-            texto = input(f"{AMARELO}você:{RESET} ").strip()
+            # O `﻿` é o BOM que o PowerShell coloca na PRIMEIRA linha quando
+            # a entrada vem por pipe. `strip()` não o remove (não é espaço em
+            # branco pro Python), então o primeiro comando do roteiro virava
+            # mensagem pro bot em vez de comando — e a falha parece do bot.
+            texto = input(f"{AMARELO}você:{RESET} ").lstrip("﻿").strip()
         except (EOFError, KeyboardInterrupt):
             return
         if not texto:
@@ -268,6 +319,13 @@ async def principal(base_url: str, numero: str, espera: float) -> None:
         if texto == "/pesquisas":
             await _rodar_pesquisas()
             desde_id = await _esperar_resposta(numero, desde_id, espera)
+            continue
+        if texto == "/cobrancas":
+            await _rodar_cobrancas()
+            desde_id = await _esperar_resposta(numero, desde_id, espera)
+            continue
+        if texto == "/contrato":
+            await _mostrar_contrato(numero)
             continue
         if texto == "/avaliacao":
             await _mostrar_avaliacao(numero)

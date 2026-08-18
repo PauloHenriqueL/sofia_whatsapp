@@ -44,6 +44,7 @@ from app.models import Conversa
 from app.services import (
     config_negocio,
     config_prompt,
+    contrato,
     conversation,
     hamilton_client,
     links,
@@ -140,11 +141,16 @@ def chave_pix() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def montar_prompt(conversa: Conversa, link: str | None) -> str:
+def montar_prompt(conversa: Conversa, link: str | None, contrato_dados: dict | None = None) -> str:
     """Prompt do modo cobrança: condução + os dados concretos desta pessoa.
 
     O prompt é editável em /painel/prompts; os valores (mensalidade, chave Pix,
-    link) são injetados aqui porque mudam por paciente e por configuração.
+    link, contrato) são injetados aqui porque mudam por paciente e por configuração.
+
+    `contrato_dados` vazio = a Sofia não fala de contrato nesta conversa. É o que
+    acontece com a feature desligada, com paciente de parceria, com neuro, e
+    quando o Hamilton não respondeu — em todos esses casos o silêncio é o
+    comportamento certo (ver `contrato.linhas_para_prompt`).
     """
     base = config_prompt.texto("prompt_cobranca")
     valor = valor_mensal(conversa)
@@ -169,6 +175,8 @@ def montar_prompt(conversa: Conversa, link: str | None) -> str:
         contexto.append(f"- Chave Pix (CNPJ): {pix}")
     else:
         contexto.append("- Pix: NÃO oferecido nesta conversa. Ofereça apenas o cartão.")
+
+    contexto.extend(contrato.linhas_para_prompt(contrato_dados or {}))
 
     return f"{base}\n\n{chr(10).join(contexto)}"
 
@@ -216,9 +224,16 @@ async def iniciar(db: AsyncSession, conversa: Conversa, agora: datetime | None =
     """
     agora = agora or _agora()
     link = await _criar_link(db, conversa)
+    # O contrato entra na MESMA mensagem que o pagamento: são a mesma decisão pra
+    # o paciente (fechar). Separar em duas etapas de 44h cada empilharia ~4 dias
+    # de abordagem depois de uma única sessão. Falha aqui devolve `{}` e a
+    # cobrança segue normalmente sem falar de contrato.
+    contrato_dados = await contrato.garantir(db, conversa, valor_mensal(conversa))
 
     try:
-        resposta = await _turno(db, conversa, link, historico=[], abertura=True)
+        resposta = await _turno(
+            db, conversa, link, historico=[], abertura=True, contrato_dados=contrato_dados
+        )
     except llm_client.LLMError as exc:
         logger.error("Não consegui gerar a fala da cobrança (conversa %s): %s", conversa.id, exc)
         return False
@@ -241,9 +256,15 @@ async def iniciar(db: AsyncSession, conversa: Conversa, agora: datetime | None =
 async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
     """Conduz um turno da cobrança (no lugar do turno normal do bot)."""
     link = await _link_atual(db, conversa)
+    # Relê o estado a cada turno em vez de criar: se ela assinou entre uma
+    # mensagem e outra, a Sofia precisa saber pra não mandar o link de novo. É
+    # também a rede contra webhook perdido — a mesma que o GET do Hamilton faz.
+    contrato_dados = await contrato.estado(db, conversa)
     historico = await conversation.carregar_historico(db, conversa)
     try:
-        resposta = await _turno(db, conversa, link, historico=historico)
+        resposta = await _turno(
+            db, conversa, link, historico=historico, contrato_dados=contrato_dados
+        )
     except llm_client.LLMError:
         logger.error("LLM falhou no turno de cobrança da conversa %s", conversa.id)
         return
@@ -396,6 +417,15 @@ async def _mandar_lembrete(db: AsyncSession, conversa: Conversa, agora: datetime
         "sua vaga na agenda. Se tiver qualquer dúvida ou se esse não for um bom "
         "momento, me fala que a gente vê junto."
     )
+    # O contrato entra no lembrete só se ainda estiver pendente — repetir o link
+    # pra quem já assinou é o tipo de erro que faz a pessoa desconfiar da
+    # mensagem inteira. Falha ao consultar devolve `{}` e o lembrete sai sem ele.
+    dados_contrato = await contrato.estado(db, conversa)
+    if dados_contrato.get("status") == contrato.PENDENTE and dados_contrato.get("link"):
+        texto += (
+            f"\n\nE o contrato ainda está te esperando pra assinar, se quiser dar "
+            f"uma olhada: {dados_contrato['link']}"
+        )
     if not await _enviar(db, conversa, texto):
         await finalizar(db, conversa, "sem_janela")
         return False
@@ -444,6 +474,7 @@ async def _turno(
     link: str | None,
     historico: list[dict],
     abertura: bool = False,
+    contrato_dados: dict | None = None,
 ) -> str:
     """Uma geração do modelo com o prompt de cobrança, com tool calling."""
     from app.routers import webhook
@@ -462,7 +493,7 @@ async def _turno(
                 ),
             }
         )
-    system_prompt = montar_prompt(conversa, link)
+    system_prompt = montar_prompt(conversa, link, contrato_dados)
     cliente = llm_client.get_llm_client()
     resposta = await cliente.gerar_resposta(
         mensagens, tools=tools.TOOLS_COBRANCA, system_prompt=system_prompt

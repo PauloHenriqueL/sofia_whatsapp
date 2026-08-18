@@ -6,13 +6,21 @@ pro arquivo. Cache em memória (assume 1 instância no Render free), populado no
 startup e atualizado a cada salvamento.
 
 O que de fato vai pro modelo (ver `llm_client.carregar_system_prompt`): o prompt
-principal (`prompt_sistema`) + a base de conhecimento (`prompt_base`). O contrato
-(`prompt_contrato`) é só referência interna — editável aqui, mas NÃO enviado ao bot.
+principal (`prompt_sistema`) + a base de conhecimento (`prompt_base`).
+
+⚠️ **`prompt_contrato` não é um prompt.** É o texto do contrato terapêutico que o
+paciente **assina** (Demanda E). Ele não vai pro bot e não é referência: o Hamilton
+recebe esse texto, troca os `{{MARCADORES}}` pelos dados do paciente e gera o
+documento que vai pra assinatura. Ele mora aqui, e não num `.docx` guardado no
+Hamilton, porque assim existe **uma fonte só** — duas cópias do mesmo contrato
+divergiriam no primeiro ajuste. Por isso o `destino` de cada entrada é declarado:
+a tela precisa avisar que editar este texto muda um documento jurídico.
 """
 
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,61 +31,92 @@ logger = logging.getLogger(__name__)
 
 _DIR = Path(__file__).resolve().parent.parent.parent / "prompt"
 
-# chave -> (rótulo pro painel, arquivo padrão, vai_pro_bot)
-PROMPTS: dict[str, tuple[str, Path, bool]] = {
-    "prompt_sistema": ("Prompt principal (roteiro da conversa)", _DIR / "sofia_v01.txt", True),
-    "prompt_base": (
+
+class Prompt(NamedTuple):
+    """Metadados de um texto editável no painel.
+
+    `NamedTuple` pelo mesmo motivo do `config_negocio.Campo`: os três primeiros
+    itens continuam acessíveis por índice, que é como `padrao()` lê o arquivo.
+
+    `destino` diz o que o texto vira, e a tela muda de acordo:
+      - "bot"        -> entra no system prompt do modelo;
+      - "referencia" -> ninguém consome automaticamente (ex.: a extração);
+      - "documento"  -> vira um DOCUMENTO ASSINADO por paciente. Editar erra
+                        pra frente, não pra trás (o PDF do que já foi assinado
+                        fica guardado no Hamilton), mas ainda é jurídico.
+    """
+
+    rotulo: str
+    arquivo: Path
+    vai_pro_bot: bool
+    destino: str = "referencia"
+
+
+PROMPTS: dict[str, Prompt] = {
+    "prompt_sistema": Prompt(
+        "Prompt principal (roteiro da conversa)", _DIR / "sofia_v01.txt", True, "bot"
+    ),
+    "prompt_base": Prompt(
         "Base de conhecimento (respostas a dúvidas)",
         _DIR / "sofia-base-conhecimento.md",
         True,
+        "bot",
     ),
-    "prompt_contrato": (
-        "Contrato terapêutico (referência interna — NÃO vai pro bot)",
+    "prompt_contrato": Prompt(
+        "Contrato terapêutico (o documento que o paciente assina)",
         _DIR / "contrato-terapeutico-allos.md",
         False,
+        "documento",
     ),
     # Pesquisa de satisfação: substitui o prompt principal enquanto a conversa
     # está em modo pesquisa (a pessoa já é paciente, não é um lead a qualificar).
-    "prompt_pesquisa": (
+    "prompt_pesquisa": Prompt(
         "Pesquisa: como conduzir (tom e regras)",
         _DIR / "pesquisa-conducao.txt",
         True,
+        "bot",
     ),
     # Os quatro roteiros. Qual deles vale é escolhido pelo `momento` da
     # `Avaliacao` no Hamilton (ver services/pesquisa.py).
-    "prompt_pesquisa_entrada": (
+    "prompt_pesquisa_entrada": Prompt(
         "Pesquisa: perguntas de entrada (antes da primeira sessão)",
         _DIR / "pesquisa-entrada.md",
         True,
+        "bot",
     ),
-    "prompt_pesquisa_primeira_sessao": (
+    "prompt_pesquisa_primeira_sessao": Prompt(
         "Pesquisa: perguntas depois da primeira sessão",
         _DIR / "pesquisa-primeira-sessao.md",
         True,
+        "bot",
     ),
-    "prompt_pesquisa_reencaminhamento": (
+    "prompt_pesquisa_reencaminhamento": Prompt(
         "Pesquisa: perguntas de troca de terapeuta (reencaminhamento)",
         _DIR / "pesquisa-reencaminhamento.md",
         True,
+        "bot",
     ),
-    "prompt_pesquisa_encerramento": (
+    "prompt_pesquisa_encerramento": Prompt(
         "Pesquisa: perguntas de encerramento (alta, desistência, sumiço)",
         _DIR / "pesquisa-encerramento.md",
         True,
+        "bot",
     ),
-    "prompt_pesquisa_extracao": (
+    "prompt_pesquisa_extracao": Prompt(
         "Pesquisa: extração das respostas (não vai pro paciente)",
         _DIR / "pesquisa-extracao.txt",
         False,
+        "referencia",
     ),
     # Cobrança da mensalidade (Demanda D): substitui o prompt principal enquanto a
     # conversa está em modo cobrança. Os valores concretos (mensalidade, chave Pix,
     # link do cartão) são injetados em runtime por `cobranca.montar_prompt` — este
     # arquivo é só a condução, e é o que a Thainá edita.
-    "prompt_cobranca": (
+    "prompt_cobranca": Prompt(
         "Cobrança: como falar da mensalidade depois da primeira sessão",
         _DIR / "cobranca.md",
         True,
+        "bot",
     ),
 }
 

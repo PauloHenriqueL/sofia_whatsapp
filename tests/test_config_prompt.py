@@ -28,6 +28,50 @@ def _limpa_cache():
     config_prompt._cache.update(snap)
 
 
+class TestContratoComoTextoPadrao:
+    """O contrato não é prompt: é o documento que o paciente assina (Demanda E).
+
+    Estes testes vigiam o **padrão de fábrica** (o que o botão "Resetar" restaura).
+    Se alguém apagar um marcador do arquivo, todo contrato futuro que não estiver
+    customizado no painel sai sem aquele dado — e o Hamilton, que renderiza,
+    recusa. Falhar aqui é muito mais barato.
+    """
+
+    MARCADORES = ("{{PAC_NOME}}", "{{PAC_ENDERECO}}", "{{FIN_MENSAL}}", "{{VIG_DATA}}")
+
+    def test_o_contrato_e_declarado_como_documento(self):
+        campo = config_prompt.PROMPTS["prompt_contrato"]
+        assert campo.destino == "documento"
+        assert campo.vai_pro_bot is False  # nunca entra no system prompt
+
+    def test_tem_os_quatro_marcadores(self):
+        texto = config_prompt.padrao("prompt_contrato")
+        for marcador in self.MARCADORES:
+            assert marcador in texto, f"marcador sumiu do contrato padrão: {marcador}"
+
+    def test_nao_tem_marcador_que_ninguem_preenche(self):
+        import re
+
+        texto = config_prompt.padrao("prompt_contrato")
+        assert set(re.findall(r"\{\{[^}]*\}\}", texto)) == set(self.MARCADORES)
+
+    def test_nao_tem_cabecalho_de_documentacao(self):
+        """Tudo que estiver no arquivo vai pro contrato — inclusive um `>` de nota."""
+        texto = config_prompt.padrao("prompt_contrato")
+        assert not texto.lstrip().startswith(("#", ">"))
+        assert "Uso pela Sofia" not in texto
+
+    def test_reflete_as_decisoes_da_demanda(self):
+        texto = config_prompt.padrao("prompt_contrato")
+        # A entrada é mensalidade cheia — o sistema não cobra pro rata.
+        assert "pro rata" not in texto.lower()
+        assert "mensalidade integral" in texto
+        # Terapeuta e supervisor não são qualificados (LGPD + independe do match)...
+        assert "CRP" not in texto
+        # ...mas o modelo de supervisão continua declarado (consentimento informado).
+        assert "supervisão clínica continuada" in texto
+
+
 class TestConfigPrompt:
     def test_texto_usa_o_arquivo_por_padrao(self):
         t = config_prompt.texto("prompt_sistema")
