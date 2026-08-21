@@ -47,7 +47,15 @@ class Base(DeclarativeBase):
 
 
 _DB_URL = _async_url(settings.database_url)
-engine = create_async_engine(_DB_URL, echo=False, connect_args=_connect_args(_DB_URL))
+# pool_pre_ping: testa a conexão antes de usá-la e descarta/reconecta se
+# estiver morta. Sem isso, o cron externo (que bate nos /tasks/* depois de
+# horas sem tráfego) pegava a primeira conexão do pool já fechada pelo lado
+# do Neon (serverless, recicla conexão ociosa) e todo o endpoint quebrava
+# com "InterfaceError: connection is closed" — visto em produção em
+# /tasks/seguimentos.
+engine = create_async_engine(
+    _DB_URL, echo=False, pool_pre_ping=True, connect_args=_connect_args(_DB_URL)
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

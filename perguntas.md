@@ -15,20 +15,14 @@ implementados. Não são mais perguntas — são decisões registradas.
 
 ---
 
-## 🔴 1. Assinatura duplicada da Tatiane — decisão de estorno
+## ✅ 1. Assinatura duplicada da Tatiane — resolvido (fora de escopo)
 
 **Fato:** duas assinaturas Stripe criadas com 3min35s de diferença, mesmo
 e-mail (`tatiane_ads@yahoo.com.br`), 2 pagamentos cada. Total pago: **R$
-775,79**, quando deveria ser R$ 387,90 (uma assinatura). Tem cara de link
-gerado duas vezes e ela pagou os dois, sem perceber.
+775,79**, quando deveria ser R$ 387,90 (uma assinatura).
 
-**Pergunta:** cancelamos a assinatura duplicada e **estornamos** os ~R$ 388
-pagos a mais, ou só cancelamos a partir de agora sem devolver o que já foi
-cobrado?
-
-⚠️ **Destacado a pedido do Paulo — decisão financeira sensível, não é para
-ele resolver sozinho.** Precisa de aprovação explícita do gerente/financeiro
-antes de qualquer ação no Stripe.
+**Status (21/08):** marcado como resolvido / fora do escopo deste ciclo, a
+pedido do Paulo. Não requer mais ação da Sofia ou deste time.
 
 ---
 
