@@ -471,7 +471,12 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
         await _limpar(db, conversa)
         return
 
-    historico = await conversation.carregar_historico(db, conversa)
+    # `desde=pesquisa_iniciada_em`: mesma razão da extração final — sem isso,
+    # o modelo vê perguntas de uma pesquisa anterior já concluída junto das
+    # da pesquisa atual, e pode se confundir sobre o que já foi perguntado.
+    historico = await conversation.carregar_historico(
+        db, conversa, desde=conversa.pesquisa_iniciada_em
+    )
     try:
         resposta = await _turno(conversa, avaliacao, historico=historico, db=db)
     except llm_client.LLMError:
@@ -518,7 +523,15 @@ async def finalizar(
     # Quem recusou de cara não: a transcrição são duas mensagens e a chamada
     # ao modelo seria desperdício.
     if respondeu_algo or not recusou:
-        historico = await conversation.carregar_historico(db, conversa, limite=60)
+        # `desde=pesquisa_iniciada_em`: sem isso, uma pessoa que já respondeu
+        # outra pesquisa nesta mesma conversa (comum: entrada + reencaminhamento
+        # ou entrada + encerramento) faz a mesma pergunta de ORS aparecer duas
+        # vezes no histórico, com respostas diferentes — e o extrator pode
+        # devolver a resposta da pesquisa ERRADA, contaminando o ORS atual com
+        # dado de uma pesquisa anterior já concluída.
+        historico = await conversation.carregar_historico(
+            db, conversa, limite=60, desde=conversa.pesquisa_iniciada_em
+        )
         try:
             extraido = await extrair_respostas(historico, avaliacao)
             # Sinal só pro alerta: NÃO é campo da Avaliacao e não pode ir no PATCH.

@@ -66,6 +66,10 @@ As palavras do paciente, resumidas se forem muito longas:
 5. Notas fora de 0 a 10 são inválidas: omita o campo.
 6. Os campos de sim/não só aceitam `true` ou `false`. Se a resposta foi ambígua,
    omita.
+7. **Use só a pesquisa mais recente.** Se a transcrição contiver mais de uma
+   pesquisa (a pessoa já respondeu outra antes, na mesma conversa) e uma
+   pergunta aparecer feita mais de uma vez, extraia a resposta da **última**
+   ocorrência — nunca de uma pesquisa anterior já concluída.
 
 ## Exemplo
 

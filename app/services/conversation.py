@@ -5,6 +5,7 @@ Passo 3: cria/busca conversa por número, persiste mensagens recebidas
 """
 
 import logging
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,7 @@ AVISO_RETOMADA = (
 
 
 async def carregar_historico(
-    session: AsyncSession, conversa: Conversa, limite: int = 20
+    session: AsyncSession, conversa: Conversa, limite: int = 20, desde: datetime | None = None
 ) -> list[dict[str, str]]:
     """Carrega as últimas mensagens da conversa no formato esperado pelo LLM.
 
@@ -37,12 +38,18 @@ async def carregar_historico(
     como distingui-la da sua própria. E quando a última fala da Allos foi dela,
     injetamos um aviso pra Sofia se reapresentar ao retomar (senão a pessoa não
     percebe que trocou de interlocutor de volta).
+
+    `desde`: corta mensagens anteriores a este instante. Existe pra quem lê o
+    histórico pra extrair a resposta de UM evento específico (ex.: a pesquisa
+    em curso) — sem isso, uma pergunta repetida entre duas pesquisas da mesma
+    conversa (ex.: entrada e reencaminhamento fazem a mesma pergunta de ORS)
+    fica ambígua pro extrator, que pode pegar a resposta da ocorrência errada.
     """
+    query = select(Mensagem).where(Mensagem.conversa_id == conversa.id)
+    if desde is not None:
+        query = query.where(Mensagem.criada_em >= desde)
     result = await session.execute(
-        select(Mensagem)
-        .where(Mensagem.conversa_id == conversa.id)
-        .order_by(Mensagem.criada_em.desc(), Mensagem.id.desc())
-        .limit(limite)
+        query.order_by(Mensagem.criada_em.desc(), Mensagem.id.desc()).limit(limite)
     )
     mensagens = list(result.scalars().all())
     mensagens.reverse()  # do mais antigo para o mais novo
