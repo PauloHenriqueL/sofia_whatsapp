@@ -6,8 +6,10 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import credenciais_validas, verificar_origem
+from app.dependencies import get_db, verificar_origem
+from app.services import usuarios
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -23,10 +25,17 @@ async def pagina_login(request: Request):
 
 
 @router.post("/login", dependencies=[Depends(verificar_origem)])
-async def fazer_login(request: Request, usuario: str = Form(...), senha: str = Form(...)):
-    if credenciais_validas(usuario.strip(), senha):
-        request.session["usuario"] = usuario.strip()
-        logger.info("Login no painel: %s", usuario.strip())
+async def fazer_login(
+    request: Request,
+    usuario: str = Form(...),
+    senha: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    encontrado = await usuarios.autenticar(db, usuario, senha)
+    if encontrado:
+        request.session["usuario"] = encontrado.username
+        request.session["usuario_id"] = encontrado.id
+        logger.info("Login no painel: %s", encontrado.username)
         return RedirectResponse("/painel/", status_code=303)
     return templates.TemplateResponse(
         "login.html",

@@ -652,7 +652,7 @@ async def _alertar_se_precisar(
     conversa.alerta_resolvido_em = None
     await db.flush()
     # Falha no envio não derruba nada: a fila do painel já registrou.
-    await escalation.alertar_pesquisa(conversa, motivos)
+    await escalation.alertar_pesquisa(db, conversa, motivos)
 
 
 async def extrair_respostas(historico: list[dict], avaliacao: dict) -> dict:

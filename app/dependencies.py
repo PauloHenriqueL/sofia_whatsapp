@@ -1,11 +1,9 @@
 """Dependências compartilhadas: autenticação (sessão), CSRF e sessão de banco."""
 
-import secrets
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request, status
 
-from app.config import settings
 from app.database import get_db  # noqa: F401 (reexport p/ conveniência dos routers)
 
 
@@ -23,13 +21,6 @@ def verificar_origem(request: Request) -> None:
     host = request.headers.get("host", "")
     if origin_host and origin_host != host:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origem inválida")
-
-
-def credenciais_validas(usuario: str, senha: str) -> bool:
-    """Compara usuário e senha do painel em tempo constante (timing-safe)."""
-    usuario_ok = secrets.compare_digest(usuario, settings.painel_user)
-    senha_ok = secrets.compare_digest(senha, settings.painel_password)
-    return usuario_ok and senha_ok
 
 
 def requer_login_pagina(request: Request) -> str:

@@ -24,6 +24,7 @@ from app.services import (
     serializacao,
     whatsapp_client,
 )
+from app.services import usuarios as usuarios_service
 
 
 class TestWebhookVerification:
@@ -182,6 +183,10 @@ async def db_em_memoria():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # Sem isso a tabela usuario fica vazia e nenhum alerta é "enviado" (ninguém
+    # com recebe_alertas=True) — o lifespan real faz essa migração no startup.
+    async with maker() as s:
+        await usuarios_service.migrar_usuario_do_env(s)
     with patch("app.routers.webhook.async_session", maker):
         yield maker
     await engine.dispose()

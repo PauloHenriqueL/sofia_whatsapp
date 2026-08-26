@@ -36,6 +36,18 @@ async def lifespan(app: FastAPI):
             await config_prompt.carregar_do_banco(db)
     except Exception:
         logger.exception("Não carreguei a config (valores/prompts); seguindo com os padrões")
+    # Migra o login do PAINEL_USER/PAINEL_PASSWORD do .env pra tabela usuario,
+    # uma vez só (usuarios.migrar_usuario_do_env não faz nada se já existir
+    # algum usuário) — sem isso, quem só tinha o login antigo fica trancado
+    # fora do painel no dia em que essa tabela nasceu.
+    try:
+        from app.database import async_session
+        from app.services import usuarios
+
+        async with async_session() as db:
+            await usuarios.migrar_usuario_do_env(db)
+    except Exception:
+        logger.exception("Não migrei o usuário do .env; login pode não funcionar")
     yield
     logger.info("Sofia encerrada")
 

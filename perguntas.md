@@ -26,103 +26,86 @@ pedido do Paulo. Não requer mais ação da Sofia ou deste time.
 
 ---
 
-## 🔴 2. Cron `/tasks/stripe` — confirmar se está no ar
+## ✅ 2. Cron `/tasks/stripe` — resolvido
 
-**Fato:** o endpoint que trava o parcelado do neuro (`limitar_parcelado`) está
-no ar e testado desde 13/08, mas **não havia nenhum agendador chamando ele**
-naquela data. Sem esse cron, toda assinatura de parcelado nova **cobra pra
-sempre** — já aconteceu antes com 18 assinaturas (uma cobrou 5 parcelas num
-plano de 4). Há pelo menos um link novo em circulação
-(`allos.org.br/p/ej3uvrc`, Pedro Luiz, 4x de R$ 250) que corre esse risco.
-Margem estimada: ~30 dias após o pagamento da 4ª parcela, não horas.
-
-**Pergunta:** o job `POST /tasks/stripe` (diário, `X-Tasks-Token`) já foi
-criado no cron-job.org depois de 13/08? Se não, **quem cria — só dá para
-fazer com a sessão logada do Paulo no cron-job.org**, então não é algo que a
-Sofia resolve sozinha.
-
-**Como verificar rapidamente:**
-```
-curl -X POST "https://sofia-whatsapp.onrender.com/tasks/stripe?simular=1" \
-     -H "X-Tasks-Token: <TASKS_TOKEN>"
-```
+**Status (21/08):** criado no cron-job.org (`Sofia stripe`, diário às 4h,
+header `X-Tasks-Token`). Testado manualmente com `?simular=1` antes de criar
+— respondeu `200`, `{"ja_limitadas": 11, "planejadas": []}`. Não requer mais
+ação.
 
 ---
 
-## 3. Régua de inadimplência — automatizar ou manter manual?
+## ✅ 3. Régua de inadimplência — decidido: não vale, foco é outro
 
-**Fato:** hoje não existe nenhuma automação para cobrança recorrente do 2º mês
-em diante — é 100% trabalho manual da Thainá/financeiro. Duas faturas em
-aberto registradas em 13/08 (Jessica Josefa, desde 09/08; Eduardo Captein,
-desde 10/08) ilustram isso.
+**Decisão do Paulo (21/08):** não justifica investir numa régua de
+inadimplência manual/lembrete. O que importa é garantir que a cobrança
+automática do parcelado (5x no cartão, por exemplo) **pare sozinha** na
+última parcela — sem isso, o cliente seguiria sendo cobrado indefinidamente,
+o que é o problema real.
 
-**Pergunta:** vale investir em uma régua automática de inadimplência (ex.:
-alerta pra Thainá em N dias de atraso, ou mensagem automática da Sofia pro
-paciente), ou o volume atual (poucos casos por mês) não justifica o
-investimento e o processo manual continua sendo aceitável?
-
----
-
-## 4. Sequenciamento de ir ao ar — quem é dono de cada passo, e até quando
-
-**Fato:** três flags nascem desligadas por design (`SOFIA_PESQUISAS_ATIVAS`,
-`cobranca_ativa`, `contrato_ativo`), com a recomendação explícita de ligar a
-cobrança sozinha por algumas semanas antes do contrato. Isso é uma decisão já
-tomada — o que falta é execução, e ela depende de passos humanos sem prazo
-nem dono formal:
-
-| Passo | Quem, hoje (implícito) | Prazo |
-|---|---|---|
-| Aprovar o texto final do contrato (`.docx`) | Paulo | nenhum |
-| Assinar um contrato real em sandbox (revela problemas que mock não pega) | Victor | nenhum |
-| Migrar a conta Autentique de pessoal para institucional | Victor / Paulo | nenhum |
-| Cadastrar o webhook no painel da Autentique | quem tiver acesso ao painel deles | nenhum |
-| Ligar `cobranca_ativa` | ? | nenhum |
-| Esperar "algumas semanas" | — | quantas, exatamente? |
-| Ligar `contrato_ativo` | ? | nenhum |
-
-**Pergunta:** quem os gerentes de produto querem como dono de cada passo
-acima, e existe uma data-alvo? Sem isso, o risco registrado no próprio
-`06-SUBIDA-EM-PRODUCAO.md` é repetir o que já aconteceu com a Demanda A —
-ficar "pronta" por semanas sem ninguém ligar de fato.
+**Isso já funciona.** Confirmado nesta sessão: o mecanismo
+(`app/services/pagamentos.py`, `limitar_parcelado`) já lê `parcelas_total`
+do metadata da assinatura Stripe e marca `cancel_at` quando o número de
+parcelas pagas bate o total. O cron `POST /tasks/stripe` (item 2, criado
+hoje) roda diariamente e aciona isso — testado com `?simular=1`:
+`{"ja_limitadas": 11, "planejadas": []}`, confirmando que as 11 assinaturas
+antigas já foram travadas e nenhuma nova está pendente. Não requer mais
+ação.
 
 ---
 
-## 5. `LINK_CURTO_BASE` no Render — variável ainda não setada
+## ✅ 4. Sequenciamento de ir ao ar — dono definido: Victor
 
-**Fato:** o link curto de pagamento já funciona ponta a ponta
-(`allos.org.br/p/xxxxxxx` → redireciona certo), mas a variável de ambiente
-`LINK_CURTO_BASE=https://allos.org.br/p` ainda não foi configurada no Render.
-Sem ela, os links saem com o domínio `onrender.com` — funcionam igual, mas
-têm mais cara de golpe no WhatsApp (o problema que o link curto existe pra
-resolver).
+**Decisão do Paulo (21/08):** o Victor é o gerente de produto e decide
+quando cada flag liga (`cobranca_ativa` já está ligada, confirmado nesta
+sessão; `contrato_ativo` fica pra quando ele decidir). Não é mais uma
+pergunta em aberto sobre "quem decide" — o dono está definido.
 
-**Pergunta:** não é uma decisão de produto — é só confirmar que ninguém
-esqueceu. Alguém pode setar essa variável no painel do Render? (Salvar
-dispara um redeploy automático, então não é uma ação "grátis" — vale fazer
-junto de outra mudança, se possível.)
+**O que muda o foco agora:** não é mais "quem decide ligar", e sim "o que
+falta construir/testar pra que, quando o Victor decidir ligar, funcione de
+verdade". Isso está nos itens 6 e 7 (Autentique + tela do contrato) —
+**adiados a pedido do Paulo, retomar depois.**
 
 ---
 
-## 6. Token da Autentique (sandbox) — bloqueando o teste local do contrato
+## ✅ 5. `LINK_CURTO_BASE` no Render — confirmado, já estava setada
 
-**Fato:** testando o ambiente local depois do merge, não há `AUTENTIQUE_TOKEN`
-configurado em nenhum `.env` do Hamilton. Sem ele, toda chamada de
-`/api/v1/contratos/` volta **503** (comportamento esperado e seguro — não é
-bug), mas isso significa que **o fluxo do contrato (Demanda E) ainda não foi
-testado de ponta a ponta neste ambiente local**, mesmo com o código já
-corrigido e migrado.
-
-**Pergunta:** quem tem acesso à conta da Autentique (hoje pessoal, do Victor —
-ver `05-contrato-assinatura.md`) pra gerar um token de sandbox e passar pra
-configuração local? Sem isso, a validação prática do contrato (que é
-justamente o tipo de teste que pegou os dois bugs sérios do fluxo — CPF em
-`user_data`, prazo de assinatura que a Autentique ignora silenciosamente — no
-dry run de 17/08) fica bloqueada.
+**Status (21/08):** conferido no `.env` de produção — `LINK_CURTO_BASE=
+https://allos.org.br/p` já está configurada. Não requer ação.
 
 ---
 
-## 🔴 7. Bug real: a extração da pesquisa mistura respostas de pesquisas diferentes na mesma conversa
+## ⏸️ 6. Token da Autentique (sandbox) — ADIADO, retomar depois
+
+**Fato:** não há `AUTENTIQUE_TOKEN` configurado em nenhum `.env` do
+Hamilton. Sem ele, toda chamada de `/api/v1/contratos/` volta **503**
+(comportamento esperado e seguro — não é bug), então o fluxo do contrato
+ainda não foi testado de ponta a ponta neste ambiente local.
+
+**Status (21/08):** discutido — o token se gera em
+[autentique.com.br](https://www.autentique.com.br), na conta do Victor
+(`victorabdallah6@gmail.com`), em Configurações → Token de acesso/API,
+usando o ambiente sandbox. **Adiado a pedido do Paulo** — retomar quando a
+Demanda E (contrato) voltar a ser prioridade.
+
+## ⏸️ 7. Frontend do `ContratoPaciente` — ADIADO, decidido onde construir
+
+**Fato:** a API do contrato funciona ponta a ponta, mas não existe nenhuma
+tela (nem admin do Django, nem template) — ninguém vê o contrato assinado
+sem entrar direto no banco.
+
+**Decisão (21/08):** construir **no Hamilton**, não na Sofia — o
+`ContratoPaciente` (PDF assinado em bytes, CPF colhido na assinatura,
+`vlr_sessao` atualizado) mora só no banco do Hamilton, e é lá que vive o
+resto do prontuário/contabilidade que a coordenação já usa. A Sofia só teria
+acesso via API REST (dois endpoints já prontos:
+`GET /api/v1/contratos/pendentes/` e `GET /api/v1/contratos/?paciente_id=`),
+sem acesso direto ao banco. **Adiado a pedido do Paulo** — retomar junto do
+item 6.
+
+---
+
+## ✅ 7. Bug real: a extração da pesquisa mistura respostas de pesquisas diferentes na mesma conversa — CORRIGIDO
 
 **Fato:** testando manualmente o fluxo de reencaminhamento (19/08), um
 paciente que já tinha respondido a pesquisa de entrada antes teve o ORS do
@@ -151,18 +134,52 @@ abordagem** seguir:
 3. As duas — cortar o histórico é a correção mais robusta (não depende do
    modelo "entender" a regra certo toda vez); o ajuste de prompt seria reforço.
 
-**Pergunta:** posso implementar a opção 3 (cortar o histórico + reforçar o
-prompt), ou alguém prefere revisar a abordagem antes? Cenário real: qualquer
-paciente que responde mais de uma pesquisa ao longo do tempo (entrada +
-reencaminhamento, ou entrada + encerramento) é afetado — não é caso raro.
+**Status (19/08):** implementada a opção 3 (cortar histórico por
+`pesquisa_iniciada_em` + reforço no prompt). Suíte completa passando, já em
+produção. Não requer mais decisão.
+
+---
+
+## 🔴 8. Limitação de design: um número de WhatsApp só pode ter UM paciente vinculado por vez
+
+**Fato (achado em 27/08, investigando dúvida do Paulo):** `conversa.numero_whatsapp`
+é **único** no banco (`unique=True`) — existe só uma linha `Conversa` por número
+de WhatsApp, com um único campo `paciente_hamilton_id`.
+
+**O que acontece no cenário real (pai + filha, mesmo número):**
+1. Pai marca terapia → `conversa.paciente_hamilton_id` aponta pro pai.
+2. Meses depois, mesma pessoa liga de novo pra marcar terapia pra filha (nome
+   diferente) → `cadastro.cadastrar_paciente` **sobrescreve**
+   `conversa.paciente_hamilton_id` pro paciente novo (filha). O vínculo com o
+   pai se perde **nessa conversa**.
+3. Se o pai for reencaminhado depois e tiver uma nova "primeira consulta"
+   marcada no Hamilton, **a Sofia não fica sabendo** — ela só consulta
+   `status_primeira_consulta` pro `paciente_hamilton_id` atual da conversa
+   (a filha). O pai fica sem conversa própria vinculada: não recebe cobrança
+   automática, não recebe pesquisa de satisfação, não aparece nos alertas
+   "precisa de você agora" pra esse caso.
+
+**Não é alucinação nem bug de execução** — é limitação de design do modelo
+(`conversa` 1:1 `paciente`, mas 1 número de WhatsApp pode representar uma
+família inteira falando por várias pessoas). Provavelmente afeta qualquer
+família que usa o mesmo número pra mais de uma pessoa (comum: pais
+marcando pra filhos menores).
+
+**Pergunta:** vale a pena tratar isso agora, ou é caso raro o suficiente pra
+ficar como risco aceito (documentado, resolvido manualmente pela Thainá
+quando aparecer)? Se for tratar, a solução exigiria repensar o modelo — por
+exemplo, permitir múltiplos `paciente_hamilton_id` por conversa (WhatsApp),
+com a Sofia perguntando "é sobre você ou sobre outra pessoa?" a cada novo
+assunto — mudança de escopo maior, não é ajuste pequeno.
 
 ---
 
 ## Como usar este documento
 
-Os itens 1, 2 e 7 pedem resposta rápida: os dois primeiros têm dinheiro real
-em risco, o 7 tem dado clínico sendo gravado errado agora mesmo, em qualquer
-ambiente que rodar esse fluxo. Os itens 3 e 4 são de prazo/prioridade — não
-bloqueiam nada tecnicamente, mas sem uma decisão explícita tendem a ficar
-paradas indefinidamente (como já aconteceu antes neste projeto). O item 5 é
-uma checagem de dois minutos. O item 6 bloqueia só o teste local do contrato.
+**Resolvidos (não precisam mais de ação):** 1 (Tatiane), 2 (cron Stripe),
+5 (`LINK_CURTO_BASE` — já estava setada em produção), 7 (bug da extração).
+
+**Ainda em aberto:** o item 3 e 4 são de prazo/prioridade — não bloqueiam
+nada tecnicamente, mas sem uma decisão explícita tendem a ficar paradas
+indefinidamente (como já aconteceu antes neste projeto). O item 6 bloqueia
+só o teste local do contrato, não a operação em si.

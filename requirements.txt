@@ -40,7 +40,7 @@ itsdangerous==2.1.2  # assinatura do cookie de sessão (login do painel)
 # ============================================================================
 python-multipart==0.0.6  # Para form data
 python-jose[cryptography]==3.3.0  # JWT (auth painel, futuro)
-passlib[bcrypt]==1.7.4  # Hashing de senhas
+bcrypt==5.0.0  # Hashing de senhas (direto, sem passlib — ver app/services/usuarios.py)
 
 # ============================================================================
 # Logging & Observabilidade

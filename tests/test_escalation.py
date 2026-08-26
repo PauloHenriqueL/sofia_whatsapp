@@ -12,7 +12,34 @@ from app.database import Base
 from app.models import Conversa, Escalada
 from app.services import escalation
 from app.services import painel as painel_service
-from app.services import tools, whatsapp_client
+from app.services import tools, usuarios, whatsapp_client
+
+
+@pytest_asyncio.fixture
+async def db_com_usuario_de_alerta():
+    """Banco em memória com um usuário `recebe_alertas=True`.
+
+    `escalation._enviar_alerta` busca destinatários no banco em vez de um
+    número fixo — os testes de alerta precisam de alguém cadastrado pra
+    `ok is True` fazer sentido.
+    """
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as s:
+        await usuarios.criar(
+            s,
+            nome="Thainá",
+            username="thaina",
+            senha="x",
+            telefone_whatsapp="5531999990000",
+            recebe_alertas=True,
+        )
+        await s.commit()
+    async with maker() as s:
+        yield s
+    await engine.dispose()
 
 
 def test_todo_motivo_da_escalada_tem_rotulo():
@@ -40,7 +67,7 @@ def test_presencial_nao_e_mais_escalada():
 
 
 @pytest.mark.asyncio
-async def test_alerta_envia_rotulo_legivel_e_nao_o_codigo():
+async def test_alerta_envia_rotulo_legivel_e_nao_o_codigo(db_com_usuario_de_alerta):
     conversa = Conversa(
         numero_whatsapp="5531999990000",
         dados_coletados={"nome_completo": "Ana"},
@@ -49,7 +76,7 @@ async def test_alerta_envia_rotulo_legivel_e_nao_o_codigo():
         "app.services.escalation.whatsapp_client.enviar_template",
         new_callable=AsyncMock,
     ) as mock_template:
-        ok = await escalation.alertar_thaina(conversa, "neuro_reuniao")
+        ok = await escalation.alertar_thaina(db_com_usuario_de_alerta, conversa, "neuro_reuniao")
 
     assert ok is True
     parametros = mock_template.await_args.kwargs["parametros"]
@@ -139,37 +166,46 @@ class TestAlertarCadastro:
             ("cadastro_pendente", "CADASTRO FALHOU — precisa cadastrar à mão no Hamilton"),
         ],
     )
-    async def test_manda_o_rotulo_certo_por_status(self, status, esperado):
+    async def test_manda_o_rotulo_certo_por_status(self, status, esperado, db_com_usuario_de_alerta):
         conversa = Conversa(
             numero_whatsapp="5531999998888", dados_coletados={"nome_completo": "Maria"}
         )
         with patch(
             "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
         ) as mock_tpl:
-            ok = await escalation.alertar_cadastro(conversa, {"status": status, "paciente_id": 42})
+            ok = await escalation.alertar_cadastro(
+                db_com_usuario_de_alerta, conversa, {"status": status, "paciente_id": 42}
+            )
         assert ok is True
         assert mock_tpl.await_args.kwargs["parametros"] == ["Maria", esperado]
 
     @pytest.mark.asyncio
-    async def test_status_desconhecido_nao_manda_nada(self):
+    async def test_status_desconhecido_nao_manda_nada(self, db_com_usuario_de_alerta):
         conversa = Conversa(numero_whatsapp="5531999998888")
         with patch(
             "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
         ) as mock_tpl:
-            assert await escalation.alertar_cadastro(conversa, {"status": "sei_la"}) is False
+            assert (
+                await escalation.alertar_cadastro(
+                    db_com_usuario_de_alerta, conversa, {"status": "sei_la"}
+                )
+                is False
+            )
         mock_tpl.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_sem_nome_usa_o_numero(self):
+    async def test_sem_nome_usa_o_numero(self, db_com_usuario_de_alerta):
         conversa = Conversa(numero_whatsapp="5531999998888", dados_coletados={})
         with patch(
             "app.services.escalation.whatsapp_client.enviar_template", new_callable=AsyncMock
         ) as mock_tpl:
-            await escalation.alertar_cadastro(conversa, {"status": "cadastrado", "paciente_id": 1})
+            await escalation.alertar_cadastro(
+                db_com_usuario_de_alerta, conversa, {"status": "cadastrado", "paciente_id": 1}
+            )
         assert mock_tpl.await_args.kwargs["parametros"][0] == "5531999998888"
 
     @pytest.mark.asyncio
-    async def test_falha_do_template_nao_derruba_o_cadastro(self):
+    async def test_falha_do_template_nao_derruba_o_cadastro(self, db_com_usuario_de_alerta):
         """O cadastro já aconteceu; o alerta é conveniência."""
         conversa = Conversa(numero_whatsapp="5531999998888")
         with patch(
@@ -177,10 +213,15 @@ class TestAlertarCadastro:
             new_callable=AsyncMock,
             side_effect=whatsapp_client.WhatsAppError("fora do ar"),
         ):
-            assert await escalation.alertar_cadastro(conversa, {"status": "cadastrado"}) is False
+            assert (
+                await escalation.alertar_cadastro(
+                    db_com_usuario_de_alerta, conversa, {"status": "cadastrado"}
+                )
+                is False
+            )
 
     @pytest.mark.asyncio
-    async def test_nao_loga_o_nome_do_paciente(self, caplog):
+    async def test_nao_loga_o_nome_do_paciente(self, caplog, db_com_usuario_de_alerta):
         import logging
 
         conversa = Conversa(
@@ -191,5 +232,7 @@ class TestAlertarCadastro:
             new_callable=AsyncMock,
             side_effect=whatsapp_client.WhatsAppError("x"),
         ):
-            await escalation.alertar_cadastro(conversa, {"status": "cadastrado"})
+            await escalation.alertar_cadastro(
+                db_com_usuario_de_alerta, conversa, {"status": "cadastrado"}
+            )
         assert "Joana" not in " ".join(r.getMessage() for r in caplog.records)

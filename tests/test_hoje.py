@@ -23,7 +23,7 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Conversa, Escalada
-from app.services import config_negocio, hamilton_client, hoje
+from app.services import config_negocio, hamilton_client, hoje, usuarios
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +40,11 @@ async def ambiente():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    # O lifespan real migra o usuário do .env no startup; ASGITransport não
+    # dispara lifespan, então fazemos aqui pra /login funcionar no teste.
+    async with maker() as s:
+        await usuarios.migrar_usuario_do_env(s)
 
     async def _get_db_override():
         async with maker() as s:

@@ -270,3 +270,30 @@ class Escalada(Base):
     resolvida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversa: Mapped["Conversa"] = relationship(back_populates="escaladas")
+
+
+class Usuario(Base):
+    """Quem loga no painel e/ou recebe alerta de WhatsApp da Sofia.
+
+    Substitui o PAINEL_USER/PAINEL_PASSWORD fixo do .env: cada pessoa da
+    equipe (Thainá, Amanda, quem entrar depois) tem login próprio, e
+    `recebe_alertas` decide se o template `alerta_thaina` chega no WhatsApp
+    dela. Desligar a flag de alguém de férias não desloga ninguém — só para
+    de mandar mensagem; `ativo=False` é o que revoga o acesso ao painel.
+    """
+
+    __tablename__ = "usuario"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nome: Mapped[str] = mapped_column(String(100))
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    senha_hash: Mapped[str] = mapped_column(String(255))
+    telefone_whatsapp: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Liga/desliga o alerta por WhatsApp desta pessoa, sem mexer no login dela
+    # (ex.: Thainá de férias, Amanda cobrindo). Todo mundo com recebe_alertas
+    # desligado = a Sofia continua escalando/registrando normalmente, só não
+    # manda WhatsApp pra ninguém — o evento fica visível no painel mesmo assim.
+    recebe_alertas: Mapped[bool] = mapped_column(default=False)
+    # Revoga o acesso ao painel sem apagar o histórico de quem criou o quê.
+    ativo: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -208,4 +208,60 @@ pra confirmar que os valores corretos são gravados agora — próximo passo.
 
 ---
 
+---
+
+## 7. ✅ CORRIGIDO (config, não código) — `SOFIA_API_DATABASE_URL` de produção apontava pro banco de teste
+
+**Gravidade: alta.** Achado testando pelo celular contra a Sofia de
+**produção** real (26/08). Dois cadastros (nome "Ze pequeno", telefone
+`553183055118`; nome "Victor Abdallah Rogana", telefone `553180530059`)
+apareceram na tela "Editar Paciente" do Hamilton como pessoas completamente
+diferentes (Pedro Henrique Silva de Paiva #639, João Vítor de Araújo Bastos
+#632) — parecia alucinação do LLM.
+
+**Causa raiz confirmada:** não é o LLM. `SOFIA_API_DATABASE_URL` no `.env` de
+**produção** do Hamilton (Render) estava setada apontando pro banco de
+**teste** (`ep-green-pine`), em vez de vazia/produção (`ep-soft-bread`). Isso
+faz `SOFIA_DB_ALIAS = "sofia_api"`, e a maioria dos endpoints que a Sofia
+consome (busca por telefone, atualização, status de primeira consulta) passa
+a ler/escrever no banco de teste — só `PacienteCreateAPIView` não respeita o
+alias (usa `queryset = models.Paciente.objects.all()` sem `.using()`), então
+a criação em si ia parar em outro lugar dependendo do caminho. Resultado:
+pacientes reais cadastrados pela Sofia foram parar no banco de teste, com
+IDs que colidem com pacientes reais diferentes no banco de produção — dois
+sequenciais de PK independentes, mesmo número, pessoas diferentes.
+
+Confirmado com certeza: os pacientes #639 ("Ze pequeno") e #632 ("Victor
+Abdallah Rogana") existem exatamente com esses nomes **no banco de teste**
+(`ep-green-pine`) — provando que o cadastro da Sofia funcionou certo, só que
+gravou no banco errado.
+
+Isso é exatamente o risco que o `CLAUDE.md` do projeto já documentava: *"Se
+[`SOFIA_API_DATABASE_URL`] estiver setada lá, todo cadastro vindo da Sofia —
+inclusive paciente real — vai pro banco de teste."* Estava setada, e
+aconteceu.
+
+**Efeito colateral, mesma causa:** a cobrança automática (Stripe) também
+parou de funcionar — `cobranca._elegivel()` consulta
+`status_primeira_consulta` no Hamilton pra saber se pode cobrar, e essa
+consulta ia pro banco de teste (onde não há sessão real marcada pra
+ninguém), então a condição nunca batia e a Sofia nunca cobrava.
+
+**Correção:** o Paulo apagou `SOFIA_API_DATABASE_URL` no Render do Hamilton
+(deploy automático). Confirmado funcionando: `POST /tasks/cobrancas` voltou
+a enviar cobrança real (`{"enviadas": 1}`) logo depois da correção.
+
+**Decisão do Paulo:** os dois cadastros de teste ("Ze pequeno", "Victor
+Abdallah Rogana") ficam como estão no banco de teste — não precisam ser
+recriados em produção, eram testes vazios.
+
+**Pendência residual:** a conversa 34 (o teste do "Ze pequeno") continua
+aparecendo como candidata a cobrança no banco da Sofia
+(`paciente_hamilton_id=639` aponta pro paciente de teste), mas nunca vai
+disparar de verdade porque o Hamilton de produção não confirma primeira
+consulta pra esse paciente inexistente lá. Não é bug — só não foi
+arquivada/resolvida manualmente no painel.
+
+---
+
 *(Próximos achados vão sendo adicionados aqui conforme os testes continuam.)*

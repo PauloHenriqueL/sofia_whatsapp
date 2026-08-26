@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block titulo %}Usuários · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app" style="max-width:820px">
+  <div class="page-head">
+    <div>
+      <h1>Usuários</h1>
+      <div class="subtitle">Quem loga no painel e quem recebe alerta de WhatsApp quando a Sofia escala, cadastra ou vê sinal de alerta numa pesquisa</div>
+    </div>
+  </div>
+
+  {% if erro %}
+  <div class="aviso aviso--erro"><i class="bi bi-exclamation-triangle"></i> {{ erro }}</div>
+  {% endif %}
+  {% if salvo %}
+  <div class="aviso"><i class="bi bi-check-circle"></i> Salvo.</div>
+  {% endif %}
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-topo">
+      <h2><i class="bi bi-people" style="color:var(--teal-500)"></i> Equipe</h2>
+      <div class="nota">Desligar o alerta de alguém não tira o acesso dela ao painel — é só pra ela parar de receber
+      mensagem no WhatsApp (ex.: férias). Desativar sim revoga o login.</div>
+    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-sort>Nome</th>
+          <th data-sort>Usuário</th>
+          <th data-sort>Telefone</th>
+          <th data-sort>Alerta</th>
+          <th data-sort>Acesso</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr>
+          <td>{{ u.nome }}</td>
+          <td>{{ u.username }}</td>
+          <td>{{ u.telefone_whatsapp or '—' }}</td>
+          <td>
+            <form method="post" action="/painel/usuarios/{{ u.id }}/alerta" class="acao-inline">
+              <button class="btn btn-ghost btn-sm" type="submit">
+                {% if u.recebe_alertas %}
+                  <i class="bi bi-bell-fill" style="color:var(--teal-500)"></i> Ligado
+                {% else %}
+                  <i class="bi bi-bell-slash"></i> Desligado
+                {% endif %}
+              </button>
+            </form>
+          </td>
+          <td>{% if u.ativo %}Ativo{% else %}<span class="muted">Desativado</span>{% endif %}</td>
+          <td class="acoes">
+            <a class="btn btn-ghost btn-sm" href="/painel/usuarios/{{ u.id }}/editar"><i class="bi bi-pencil"></i> Editar</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-topo">
+      <h2><i class="bi bi-person-plus" style="color:var(--teal-500)"></i> Novo usuário</h2>
+    </div>
+    <div class="card-corpo">
+      <form method="post" action="/painel/usuarios">
+        <div class="login-field">
+          <label for="nome">Nome</label>
+          <input class="input" type="text" id="nome" name="nome" required>
+        </div>
+        <div class="login-field">
+          <label for="username">Usuário (login)</label>
+          <input class="input" type="text" id="username" name="username" required autocomplete="off">
+        </div>
+        <div class="login-field">
+          <label for="senha">Senha</label>
+          <input class="input" type="password" id="senha" name="senha" required autocomplete="new-password">
+        </div>
+        <div class="login-field">
+          <label for="telefone_whatsapp">Telefone WhatsApp (com DDI, ex: 5531999998888)</label>
+          <input class="input" type="text" id="telefone_whatsapp" name="telefone_whatsapp" autocomplete="off">
+        </div>
+        <div class="login-field">
+          <label><input type="checkbox" name="recebe_alertas"> Já recebe alerta ao criar</label>
+        </div>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-check2"></i> Criar usuário</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

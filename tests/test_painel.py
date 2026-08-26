@@ -17,6 +17,7 @@ from app.models import Conversa, Mensagem, Midia
 from app.services import config_negocio, config_prompt, hamilton_client
 from app.services import midia as midia_service
 from app.services import painel as painel_service
+from app.services import usuarios
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +61,13 @@ async def ambiente():
     async def _get_db_override():
         async with maker() as s:
             yield s
+
+    # O lifespan real (app/main.py) migra o usuário do .env pro banco no
+    # startup; o ASGITransport de teste não dispara lifespan, então fazemos
+    # aqui — sem isso /login nunca encontra o usuário e todo teste que loga
+    # falharia com 401.
+    async with maker() as s:
+        await usuarios.migrar_usuario_do_env(s)
 
     app.dependency_overrides[get_db] = _get_db_override
     transport = ASGITransport(app=app)

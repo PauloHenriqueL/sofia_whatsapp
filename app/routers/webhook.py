@@ -213,7 +213,7 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
             motivo = "outro"
         contexto = tc.arguments.get("contexto")
         await escalation.registrar_escalada(session, conversa, motivo, contexto)
-        alertada = await escalation.alertar_thaina(conversa, motivo)
+        alertada = await escalation.alertar_thaina(session, conversa, motivo)
         return {"status": "escalado", "thaina_alertada": alertada}
 
     if tc.name == tools.CADASTRAR_PACIENTE:
@@ -228,7 +228,7 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         conversa._cadastro_novo_neste_turno = resultado.get("status") == "cadastrado"
         # Avisa a Thainá: sem isto ela só descobre o cadastro se abrir o painel.
         # (Cadastro feito pelo botão do painel não alerta: ela mesma clicou.)
-        await escalation.alertar_cadastro(conversa, resultado)
+        await escalation.alertar_cadastro(session, conversa, resultado)
         return resultado
 
     if tc.name == tools.OFERECER_DESCONTO:
@@ -468,7 +468,7 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             if tipo_efetivo == "audio":
                 # Áudio sem transcrição (desligada ou falhou): escala pra Thainá.
                 await escalation.registrar_escalada(session, conversa, "audio_recebido")
-                await escalation.alertar_thaina(conversa, "audio_recebido")
+                await escalation.alertar_thaina(session, conversa, "audio_recebido")
                 await session.commit()
                 await _enviar_em_bolhas(session, conversa, numero, AUDIO_RECEBIDO)
                 return
@@ -484,7 +484,7 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 if cobranca.em_cobranca(conversa):
                     await cobranca.finalizar(session, conversa, "comprovante")
                 await escalation.registrar_escalada(session, conversa, "anexo_recebido")
-                await escalation.alertar_thaina(conversa, "anexo_recebido")
+                await escalation.alertar_thaina(session, conversa, "anexo_recebido")
                 await session.commit()
                 await _enviar_em_bolhas(session, conversa, numero, ANEXO_RECEBIDO)
                 return

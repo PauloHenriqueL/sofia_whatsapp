@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models import Conversa, Escalada
-from app.services import tools, whatsapp_client
+from app.services import tools, usuarios, whatsapp_client
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -84,31 +84,39 @@ async def resolver_abertas(session: AsyncSession, conversa: Conversa) -> int:
     return len(abertas)
 
 
-async def _enviar_alerta(conversa: Conversa, rotulo: str) -> bool:
-    """Manda o template `alerta_thaina` com (nome do paciente, o que aconteceu).
+async def _enviar_alerta(db: AsyncSession, conversa: Conversa, rotulo: str) -> bool:
+    """Manda o template `alerta_thaina` pra quem está com o alerta ligado agora.
 
     Falha no envio é logada e **não** derruba a conversa: o evento já está
     registrado e aparece no painel mesmo sem o alerta chegar. O alerta é
-    conveniência, não a fonte da verdade.
+    conveniência, não a fonte da verdade. Ninguém com o alerta ligado (ex.:
+    Thainá de férias, Amanda ainda não assumiu) é um estado normal — a
+    escalada/cadastro segue acontecendo, só ninguém é avisado por WhatsApp.
     """
+    telefones = await usuarios.telefones_para_alerta(db)
+    if not telefones:
+        logger.info("Nenhum usuário com alerta ligado agora; %s não foi notificado", rotulo)
+        return False
     dados = conversa.dados_coletados or {}
     nome = dados.get("nome_completo") or conversa.numero_whatsapp
-    try:
-        await whatsapp_client.enviar_template(
-            settings.thaina_whatsapp_number,
-            settings.alert_template_name,
-            parametros=[str(nome), rotulo],
-        )
-        return True
-    except whatsapp_client.WhatsAppError:
-        # Sem o nome do paciente no log (LGPD).
-        logger.error("Não consegui alertar a Thainá pelo template (%s)", rotulo)
-        return False
+    enviou_algum = False
+    for telefone in telefones:
+        try:
+            await whatsapp_client.enviar_template(
+                telefone,
+                settings.alert_template_name,
+                parametros=[str(nome), rotulo],
+            )
+            enviou_algum = True
+        except whatsapp_client.WhatsAppError:
+            # Sem o nome do paciente no log (LGPD).
+            logger.error("Não consegui alertar pelo template (%s)", rotulo)
+    return enviou_algum
 
 
-async def alertar_thaina(conversa: Conversa, motivo: str) -> bool:
-    """Alerta de escalada: a conversa passou pra Thainá."""
-    return await _enviar_alerta(conversa, tools.MOTIVO_LABELS.get(motivo, motivo))
+async def alertar_thaina(db: AsyncSession, conversa: Conversa, motivo: str) -> bool:
+    """Alerta de escalada: a conversa passou pra equipe."""
+    return await _enviar_alerta(db, conversa, tools.MOTIVO_LABELS.get(motivo, motivo))
 
 
 # O que a Thainá lê no template quando um cadastro acontece. Reusa o
@@ -121,27 +129,27 @@ ROTULOS_CADASTRO = {
 }
 
 
-async def alertar_pesquisa(conversa: Conversa, motivos: list[str]) -> bool:
-    """Avisa a Thainá que uma pesquisa terminou com sinal ruim.
+async def alertar_pesquisa(db: AsyncSession, conversa: Conversa, motivos: list[str]) -> bool:
+    """Avisa a equipe que uma pesquisa terminou com sinal ruim.
 
     **Um alerta por pesquisa, no fim, com todos os motivos juntos.** Uma pesquisa
     ruim dispara vários gatilhos ao mesmo tempo (nota do terapeuta baixa + NPS
     baixo + "não combinou"); mandar um template por gatilho viraria três
     mensagens seguidas e o aviso perderia o efeito. Alertar no meio também não
-    ajudaria: a conversa está em modo pesquisa e a Thainá não pode entrar sem
+    ajudaria: a conversa está em modo pesquisa e ninguém pode entrar sem
     atropelar a Sofia.
 
     Diferente da escalada, isto **não** muda o modo da conversa: a pessoa já
     terminou de responder e não está esperando ninguém. Quem decide se vira
-    conversa é a Thainá, pela fila do painel.
+    conversa é a equipe, pela fila do painel.
     """
     if not motivos:
         return False
-    return await _enviar_alerta(conversa, f"pesquisa com sinal de alerta: {'; '.join(motivos)}")
+    return await _enviar_alerta(db, conversa, f"pesquisa com sinal de alerta: {'; '.join(motivos)}")
 
 
-async def alertar_cadastro(conversa: Conversa, resultado: dict) -> bool:
-    """Avisa a Thainá do desfecho de um cadastro (novo, reencontro ou falha).
+async def alertar_cadastro(db: AsyncSession, conversa: Conversa, resultado: dict) -> bool:
+    """Avisa a equipe do desfecho de um cadastro (novo, reencontro ou falha).
 
     `resultado` é o que `cadastro.cadastrar_paciente` devolve. Status desconhecido
     não manda nada (melhor silêncio que uma mensagem sem sentido).
@@ -150,4 +158,4 @@ async def alertar_cadastro(conversa: Conversa, resultado: dict) -> bool:
     if not modelo:
         return False
     rotulo = modelo.format(id=resultado.get("paciente_id") or "?")
-    return await _enviar_alerta(conversa, rotulo)
+    return await _enviar_alerta(db, conversa, rotulo)

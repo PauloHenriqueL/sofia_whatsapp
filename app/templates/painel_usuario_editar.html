@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titulo %}Editar {{ usuario.nome }} · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app" style="max-width:560px">
+  <div class="page-head">
+    <div>
+      <h1>Editar {{ usuario.nome }}</h1>
+      <div class="subtitle">Usuário: {{ usuario.username }}</div>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/painel/usuarios"><i class="bi bi-arrow-left"></i> Voltar</a>
+  </div>
+
+  <div class="card">
+    <div class="card-corpo">
+      <form method="post" action="/painel/usuarios/{{ usuario.id }}/editar">
+        <div class="login-field">
+          <label for="nome">Nome</label>
+          <input class="input" type="text" id="nome" name="nome" value="{{ usuario.nome }}" required>
+        </div>
+        <div class="login-field">
+          <label for="telefone_whatsapp">Telefone WhatsApp (com DDI, ex: 5531999998888)</label>
+          <input class="input" type="text" id="telefone_whatsapp" name="telefone_whatsapp" value="{{ usuario.telefone_whatsapp or '' }}" autocomplete="off">
+        </div>
+        <div class="login-field">
+          <label for="nova_senha">Nova senha (deixe em branco pra manter a atual)</label>
+          <input class="input" type="password" id="nova_senha" name="nova_senha" autocomplete="new-password">
+        </div>
+        <div class="login-field">
+          <label><input type="checkbox" name="recebe_alertas" {% if usuario.recebe_alertas %}checked{% endif %}> Recebe alerta de WhatsApp</label>
+        </div>
+        <div class="login-field">
+          <label><input type="checkbox" name="ativo" {% if usuario.ativo %}checked{% endif %}> Acesso ativo (desmarcar revoga o login)</label>
+        </div>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-check2"></i> Salvar</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

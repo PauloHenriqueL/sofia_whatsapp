@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
 from app.services import acompanhamento, cadastro, config_negocio, config_prompt, hamilton_client
 from app.services import hoje as hoje_service
-from app.services import metricas, midia, painel, whatsapp_client
+from app.services import metricas, midia, painel, usuarios, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -587,3 +587,116 @@ async def reiniciar(conversa_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await painel.excluir_conversa(db, conversa)
     return RedirectResponse("/painel/conversas", status_code=303)
+
+
+@router.get("/usuarios")
+async def pagina_usuarios(request: Request, db: AsyncSession = Depends(get_db), salvo: int = 0):
+    return templates.TemplateResponse(
+        "painel_usuarios.html",
+        {
+            "request": request,
+            "usuarios": await usuarios.listar(db),
+            "salvo": salvo,
+            "aba_ativa": "usuarios",
+        },
+    )
+
+
+@router.post("/usuarios")
+async def criar_usuario(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    nome = str(form.get("nome") or "").strip()
+    username = str(form.get("username") or "").strip()
+    senha = str(form.get("senha") or "")
+    telefone = str(form.get("telefone_whatsapp") or "").strip()
+    recebe_alertas = "recebe_alertas" in form
+    if not nome or not username or not senha:
+        return templates.TemplateResponse(
+            "painel_usuarios.html",
+            {
+                "request": request,
+                "usuarios": await usuarios.listar(db),
+                "erro": "Nome, usuário e senha são obrigatórios.",
+                "aba_ativa": "usuarios",
+            },
+            status_code=400,
+        )
+    ja_existe = any(u.username == username for u in await usuarios.listar(db))
+    if ja_existe:
+        return templates.TemplateResponse(
+            "painel_usuarios.html",
+            {
+                "request": request,
+                "usuarios": await usuarios.listar(db),
+                "erro": f"Já existe um usuário com o login '{username}'.",
+                "aba_ativa": "usuarios",
+            },
+            status_code=400,
+        )
+    await usuarios.criar(
+        db,
+        nome=nome,
+        username=username,
+        senha=senha,
+        telefone_whatsapp=telefone,
+        recebe_alertas=recebe_alertas,
+    )
+    await db.commit()
+    return RedirectResponse("/painel/usuarios?salvo=1", status_code=303)
+
+
+@router.get("/usuarios/{usuario_id}/editar")
+async def pagina_editar_usuario(usuario_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    usuario = await usuarios.obter(db, usuario_id)
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return templates.TemplateResponse(
+        "painel_usuario_editar.html",
+        {"request": request, "usuario": usuario, "aba_ativa": "usuarios"},
+    )
+
+
+@router.post("/usuarios/{usuario_id}/editar")
+async def editar_usuario(usuario_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    usuario = await usuarios.obter(db, usuario_id)
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    form = await request.form()
+    nome = str(form.get("nome") or "").strip()
+    telefone = str(form.get("telefone_whatsapp") or "").strip()
+    nova_senha = str(form.get("nova_senha") or "").strip() or None
+    recebe_alertas = "recebe_alertas" in form
+    # Ninguém se desativa: sem isso, a última pessoa logada podia se trancar
+    # fora do painel sem ter como voltar (não existe reset de senha por fora).
+    ativo = True if usuario.username == request.session.get("usuario") else "ativo" in form
+    if not nome:
+        raise HTTPException(status_code=400, detail="Nome é obrigatório.")
+    await usuarios.atualizar(
+        db,
+        usuario,
+        nome=nome,
+        telefone_whatsapp=telefone,
+        recebe_alertas=recebe_alertas,
+        ativo=ativo,
+        nova_senha=nova_senha,
+    )
+    await db.commit()
+    return RedirectResponse("/painel/usuarios?salvo=1", status_code=303)
+
+
+@router.post("/usuarios/{usuario_id}/alerta")
+async def alternar_alerta(usuario_id: int, db: AsyncSession = Depends(get_db)):
+    """Liga/desliga o alerta com um clique só, direto da lista."""
+    usuario = await usuarios.obter(db, usuario_id)
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    await usuarios.atualizar(
+        db,
+        usuario,
+        nome=usuario.nome,
+        telefone_whatsapp=usuario.telefone_whatsapp,
+        recebe_alertas=not usuario.recebe_alertas,
+        ativo=usuario.ativo,
+    )
+    await db.commit()
+    return RedirectResponse("/painel/usuarios", status_code=303)
