@@ -24,7 +24,9 @@ async def _pendencias_na_topbar(request: Request, db: AsyncSession = Depends(get
     graça do contador é justamente ser visto de outra tela: se ele só existisse
     na home, ninguém saberia que apareceu coisa nova enquanto lê uma conversa.
     """
-    request.state.pendencias = await hoje_service.contar_pendencias(db)
+    lista = await hoje_service.listar_pendencias_seguro(db)
+    request.state.pendencias = len(lista)
+    request.state.pendencias_lista = lista
 
 
 router = APIRouter(
@@ -138,7 +140,7 @@ async def pagina_hoje(request: Request, db: AsyncSession = Depends(get_db)):
     mas ela responde "quem falou com a Sofia", não "o que eu tenho pra fazer" —
     e essa segunda pergunta não tinha tela nenhuma.
     """
-    dados = await hoje_service.montar_hoje(db)
+    dados = await hoje_service.montar_hoje(db, pendencias=request.state.pendencias_lista)
     return templates.TemplateResponse(
         "painel_hoje.html",
         {"request": request, "aba_ativa": "hoje", **dados},

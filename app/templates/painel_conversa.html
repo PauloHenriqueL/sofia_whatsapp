@@ -128,7 +128,7 @@
      painel não dava NENHUM sinal de que a conversa estava em modo pesquisa. #}
   {% if em_pesquisa or conversa.alerta_pesquisa_em %}
   <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px
-       {% if conversa.alerta_pesquisa_em and not conversa.alerta_resolvido_em %}; border-left:4px solid var(--danger, #c0392b){% endif %}">
+       {% if conversa.alerta_pesquisa_em and not conversa.alerta_resolvido_em %}; border-left:4px solid var(--warm-400){% endif %}">
     <h2 style="font-size:16px; margin:0 0 10px"><i class="bi bi-clipboard-heart"></i> Pesquisa de satisfação</h2>
     <dl class="datas">
       {% if em_pesquisa %}

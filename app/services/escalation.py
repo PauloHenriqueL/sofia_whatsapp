@@ -111,6 +111,10 @@ async def _enviar_alerta(db: AsyncSession, conversa: Conversa, rotulo: str) -> b
         except whatsapp_client.WhatsAppError:
             # Sem o nome do paciente no log (LGPD).
             logger.error("Não consegui alertar pelo template (%s)", rotulo)
+        except Exception:
+            # Qualquer outra falha (ex.: resposta inesperada da Meta) não pode
+            # interromper o loop: os próximos telefones ainda precisam ser avisados.
+            logger.exception("Falha inesperada ao alertar pelo template (%s)", rotulo)
     return enviou_algum
 
 

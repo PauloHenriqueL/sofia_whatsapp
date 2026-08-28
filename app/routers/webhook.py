@@ -102,7 +102,7 @@ async def verify_webhook(
         logger.warning(f"Invalid hub.mode: {hub_mode}")
         return JSONResponse({"error": "Invalid mode"}, status_code=403)
 
-    if hub_verify_token != settings.whatsapp_verify_token:
+    if not hmac.compare_digest(hub_verify_token, settings.whatsapp_verify_token):
         logger.warning("Invalid verify token")
         return JSONResponse({"error": "Invalid token"}, status_code=403)
 

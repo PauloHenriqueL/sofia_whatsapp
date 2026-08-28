@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 _locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 # Timer de debounce por número (a rajada reseta o timer).
 _timers: dict[str, asyncio.Task] = {}
+# Números cujo timer já passou da espera e está executando `acao` agora.
+# `agendar` não cancela estes: cancelar no meio de `acao` (ex.: chamada ao LLM
+# ou ao Hamilton em andamento) levantaria CancelledError dentro dela, que não é
+# `Exception` e não é capturado pelo `except Exception` de `_disparar`.
+_executando: set[str] = set()
 
 
 def lock_da_conversa(numero: str) -> asyncio.Lock:
@@ -43,7 +48,7 @@ def agendar(numero: str, segundos: float, acao: Callable[[str], Awaitable[None]]
     última mensagem da rajada dispara `acao(numero)` — uma única vez.
     """
     antigo = _timers.get(numero)
-    if antigo and not antigo.done():
+    if antigo and not antigo.done() and numero not in _executando:
         antigo.cancel()
     _timers[numero] = asyncio.create_task(_disparar(numero, segundos, acao))
 
@@ -53,11 +58,13 @@ async def _disparar(numero: str, segundos: float, acao: Callable[[str], Awaitabl
         await _dormir(segundos)
     except asyncio.CancelledError:
         return  # chegou mensagem nova; o novo timer assume
+    _executando.add(numero)
     try:
         await acao(numero)
     except Exception:
         logger.exception("Falha no processamento agendado de %s", mascarar_telefone(numero))
     finally:
+        _executando.discard(numero)
         if _timers.get(numero) is asyncio.current_task():
             _timers.pop(numero, None)
 
@@ -75,3 +82,4 @@ def limpar() -> None:
         t.cancel()
     _timers.clear()
     _locks.clear()
+    _executando.clear()

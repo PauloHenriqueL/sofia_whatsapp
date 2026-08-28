@@ -449,8 +449,12 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 .switch input:checked + i::after { transform:translateX(17px); }
 .switch input:focus-visible + i { box-shadow:0 0 0 3px var(--teal-glow-strong); }
 .linha-switch { display:flex; align-items:center; gap:12px; flex:none; }
+/* --text-secondary, não --text-tertiary: é o estado ligado/desligado de uma
+   automação que fala de dinheiro com o paciente (cobrança, pesquisa) — o
+   texto tem que passar no contraste mínimo de leitura (~3,6:1 com tertiary,
+   abaixo do 4.5:1 do AA), não só o "on" em teal. */
 .estado { font-size:11.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
-  color:var(--text-tertiary); width:70px; text-align:right; white-space:nowrap; }
+  color:var(--text-secondary); width:70px; text-align:right; white-space:nowrap; }
 .estado.on { color:var(--teal-600); }
 
 /* Salvar sempre ao alcance: o formulário é longo e o botão vivia lá no fim. */

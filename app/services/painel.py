@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import String, asc, cast, delete, desc, or_, select
+from sqlalchemy import String, asc, cast, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
@@ -161,17 +161,10 @@ async def listar_conversas(
         q = _aplicar_busca(q, busca)
     q = _aplicar_ordem(q, ordem, descendente).limit(limite).offset(offset)
     conversas = (await db.execute(q)).scalars().all()
+    previews = await _previews_ultima_mensagem(db, [c.id for c in conversas])
 
     resultado = []
     for c in conversas:
-        ultima = (
-            await db.execute(
-                select(Mensagem)
-                .where(Mensagem.conversa_id == c.id)
-                .order_by(desc(Mensagem.criada_em), desc(Mensagem.id))
-                .limit(1)
-            )
-        ).scalar_one_or_none()
         resultado.append(
             {
                 "id": c.id,
@@ -183,10 +176,34 @@ async def listar_conversas(
                 "hamilton_url": url_hamilton_paciente(c.paciente_hamilton_id),
                 "atualizada_em": c.atualizada_em,
                 "arquivada_em": c.arquivada_em,
-                "preview": (ultima.texto[:80] if ultima and ultima.texto else None),
+                "preview": previews.get(c.id),
             }
         )
     return resultado
+
+
+async def _previews_ultima_mensagem(db: AsyncSession, conversa_ids: list[int]) -> dict[int, str]:
+    """Última mensagem de cada conversa, numa query só (não uma por linha).
+
+    A lista é paginada mas ainda assim tem até `POR_PAGINA` conversas, e este
+    endpoint é a home HTMX-polled a cada 15s — uma query por conversa vira até
+    51 idas ao banco por poll. `row_number()` particionado por conversa resolve
+    em uma única consulta; funciona igual em SQLite e Postgres.
+    """
+    if not conversa_ids:
+        return {}
+    linha = func.row_number().over(
+        partition_by=Mensagem.conversa_id,
+        order_by=(desc(Mensagem.criada_em), desc(Mensagem.id)),
+    ).label("linha")
+    sub = (
+        select(Mensagem.conversa_id, Mensagem.texto, linha)
+        .where(Mensagem.conversa_id.in_(conversa_ids))
+        .subquery()
+    )
+    q = select(sub.c.conversa_id, sub.c.texto).where(sub.c.linha == 1)
+    rows = (await db.execute(q)).all()
+    return {cid: texto[:80] for cid, texto in rows if texto}
 
 
 async def obter_conversa(db: AsyncSession, conversa_id: int) -> Conversa | None:

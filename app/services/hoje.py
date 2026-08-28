@@ -213,13 +213,18 @@ async def listar_pendencias(db: AsyncSession) -> list[dict[str, Any]]:
     return _ordenar(_dedupe(itens))
 
 
+async def listar_pendencias_seguro(db: AsyncSession) -> list[dict[str, Any]]:
+    """Como `listar_pendencias`, mas nunca derruba a página que só quer o contador."""
+    try:
+        return await listar_pendencias(db)
+    except Exception:  # pragma: no cover - contador nunca pode derrubar uma página
+        logger.exception("Falha ao listar pendências")
+        return []
+
+
 async def contar_pendencias(db: AsyncSession) -> int:
     """Só o número, pro contador na aba. Roda em toda página do painel."""
-    try:
-        return len(await listar_pendencias(db))
-    except Exception:  # pragma: no cover - contador nunca pode derrubar uma página
-        logger.exception("Falha ao contar pendências")
-        return 0
+    return len(await listar_pendencias_seguro(db))
 
 
 async def _de_olho(db: AsyncSession, agora: datetime, hamilton) -> tuple[list, str | None]:
@@ -397,12 +402,20 @@ async def _resumo(db: AsyncSession, agora: datetime) -> list[dict[str, Any]]:
     return linhas
 
 
-async def montar_hoje(db: AsyncSession, hamilton=None, agora: datetime | None = None) -> dict:
+async def montar_hoje(
+    db: AsyncSession,
+    hamilton=None,
+    agora: datetime | None = None,
+    pendencias: list[dict[str, Any]] | None = None,
+) -> dict:
+    """`pendencias` pode vir pré-calculada (ex.: já buscada pela dependência da
+    topbar) pra não repetir as mesmas 5 queries duas vezes na mesma request."""
     agora = agora or datetime.now(timezone.utc)
     hamilton = hamilton or hamilton_client.get_hamilton_client()
     desde = _corte(agora)
 
-    pendencias = await listar_pendencias(db)
+    if pendencias is None:
+        pendencias = await listar_pendencias(db)
     de_olho, erro = await _de_olho(db, agora, hamilton)
 
     novas = int(

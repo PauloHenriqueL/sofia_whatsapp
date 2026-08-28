@@ -9,6 +9,7 @@ Falha de integração vira HamiltonError; o orquestrador degrada para
 `cadastro_pendente` (a Thainá cadastra manualmente). Usa httpx async.
 """
 
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -148,6 +149,10 @@ class HamiltonClient:
         self._pwd = password or settings.hamilton_password
         self._client = client  # injeção em teste; se None, cria por request
         self._token: str | None = None
+        # Cliente é singleton (get_hamilton_client): sem lock, duas chamadas
+        # concorrentes (webhook + cron, ou dois pacientes ao mesmo tempo) que
+        # veem `_token is None` ao mesmo tempo autenticam em dobro.
+        self._auth_lock = asyncio.Lock()
 
     async def _autenticar(self, client: httpx.AsyncClient) -> str:
         resp = await client.post(
@@ -166,7 +171,9 @@ class HamiltonClient:
         client = self._client or httpx.AsyncClient(timeout=10.0)
         try:
             if not self._token:
-                self._token = await self._autenticar(client)
+                async with self._auth_lock:
+                    if not self._token:  # outra chamada pode ter autenticado enquanto esperávamos
+                        self._token = await self._autenticar(client)
             headers = {"Authorization": f"Bearer {self._token}"}
             resp = await client.request(method, f"{self._base}{path}", headers=headers, **kwargs)
             if resp.status_code == 401:
