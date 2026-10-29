@@ -396,6 +396,46 @@ class HamiltonClient:
             )
         return resp.json()
 
+    # --- Lembretes dos terapeutas (ver services/lembretes_terapeutas.py) ---
+
+    async def fila_lembretes(self, tipo: str) -> dict:
+        """Quem recebe AGORA: `tipo` é 'agenda' ou 'semanal'.
+
+        O Hamilton decide tudo (horário de cada terapeuta, dia vazio, trava
+        geral) e devolve `{ativo, template, data, envios: [{terapeuta_id,
+        telefone, variaveis}]}`.
+        """
+        rota = {
+            "agenda": "/api/v1/lembretes/agenda-do-dia/",
+            "semanal": "/api/v1/lembretes/pendencias-semana/",
+        }[tipo]
+        resp = await self._request("GET", rota)
+        if resp.status_code != 200:
+            raise HamiltonError(f"Fila de lembretes ({tipo}) falhou ({resp.status_code})")
+        return resp.json()
+
+    async def confirmar_lembrete(self, tipo: str, terapeuta_id: int, data: str) -> None:
+        """Avisa o Hamilton que o lembrete saiu (ele não manda de novo no dia)."""
+        resp = await self._request(
+            "POST",
+            "/api/v1/lembretes/enviados/",
+            json={"tipo": tipo, "terapeuta_id": terapeuta_id, "data": data},
+        )
+        if resp.status_code != 200:
+            raise HamiltonError(f"Confirmação de lembrete falhou ({resp.status_code})")
+
+    async def terapeuta_por_telefone(self, telefone: str | None) -> dict | None:
+        """O terapeuta ativo dono do número, ou None se não for de terapeuta."""
+        digitos = re.sub(r"\D", "", telefone or "")
+        if not digitos:
+            return None
+        resp = await self._request("GET", f"/api/v1/terapeutas/por-telefone/?telefone={digitos}")
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise HamiltonError(f"Busca de terapeuta falhou ({resp.status_code})")
+        return resp.json()
+
 
 @lru_cache(maxsize=1)
 def get_hamilton_client() -> HamiltonClient:

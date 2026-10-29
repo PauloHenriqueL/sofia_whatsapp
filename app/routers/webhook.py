@@ -21,6 +21,7 @@ from app.services import (
     config_negocio,
     conversation,
     escalation,
+    lembretes_terapeutas,
     llm_client,
     midia,
     pesquisa,
@@ -401,6 +402,13 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     tipo = mensagem.get("type")
     wamid = mensagem.get("id")
     if not numero:
+        return
+
+    # Terapeuta respondendo a um lembrete: este número é o mesmo que atende
+    # pacientes, e sem isto o LLM faria triagem e cadastraria o terapeuta como
+    # lead. Resposta fixa, sem conversa no painel (ver lembretes_terapeutas).
+    if await lembretes_terapeutas.eh_terapeuta(numero):
+        await lembretes_terapeutas.responder_terapeuta(numero, wamid)
         return
 
     async with serializacao.lock_da_conversa(numero):

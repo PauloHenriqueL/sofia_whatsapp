@@ -18,6 +18,7 @@ from app.services import (
     cadastro_abandonado,
     cobranca,
     config_negocio,
+    lembretes_terapeutas,
     pagamentos,
     pesquisa,
     seguimento,
@@ -105,3 +106,17 @@ async def disparar_stripe(request: Request, simular: bool = False):
     except stripe_client.StripeError:
         logger.error("Rodada de limite do parcelado falhou ao falar com o Stripe")
         return JSONResponse({"error": "stripe_indisponivel"}, status_code=503)
+
+
+@router.post("/lembretes-terapeutas")
+async def disparar_lembretes_terapeutas(request: Request):
+    """Agenda do dia e pendências da semana dos terapeutas (cron a cada 30 min).
+
+    A rodada é barata quando não há ninguém na vez: o Hamilton devolve a fila
+    vazia. Quem decide quem recebe, e quando, é ele (ver
+    services/lembretes_terapeutas.py) — inclusive a trava geral, desligada por
+    padrão.
+    """
+    if not _token_valido(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return await lembretes_terapeutas.rodar()
