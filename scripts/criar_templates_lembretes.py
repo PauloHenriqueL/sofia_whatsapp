@@ -9,6 +9,14 @@ WhatsApp, conta "Sofia": é o `waba_id=` da barra de endereço.
 Template aprovado não se edita: mudou uma vírgula, é template novo. Por isso o
 script pula os que já existem com o mesmo nome. Os textos precisam bater com as
 variáveis que o Hamilton monta (principais/lembretes.py).
+
+Versão 2 (30/10/2026): texto com quebra de linha e botões de resposta rápida.
+Os da versão 1 (`agenda_do_dia_terapeuta` e `pendencias_semana_terapeuta`)
+nunca foram usados e ficam parados na Meta. Quebra de linha só no texto fixo:
+a Meta recusa variável com quebra (erro 132018), por isso cada linha variável
+é uma variável. O detalhe por paciente não cabe em template (lista de tamanho
+variável) e chega em texto livre depois do toque no botão; o código de cada
+botão vai no envio (ver `whatsapp_client.enviar_template`), não aqui.
 """
 
 import json
@@ -21,36 +29,44 @@ from dotenv import load_dotenv
 API = "https://graph.facebook.com/v21.0"
 RODAPE = {"type": "FOOTER", "text": "Mensagem automática do Hamilton"}
 
+
+def _botoes(*rotulos: str) -> dict:
+    return {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": r} for r in rotulos]}
+
+
 TEMPLATES = [
     {
-        "name": "agenda_do_dia_terapeuta",
+        "name": "agenda_do_dia_terapeuta_v2",
         "language": "pt_BR",
         "category": "UTILITY",
         "components": [
             {
                 "type": "BODY",
-                "text": "Bom dia, {{1}}! Sua agenda de hoje: {{2}} e {{3}}. Os detalhes estão no Hamilton.",
-                "example": {"body_text": [["Paulo", "4 sessões (08:00, 10:00, 14:00 e 17:00)", "1 atividade"]]},
+                "text": "Olá, {{1}}!\n\nHoje você tem:\n{{2}}\n{{3}}\n\nToque abaixo para ver os detalhes.",
+                "example": {"body_text": [["Tácia", "2 sessões (9h e 10h)", "1 atividade (14h)"]]},
             },
             RODAPE,
+            _botoes("Agenda de hoje", "Agenda da semana"),
         ],
     },
     {
-        "name": "pendencias_semana_terapeuta",
+        "name": "lembrete_semana_terapeuta",
         "language": "pt_BR",
         "category": "UTILITY",
         "components": [
             {
                 "type": "BODY",
                 "text": (
-                    "Olá, {{1}}! Resumo da semana passada: {{2}} sessões realizadas e {{3}} faltas "
-                    "registradas. Pendências: {{4}} pagamentos do mês em aberto, {{5}} pacientes sem "
-                    "sessão realizada na semana e {{6}} pacientes sem a 1ª sessão registrada. "
-                    "Acesse o Hamilton para ver os detalhes."
+                    "Olá, {{1}}!\n\nNa semana passada:\nPacientes com sessão: {{2}}\n"
+                    "Faltaram: {{3}}\nSem registro de sessão: {{4}}\n"
+                    "1ª sessão não registrada: {{5}}\n\n"
+                    "Pagamentos sem registro neste mês: {{6}}\n\n"
+                    "Toque abaixo para ver paciente por paciente."
                 ),
-                "example": {"body_text": [["Paulo", "12", "2", "1", "3", "1"]]},
+                "example": {"body_text": [["Tácia", "3", "1", "1", "1", "2"]]},
             },
             RODAPE,
+            _botoes("Saiba mais"),
         ],
     },
 ]

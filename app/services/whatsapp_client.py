@@ -118,7 +118,9 @@ def _citar(payload: dict[str, Any], responder_a: str | None) -> dict[str, Any]:
     return payload
 
 
-async def enviar_texto(numero: str, texto: str, responder_a: str | None = None) -> dict[str, Any]:
+async def enviar_texto(
+    numero: str, texto: str, responder_a: str | None = None, sigiloso: bool = False
+) -> dict[str, Any]:
     """Envia uma mensagem de texto livre para um número.
 
     Só funciona dentro da janela de 24h da última mensagem do paciente.
@@ -128,6 +130,8 @@ async def enviar_texto(numero: str, texto: str, responder_a: str | None = None) 
         numero: Número do destinatário no formato internacional (ex: 5531999998888).
         texto: Corpo da mensagem.
         responder_a: wamid da mensagem citada (reply), ou None pra mensagem solta.
+        sigiloso: o log do dry run não registra nem o começo do texto (ex.: os
+            balões dos lembretes dos terapeutas, que levam nome de paciente).
 
     Returns:
         Resposta JSON da Cloud API (contém o ID da mensagem enviada).
@@ -143,7 +147,9 @@ async def enviar_texto(numero: str, texto: str, responder_a: str | None = None) 
         "text": {"body": texto},
     }
     return await _enviar(
-        _citar(payload, responder_a), descricao=f"texto para {mascarar_telefone(numero)}"
+        _citar(payload, responder_a),
+        descricao=f"texto para {mascarar_telefone(numero)}",
+        sigiloso=sigiloso,
     )
 
 
@@ -224,6 +230,7 @@ async def enviar_template(
     template_name: str,
     parametros: list[str] | None = None,
     language_code: str = "pt_BR",
+    botoes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Envia uma mensagem de template aprovado.
 
@@ -235,6 +242,9 @@ async def enviar_template(
         template_name: Nome do template aprovado na Meta.
         parametros: Valores para os placeholders {{1}}, {{2}}... do corpo.
         language_code: Código do idioma do template.
+        botoes: payloads dos botões de resposta rápida, na ordem dos botões do
+            template. É o que volta no webhook (`button.payload`) quando a
+            pessoa toca: um código nosso em vez do rótulo, que é só texto.
 
     Returns:
         Resposta JSON da Cloud API.
@@ -246,13 +256,25 @@ async def enviar_template(
         "name": template_name,
         "language": {"code": language_code},
     }
+    componentes: list[dict[str, Any]] = []
     if parametros:
-        template["components"] = [
+        componentes.append(
             {
                 "type": "body",
                 "parameters": [{"type": "text", "text": p} for p in parametros],
             }
-        ]
+        )
+    for indice, codigo in enumerate(botoes or []):
+        componentes.append(
+            {
+                "type": "button",
+                "sub_type": "quick_reply",
+                "index": str(indice),
+                "parameters": [{"type": "payload", "payload": codigo}],
+            }
+        )
+    if componentes:
+        template["components"] = componentes
 
     payload = {
         "messaging_product": "whatsapp",
@@ -296,24 +318,31 @@ async def baixar_midia(media_id: str) -> tuple[bytes, str]:
         raise WhatsAppError(f"falha de rede ao baixar mídia {media_id}") from exc
 
 
-def _resumo_dry_run(payload: dict[str, Any]) -> str:
+def _resumo_dry_run(payload: dict[str, Any], sigiloso: bool = False) -> str:
     """O que teria sido enviado, sem o conteúdo da mensagem (LGPD).
 
     Em dry run o texto interessa pra quem está testando — e quem está testando é
     quem já vê a conversa inteira no painel. Mesmo assim, só o começo: log não é
-    lugar de transcrição de conversa de saúde.
+    lugar de transcrição de conversa de saúde. `sigiloso` não registra nem isso:
+    os balões dos lembretes dos terapeutas não passam pelo painel e levam nome
+    de paciente.
     """
     tipo = payload.get("type") or payload.get("status") or "?"
     corpo = (payload.get("text") or {}).get("body") or ""
-    trecho = corpo[:120] + ("…" if len(corpo) > 120 else "")
+    if sigiloso:
+        trecho = f"<{len(corpo)} caracteres omitidos>"
+    else:
+        trecho = corpo[:120] + ("…" if len(corpo) > 120 else "")
     return f"tipo={tipo} para={mascarar_telefone(payload.get('to'))} texto={trecho!r}"
 
 
-async def _enviar(payload: dict[str, Any], descricao: str) -> dict[str, Any]:
+async def _enviar(payload: dict[str, Any], descricao: str, sigiloso: bool = False) -> dict[str, Any]:
     """Faz o POST para o endpoint de mensagens da Cloud API."""
     if settings.envio_whatsapp_bloqueado:
         # Único choke point de envio: cobre texto, template, mídia e read receipt.
-        logger.warning("[DRY RUN] NÃO enviado (%s): %s", descricao, _resumo_dry_run(payload))
+        logger.warning(
+            "[DRY RUN] NÃO enviado (%s): %s", descricao, _resumo_dry_run(payload, sigiloso)
+        )
         # Devolve um wamid falso, mas com a MESMA forma da resposta da Meta: o
         # resto do fluxo persiste esse id e o painel usa pra citar mensagem.
         # Aleatório, e não derivado do payload: `whatsapp_message_id` tem índice

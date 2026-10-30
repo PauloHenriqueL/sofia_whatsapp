@@ -436,6 +436,27 @@ class HamiltonClient:
             raise HamiltonError(f"Busca de terapeuta falhou ({resp.status_code})")
         return resp.json()
 
+    async def detalhe_lembrete(self, telefone: str | None, payload: str) -> tuple[int, dict]:
+        """Os balões de um toque em botão de lembrete: `(status, corpo)`.
+
+        POST, com o telefone no corpo: não fica nos logs de acesso. O Hamilton
+        responde 200 `{mensagens}`; 409 `{mensagens, ambiguo}` quando o número é
+        de mais de um terapeuta (aí as mensagens só pedem para falar com a
+        coordenação, sem dado de paciente); 400 para botão desconhecido e 404
+        para quem não é terapeuta ativo. Qualquer outra coisa é HamiltonError.
+        """
+        digitos = re.sub(r"\D", "", telefone or "")
+        resp = await self._request(
+            "POST", "/api/v1/lembretes/detalhe/", json={"telefone": digitos, "payload": payload}
+        )
+        if resp.status_code not in (200, 400, 404, 409):
+            raise HamiltonError(f"Detalhe de lembrete falhou ({resp.status_code})")
+        try:
+            corpo = resp.json()
+        except ValueError:
+            corpo = {}
+        return resp.status_code, corpo if isinstance(corpo, dict) else {}
+
 
 @lru_cache(maxsize=1)
 def get_hamilton_client() -> HamiltonClient:

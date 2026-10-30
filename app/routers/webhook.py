@@ -406,9 +406,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
 
     # Terapeuta respondendo a um lembrete: este número é o mesmo que atende
     # pacientes, e sem isto o LLM faria triagem e cadastraria o terapeuta como
-    # lead. Resposta fixa, sem conversa no painel (ver lembretes_terapeutas).
+    # lead. Toque em botão do lembrete recebe os detalhes; o resto, a resposta
+    # fixa. Nada disso vira conversa no painel (ver lembretes_terapeutas).
     if await lembretes_terapeutas.eh_terapeuta(numero):
-        await lembretes_terapeutas.responder_terapeuta(numero, wamid)
+        botao = mensagem.get("button") or {}
+        codigo = botao.get("payload") or botao.get("text")
+        if tipo == "button" and codigo:
+            await lembretes_terapeutas.responder_botao(numero, wamid, codigo)
+        else:
+            await lembretes_terapeutas.responder_terapeuta(numero, wamid)
         return
 
     async with serializacao.lock_da_conversa(numero):
