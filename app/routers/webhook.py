@@ -27,6 +27,7 @@ from app.services import (
     pesquisa,
     saida,
     serializacao,
+    status_entrega,
     tools,
     transcricao,
     whatsapp_client,
@@ -137,6 +138,8 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     # LGPD: não logamos o conteúdo das mensagens (dado de saúde sensível),
     # apenas metadados (quantidade, tipos e ids).
     logger.info("Webhook recebido: %s", _resumo_payload(payload))
+    # Falha de entrega (a Meta aceitou e depois não entregou) só aparece aqui.
+    status_entrega.registrar_falhas(payload)
 
     # Responde 200 imediatamente (Meta exige <3s). Processa async.
     background_tasks.add_task(processar_payload, payload)
