@@ -17,6 +17,13 @@ a Meta recusa variável com quebra (erro 132018), por isso cada linha variável
 é uma variável. O detalhe por paciente não cabe em template (lista de tamanho
 variável) e chega em texto livre depois do toque no botão; o código de cada
 botão vai no envio (ver `whatsapp_client.enviar_template`), não aqui.
+
+Versão 3 da agenda (05/11/2026): a Meta reclassificou o v2 de UTILITY para
+MARKETING (`previous_category`), e no 1º envio real aceitou as mensagens e não
+entregou nenhuma. O v3 diz no texto fixo que é lembrete de atendimentos
+agendados e tira o "Toque abaixo"; as variáveis viram só "2 (9h e 10h)", com o
+rótulo no texto. Enquanto isso o Hamilton manda o v1, que é UTILITY e não tem
+botão. ⚠️ Aprovado não basta: confira a CATEGORIA (este script mostra).
 """
 
 import json
@@ -35,6 +42,24 @@ def _botoes(*rotulos: str) -> dict:
 
 
 TEMPLATES = [
+    {
+        "name": "agenda_do_dia_terapeuta_v3",
+        "language": "pt_BR",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Bom dia, {{1}}! Este é o lembrete automático dos seus atendimentos "
+                    "agendados para hoje no Hamilton:\n\nSessões: {{2}}\nAtividades: {{3}}\n\n"
+                    "Use os botões para ver os horários."
+                ),
+                "example": {"body_text": [["Tácia", "2 (9h e 10h)", "1 (14h)"]]},
+            },
+            RODAPE,
+            _botoes("Agenda de hoje", "Agenda da semana"),
+        ],
+    },
     {
         "name": "agenda_do_dia_terapeuta_v2",
         "language": "pt_BR",
@@ -83,9 +108,9 @@ def main() -> int:
     headers = {"Authorization": f"Bearer {token}"}
     with httpx.Client(timeout=20) as http:
         existentes = http.get(f"{API}/{waba}/message_templates", headers=headers,
-                              params={"fields": "name,status", "limit": 200})
+                              params={"fields": "name,status,category", "limit": 200})
         existentes.raise_for_status()
-        ja = {t["name"]: t["status"] for t in existentes.json().get("data", [])}
+        ja = {t["name"]: f"{t['status']}, {t.get('category')}" for t in existentes.json().get("data", [])}
         for tpl in TEMPLATES:
             if tpl["name"] in ja:
                 print(f"= {tpl['name']}: já existe ({ja[tpl['name']]}), pulando")
