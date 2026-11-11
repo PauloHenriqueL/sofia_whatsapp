@@ -491,3 +491,18 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 /* KPI dentro de card não pode esticar: com dois itens o `auto-fit` dava duas
    colunas de meia tela pra números de dois dígitos. */
 .card > .kpi-grid { grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); }
+
+/* ── Página da conversa: conversa no centro, fichas ao lado ─────────────────
+   No celular (padrão) é uma coluna só, com a conversa primeiro. A partir de
+   1000px vira duas colunas e a conversa ocupa a altura da tela. */
+.conversa-grade { display:flex; flex-direction:column; margin-top:14px; }
+.conversa-centro { order:1; min-width:0; }
+.conversa-lado { order:2; min-width:0; margin-top:14px; }
+.conversa-lado > .card:first-child { margin-top:0 !important; }
+@media (min-width:1000px) {
+  .conversa-grade { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:18px; align-items:start; }
+  /* Posição explícita: no HTML as fichas vêm antes da conversa. */
+  .conversa-centro { grid-column:1; grid-row:1; position:sticky; top:124px; }
+  .conversa-lado { grid-column:2; grid-row:1; margin-top:0; max-height:calc(100vh - 144px); overflow-y:auto; padding-right:2px; }
+  .conversa-centro .chat { max-height:calc(100vh - 300px); min-height:320px; }
+}

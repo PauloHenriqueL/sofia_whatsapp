@@ -2,7 +2,7 @@
 {% block titulo %}Conversa · Sofia{% endblock %}
 {% block corpo %}
 {% include "_topbar.html" %}
-<div class="container-app" style="max-width:780px">
+<div class="container-app" style="max-width:1180px">
   <a href="/painel/conversas" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
 
   <div class="page-head" style="margin-top:10px">
@@ -84,6 +84,12 @@
     ('vinculo_parceria', 'Vínculo com o parceiro'),
     ('observacoes', 'Observações'),
   ] %}
+  {# Duas colunas no computador: a conversa à esquerda (é o trabalho de quem
+     atende) e as fichas à direita. No celular a conversa vem primeiro e as
+     fichas ficam abaixo. Antes a conversa era o ÚLTIMO bloco da página, numa
+     caixa pequena depois de cinco fichas. #}
+  <div class="conversa-grade">
+  <aside class="conversa-lado">
   <div class="card datas-card" style="margin:14px 0; padding:16px 18px">
     <h2 style="font-size:16px; margin:0 0 10px">Dados coletados</h2>
     <dl class="datas">
@@ -315,7 +321,9 @@
     </div>
   </div>
   {% endif %}
+  </aside>
 
+  <section class="conversa-centro">
   <div class="card">
     <div id="mensagens" class="chat"
          hx-get="/painel/conversas/{{ conversa.id }}/fragment/mensagens"
@@ -387,6 +395,8 @@
         </button>
       </form>
     {% endif %}
+  </div>
+  </section>
   </div>
 </div>
 
