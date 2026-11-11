@@ -446,21 +446,51 @@ async def iniciar_entrada(
     return await iniciar(db, conversa, {**avaliacao, "momento": MOMENTO_LINHA_DE_BASE}, agora)
 
 
+# O que a pessoa lê quando a Sofia não consegue conduzir o turno (modelo fora do
+# ar, ou Hamilton fora do ar sem avaliação lembrada). Mesmo texto do acolhimento
+# (`webhook.FALLBACK_RESPOSTA`), repetido aqui porque o webhook importa este módulo.
+RESPOSTA_INSTABILIDADE = (
+    "Oi, tive um probleminha técnico aqui pra te responder agora. "
+    "Pode me mandar de novo daqui a pouco?"
+)
+
+# Última versão de cada avaliação que o Hamilton devolveu, por pk. Em memória de
+# propósito (1 instância, como os outros caches): serve só pra atravessar uma
+# falha transitória do Hamilton no meio de uma pesquisa. Sai em `_limpar`.
+_AVALIACOES_LEMBRADAS: dict[int, dict] = {}
+
+
 async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
     """Conduz um turno da pesquisa (chamado no lugar do turno normal do bot)."""
     try:
         avaliacao = await _buscar_avaliacao(conversa)
     except hamilton_client.HamiltonError as exc:
         # "Não consegui saber" NÃO é "não existe". Falha transitória mantém a
-        # pesquisa de pé: a pessoa repete, ou o lembrete de 20h pega. Encerrar
-        # aqui destruiria estado por causa de um 502 do proxy — foi o que
-        # aconteceu com a pesquisa 392 e matou a conversa em silêncio.
+        # pesquisa de pé. Encerrar aqui destruiria estado por causa de um 502 do
+        # proxy — foi o que aconteceu com a pesquisa 392.
+        #
+        # Mas manter de pé não pode significar FICAR MUDA: até 11/11/2026 este
+        # ramo só dava `return`, e a pessoa que tinha acabado de responder uma
+        # nota ficava sem resposta nenhuma (aconteceu no teste de ponta a ponta,
+        # e o Hamilton de produção dorme quando fica parado). Agora a conversa
+        # segue com a avaliação lembrada do turno anterior — o conteúdo dela não
+        # muda durante a pesquisa. Se a gravação da nota também falhar, a
+        # extração do fim recupera.
+        avaliacao = _AVALIACOES_LEMBRADAS.get(conversa.pesquisa_avaliacao_id)
         logger.error(
-            "Hamilton indisponível no turno da pesquisa %s; mantendo em curso: %s",
+            "Hamilton indisponível no turno da pesquisa %s; %s: %s",
             conversa.pesquisa_avaliacao_id,
+            "seguindo com a avaliação lembrada" if avaliacao else "avisando a pessoa",
             exc,
         )
-        return
+        if avaliacao is None:
+            # Sem contexto (ex.: a app reiniciou no meio da pesquisa) não dá pra
+            # conduzir. Avisa em vez de sumir; a pesquisa continua em curso.
+            await _enviar(db, conversa, RESPOSTA_INSTABILIDADE)
+            return
+    else:
+        if avaliacao is not None:
+            _AVALIACOES_LEMBRADAS[conversa.pesquisa_avaliacao_id] = avaliacao
     if avaliacao is None:
         # Aqui o Hamilton RESPONDEU e a avaliação não está lá. Sem contexto não
         # dá pra conduzir; encerra o modo pesquisa e deixa a conversa voltar ao
@@ -482,6 +512,7 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
         resposta = await _turno(conversa, avaliacao, historico=historico, db=db)
     except llm_client.LLMError:
         logger.error("LLM falhou no turno da pesquisa da conversa %s", conversa.id)
+        await _enviar(db, conversa, RESPOSTA_INSTABILIDADE)
         return
 
     concluida = _marcador_de_fim(resposta)
@@ -1403,6 +1434,7 @@ async def _conversa_do_paciente(db: AsyncSession, avaliacao: dict) -> Conversa |
 
 async def _limpar(db: AsyncSession, conversa: Conversa) -> None:
     """Tira a conversa do modo pesquisa (ela volta ao fluxo normal)."""
+    _AVALIACOES_LEMBRADAS.pop(conversa.pesquisa_avaliacao_id, None)
     conversa.pesquisa_avaliacao_id = None
     conversa.pesquisa_iniciada_em = None
     # Zera o rastro de quais campos a tool gravou: a pessoa recebe até quatro

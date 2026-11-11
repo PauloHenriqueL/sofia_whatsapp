@@ -267,6 +267,11 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
         )
     except llm_client.LLMError:
         logger.error("LLM falhou no turno de cobrança da conversa %s", conversa.id)
+        # Até 11/11/2026 isto era só `return`: a pessoa perguntava sobre o
+        # pagamento e ficava sem resposta nenhuma. Mesmo aviso do acolhimento.
+        from app.services import pesquisa
+
+        await _enviar(db, conversa, pesquisa.RESPOSTA_INSTABILIDADE)
         return
     await _enviar(db, conversa, resposta)
 

@@ -524,9 +524,60 @@ class TestFalhaDoHamiltonNaoEncerraPesquisa:
             hamilton_client, "get_hamilton_client", return_value=cliente
         ), patch.object(pesquisa, "_enviar", AsyncMock(return_value=True)) as mock_enviar:
             await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
-        # Continua em curso: a pessoa repete, ou o lembrete de 20h pega.
+        # Continua em curso — mas NÃO muda: sem avaliação lembrada, a pessoa é
+        # avisada. Até 11/11/2026 este teste exigia `assert_not_awaited`, ou
+        # seja, o silêncio era o comportamento esperado; no teste de ponta a
+        # ponta a paciente mandou uma nota e ficou sem resposta.
         assert conversa.pesquisa_avaliacao_id == 10
-        mock_enviar.assert_not_awaited()
+        mock_enviar.assert_awaited_once()
+        assert mock_enviar.await_args.args[2] == pesquisa.RESPOSTA_INSTABILIDADE
+
+    @pytest.mark.asyncio
+    async def test_hamilton_cai_no_meio_e_a_pesquisa_segue_com_a_avaliacao_lembrada(self, session):
+        """O turno anterior buscou a avaliação; neste o Hamilton não responde.
+
+        O conteúdo da avaliação não muda durante a pesquisa, então a Sofia
+        continua perguntando normalmente em vez de sumir ou pedir pra repetir.
+        """
+        conversa = await _conversa(session, pesquisa_avaliacao_id=11, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        avaliacao = {"pk_avaliacao": 11, "momento": "entrada"}
+        cliente = AsyncMock()
+        cliente.obter_avaliacao.side_effect = [avaliacao, hamilton_client.HamiltonError("timeout")]
+        turno = AsyncMock(return_value="De 0 a 10, como você está no geral?")
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(pesquisa, "_turno", turno), patch.object(
+            pesquisa, "_enviar", AsyncMock(return_value=True)
+        ) as mock_enviar:
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+
+        assert turno.await_count == 2
+        assert turno.await_args.args[1] == avaliacao  # a lembrada, no 2º turno
+        assert mock_enviar.await_args.args[2] == "De 0 a 10, como você está no geral?"
+        assert conversa.pesquisa_avaliacao_id == 11
+        pesquisa._AVALIACOES_LEMBRADAS.pop(11, None)
+
+    @pytest.mark.asyncio
+    async def test_modelo_fora_do_ar_avisa_em_vez_de_ficar_muda(self, session):
+        conversa = await _conversa(session, pesquisa_avaliacao_id=12, pesquisa_iniciada_em=AGORA)
+        await session.commit()
+        cliente = AsyncMock()
+        cliente.obter_avaliacao.return_value = {"pk_avaliacao": 12, "momento": "entrada"}
+        with patch.object(
+            hamilton_client, "get_hamilton_client", return_value=cliente
+        ), patch.object(
+            pesquisa, "_turno", AsyncMock(side_effect=pesquisa.llm_client.LLMError("fora"))
+        ), patch.object(
+            pesquisa, "_enviar", AsyncMock(return_value=True)
+        ) as mock_enviar:
+            await pesquisa.responder(session, conversa, conversa.numero_whatsapp)
+
+        mock_enviar.assert_awaited_once()
+        assert mock_enviar.await_args.args[2] == pesquisa.RESPOSTA_INSTABILIDADE
+        assert conversa.pesquisa_avaliacao_id == 12  # a pesquisa continua em curso
+        pesquisa._AVALIACOES_LEMBRADAS.pop(12, None)
 
     @pytest.mark.asyncio
     async def test_avaliacao_de_fato_apagada_encerra_a_pesquisa(self, session):

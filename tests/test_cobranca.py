@@ -412,3 +412,29 @@ class TestVinculoStripe:
         await session.commit()
         with patch.object(stripe_client, "configurado", return_value=False):
             assert await cobranca._criar_link(session, conversa) is None
+
+
+class TestModeloForaDoArNaCobranca:
+    """Até 11/11/2026 o `responder` só dava `return` quando o LLM falhava.
+
+    A pessoa perguntava algo sobre o pagamento e ficava sem resposta nenhuma.
+    """
+
+    @pytest.mark.asyncio
+    async def test_avisa_em_vez_de_ficar_muda(self, session):
+        from app.services import llm_client, pesquisa
+
+        conversa = await _conversa(session, cobranca_iniciada_em=cobranca._agora())
+        await session.commit()
+        with patch.object(cobranca, "_link_atual", AsyncMock(return_value=None)), patch.object(
+            cobranca.contrato, "estado", AsyncMock(return_value=None)
+        ), patch.object(
+            cobranca, "_turno", AsyncMock(side_effect=llm_client.LLMError("fora"))
+        ), patch.object(
+            cobranca, "_enviar", AsyncMock(return_value=True)
+        ) as mock_enviar:
+            await cobranca.responder(session, conversa, conversa.numero_whatsapp)
+
+        mock_enviar.assert_awaited_once()
+        assert mock_enviar.await_args.args[2] == pesquisa.RESPOSTA_INSTABILIDADE
+        assert cobranca.em_cobranca(conversa)  # a cobrança continua em curso
