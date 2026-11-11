@@ -477,6 +477,7 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
     historico = await conversation.carregar_historico(
         db, conversa, desde=conversa.pesquisa_iniciada_em
     )
+    conversa._escalou_na_pesquisa = False
     try:
         resposta = await _turno(conversa, avaliacao, historico=historico, db=db)
     except llm_client.LLMError:
@@ -485,6 +486,21 @@ async def responder(db: AsyncSession, conversa: Conversa, numero: str) -> None:
 
     concluida = _marcador_de_fim(resposta)
     await _enviar(db, conversa, _sem_marcador(resposta))
+    if getattr(conversa, "_escalou_na_pesquisa", False):
+        # Escalou no meio da pesquisa (crise, pedido de humano): a pesquisa para
+        # aqui e a cobrança NÃO emenda — quem conduz agora é a Thainá. O que já
+        # foi respondido fica gravado (mesmo caminho do "Assumir" do painel).
+        conversa._escalou_na_pesquisa = False
+        try:
+            await finalizar(db, conversa, avaliacao, recusou=True, encadear_cobranca=False)
+        except Exception as exc:  # noqa: BLE001 — escalar não pode falhar por isso
+            logger.error(
+                "Não consegui encerrar a pesquisa da conversa %s após escalar: %s",
+                conversa.id,
+                exc,
+            )
+            await _limpar(db, conversa)
+        return
     if concluida:
         await finalizar(db, conversa, avaliacao, recusou=concluida == "recusou")
 
@@ -1174,9 +1190,26 @@ async def _turno(
         mensagens, tools=tools.TOOLS_PESQUISA, system_prompt=system_prompt
     )
     if not resposta.tool_calls:
-        return resposta.texto or ""
+        texto = resposta.texto or ""
+        # Rede de proteção: prometeu a Thainá sem chamar a tool.
+        if db is not None and await escalation.garantir_escalada_prometida(db, conversa, texto):
+            conversa._escalou_na_pesquisa = True
+        return texto
 
-    resultados = [(tc, await _registrar_resposta(db, conversa, tc)) for tc in resposta.tool_calls]
+    # `escalar_para_thaina` está em TOOLS_PESQUISA, mas até 11/11/2026 TODA tool
+    # call caía em `_registrar_resposta`, que recusava a escalada como "campo
+    # inválido": a Sofia dizia "vou avisar a Thainá agora" diante de sinal de
+    # crise e nenhuma escalada era registrada, nenhum alerta saía. A escalada
+    # reusa o handler do webhook, pra não existirem dois caminhos de escalar.
+    from app.routers import webhook
+
+    resultados = []
+    for tc in resposta.tool_calls:
+        if tc.name == tools.ESCALAR_PARA_THAINA and db is not None:
+            resultados.append((tc, await webhook._executar_tool(db, conversa, tc)))
+            conversa._escalou_na_pesquisa = True
+        else:
+            resultados.append((tc, await _registrar_resposta(db, conversa, tc)))
 
     # Round-trip: devolve os resultados ao modelo pra ele gerar a fala. O
     # `system_prompt` PRECISA ir de novo — sem ele o modelo cairia no prompt de
@@ -1204,7 +1237,14 @@ async def _turno(
         [*mensagens, assistant_msg, *tool_msgs], system_prompt=system_prompt
     )
     # Se o round-trip não gerar fala, vale o texto que veio junto das tool calls.
-    return final.texto or resposta.texto or ""
+    texto = final.texto or resposta.texto or ""
+    if (
+        db is not None
+        and not getattr(conversa, "_escalou_na_pesquisa", False)
+        and await escalation.garantir_escalada_prometida(db, conversa, texto)
+    ):
+        conversa._escalou_na_pesquisa = True
+    return texto
 
 
 def _validar_resposta(campo, valor) -> tuple[str, int | bool] | None:

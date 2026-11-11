@@ -188,8 +188,11 @@ async def processar_turno_bot(session, conversa) -> str | None:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
         return FALLBACK_RESPOSTA
 
-    # Conversa normal, sem ações: devolve o texto gerado.
+    # Conversa normal, sem ações: devolve o texto gerado. Antes, confere se a
+    # fala prometeu acionar a Thainá sem chamar a tool — se prometeu, a escalada
+    # é registrada aqui (ver `escalation.garantir_escalada_prometida`).
     if not resp.tool_calls:
+        await escalation.garantir_escalada_prometida(session, conversa, resp.texto)
         return resp.texto
 
     # Executa cada ferramenta e coleta os resultados pro round-trip.
@@ -200,12 +203,17 @@ async def processar_turno_bot(session, conversa) -> str | None:
 
     # Segundo turno: devolve os resultados ao modelo pra ele gerar a fala final.
     texto_final = await _finalizar_apos_tools(historico, resp, resultados)
+    escalou = any(tc.name == tools.ESCALAR_PARA_THAINA for tc in resp.tool_calls)
     if texto_final:
+        # Chamou outra tool (ex.: desconto) e, na fala final, prometeu a Thainá.
+        if not escalou:
+            await escalation.garantir_escalada_prometida(session, conversa, texto_final)
         return texto_final
 
     # Sem texto do modelo: usa um default seguro conforme a ação tomada.
-    if any(tc.name == tools.ESCALAR_PARA_THAINA for tc in resp.tool_calls):
+    if escalou:
         return escalation.ESCALADA_FALLBACK
+    await escalation.garantir_escalada_prometida(session, conversa, resp.texto)
     return resp.texto
 
 

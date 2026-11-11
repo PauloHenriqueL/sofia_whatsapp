@@ -499,8 +499,11 @@ async def _turno(
         mensagens, tools=tools.TOOLS_COBRANCA, system_prompt=system_prompt
     )
     if not resposta.tool_calls:
-        return resposta.texto or ""
+        texto = resposta.texto or ""
+        await _escalar_se_prometeu(db, conversa, texto)
+        return texto
 
+    escalou = False
     resultados = []
     for tc in resposta.tool_calls:
         if tc.name == tools.REGISTRAR_FORMA_PAGAMENTO:
@@ -511,6 +514,7 @@ async def _turno(
             # diferentes. Escalar encerra o modo cobrança: quem conduz agora é a Thainá.
             resultados.append((tc, await webhook._executar_tool(db, conversa, tc)))
             if tc.name == tools.ESCALAR_PARA_THAINA:
+                escalou = True
                 await finalizar(db, conversa, "escalada")
 
     assistant_msg = {
@@ -541,7 +545,22 @@ async def _turno(
     final = await cliente.gerar_resposta(
         [*mensagens, assistant_msg, *tool_msgs], system_prompt=system_prompt
     )
-    return final.texto or resposta.texto or ""
+    texto = final.texto or resposta.texto or ""
+    if not escalou:
+        await _escalar_se_prometeu(db, conversa, texto)
+    return texto
+
+
+async def _escalar_se_prometeu(db: AsyncSession, conversa: Conversa, texto: str) -> None:
+    """Rede de proteção: a fala prometeu a Thainá e o modelo não chamou a tool.
+
+    Mesmo efeito da tool `escalar_para_thaina` neste modo: registra a escalada,
+    alerta e encerra a cobrança — quem conduz a partir daqui é a Thainá.
+    """
+    from app.services import escalation
+
+    if await escalation.garantir_escalada_prometida(db, conversa, texto):
+        await finalizar(db, conversa, "escalada")
 
 
 async def _registrar_forma(db: AsyncSession, conversa: Conversa, tc) -> dict:

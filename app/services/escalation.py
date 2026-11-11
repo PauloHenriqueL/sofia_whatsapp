@@ -5,6 +5,8 @@ registrar a escalada e alertar a Thainá pelo template aprovado na Meta.
 """
 
 import logging
+import re
+import unicodedata
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -32,6 +34,91 @@ AVISO_EM_ATENDIMENTO = (
     "Sua mensagem chegou aqui e a Thainá já foi avisada. "
     "Ela vai te responder por aqui mesmo, assim que puder."
 )
+
+
+# --------------------------------------------------------------------------- #
+# Rede de proteção: a Sofia disse que ia acionar alguém e não chamou a tool
+# --------------------------------------------------------------------------- #
+#
+# O modelo tem dois canais (texto e tool call) e erra o canal: escreve "vou
+# confirmar com a Thainá, ela te responde em pouco tempo" e encerra o turno sem
+# chamar `escalar_para_thaina`. A pessoa fica esperando uma resposta que ninguém
+# sabe que deve — nada aparece no painel, nenhum alerta sai. Em 11/11/2026 isso
+# aconteceu em 3 de 7 conversas de teste.
+#
+# Não é substituível por prompt (o prompt reforça, mas LLM não garante canal).
+# Por isso a conferência é em código, no texto que de fato vai pro paciente.
+#
+# O casamento é em PRIMEIRA PESSOA de propósito. "A Thainá te chama em até 36
+# horas" é o aviso normal do cadastro, não uma promessa de escalada — e é a
+# frase mais comum da Sofia. Só conta quando é ELA dizendo que vai acionar.
+_VERBOS_DE_ACIONAR = (
+    r"chamar|acionar|avisar|confirmar|pedir|passar|repassar|encaminhar|levar|"
+    r"ver|verificar|checar|conferir|perguntar|falar|consultar|marcar|agendar"
+)
+_PROMESSA_DE_ACIONAR = re.compile(
+    # "vou confirmar com a Thainá", "vou pedir para a Thainá te orientar"
+    rf"\b(?:vou|irei)\s+(?:ja\s+)?(?:{_VERBOS_DE_ACIONAR})\b[^.!?\n]{{0,70}}?\b(thaina|amanda)\b"
+    # "já avisei a Thainá", "chamei a Thainá"
+    r"|\b(?:chamei|avisei|acionei)\s+(?:a\s+)?(thaina|amanda)\b"
+    # "estou chamando a Thainá", "tô passando pra Thainá"
+    r"|\b(?:estou|to|tou)\s+(?:chamando|acionando|avisando|passando)\b[^.!?\n]{0,40}?\b(thaina|amanda)\b",
+    re.IGNORECASE,
+)
+
+
+def _sem_acento(texto: str) -> str:
+    n = unicodedata.normalize("NFKD", texto or "")
+    return "".join(c for c in n if not unicodedata.combining(c))
+
+
+def promessa_de_acionar(texto: str | None) -> tuple[str, str] | None:
+    """A fala promete, em primeira pessoa, acionar a Thainá ou a Amanda?
+
+    Devolve `(frase, quem)` — a frase que prometeu e `"thaina"`/`"amanda"` — ou
+    `None`. A frase vai pro `contexto` da escalada: é o que a pessoa leu, e é por
+    onde a Thainá entende o que está sendo esperado dela.
+    """
+    if not texto:
+        return None
+    for frase in re.split(r"(?<=[.!?])\s+|\n+", texto):
+        m = _PROMESSA_DE_ACIONAR.search(_sem_acento(frase))
+        if m:
+            quem = next(g for g in m.groups() if g).lower()
+            return frase.strip(), quem
+    return None
+
+
+async def garantir_escalada_prometida(
+    session: AsyncSession, conversa: Conversa, texto: str | None
+) -> bool:
+    """Se a fala prometeu acionar alguém, registra a escalada que o modelo não fez.
+
+    Chame só quando NENHUMA escalada aconteceu neste turno. Faz o mesmo que a
+    tool `escalar_para_thaina` faria: modo humano, registro e alerta. Devolve
+    True se escalou.
+    """
+    achado = promessa_de_acionar(texto)
+    if achado is None:
+        return False
+    frase, quem = achado
+    # Prometer a Amanda é o convite da neuro aceito; o resto não dá pra saber o
+    # motivo pelo texto, e `outro` com a frase é honesto.
+    motivo = "neuro_reuniao" if quem == "amanda" else "outro"
+    contexto = (
+        "Registrada automaticamente: a Sofia disse ao paciente que ia acionar a "
+        f'equipe e não escalou. O que ela disse: "{frase[:300]}"'
+    )
+    await registrar_escalada(session, conversa, motivo, contexto)
+    await alertar_thaina(session, conversa, motivo)
+    # Sem a frase no log (pode citar o que o paciente contou — LGPD).
+    logger.warning(
+        "Conversa %s: promessa de acionar a equipe sem tool call; escalada "
+        "registrada pela rede de proteção (motivo=%s)",
+        conversa.id,
+        motivo,
+    )
+    return True
 
 
 async def registrar_escalada(
