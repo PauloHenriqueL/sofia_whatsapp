@@ -1,7 +1,7 @@
 """Painel web da Thainá (HTML server-rendered + HTMX). HTTP Basic Auth."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -42,10 +42,22 @@ router = APIRouter(
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
+# Horário de Brasília. Offset fixo de propósito: o Brasil não tem horário de
+# verão desde 2019, e `zoneinfo` exigiria o pacote `tzdata` no Windows.
+_BRASILIA = timezone(timedelta(hours=-3))
+
+
 def _fmt_data(valor):
+    """Data/hora no horário de Brasília.
+
+    O banco guarda em UTC, e até 11/11/2026 o painel mostrava o UTC cru: uma
+    mensagem das 19h41 aparecia como 22h41. Valor sem fuso (SQLite) é UTC.
+    """
     if not isinstance(valor, datetime):
         return ""
-    return valor.strftime("%d/%m %H:%M")
+    if valor.tzinfo is None:
+        valor = valor.replace(tzinfo=timezone.utc)
+    return valor.astimezone(_BRASILIA).strftime("%d/%m %H:%M")
 
 
 def _ha_quanto_tempo(valor):
@@ -648,7 +660,9 @@ async def criar_usuario(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/usuarios/{usuario_id}/editar")
-async def pagina_editar_usuario(usuario_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+async def pagina_editar_usuario(
+    usuario_id: int, request: Request, db: AsyncSession = Depends(get_db)
+):
     usuario = await usuarios.obter(db, usuario_id)
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")

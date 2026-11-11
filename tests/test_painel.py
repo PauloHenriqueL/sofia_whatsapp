@@ -1145,3 +1145,15 @@ class TestArquivamento:
             await s.commit()
         html = (await client.get("/painel/conversas?filtro=humano")).text
         assert "5531900001111" not in html
+
+
+def test_data_do_painel_sai_no_horario_de_brasilia():
+    """O banco guarda UTC; mostrar o UTC cru punha as mensagens 3h adiantadas."""
+    from datetime import datetime, timezone
+
+    from app.routers.painel import _fmt_data
+
+    assert _fmt_data(datetime(2026, 11, 11, 22, 41, tzinfo=timezone.utc)) == "11/11 19:41"
+    # Sem fuso (SQLite) é UTC — e a virada do dia tem que acompanhar.
+    assert _fmt_data(datetime(2026, 11, 12, 1, 5)) == "11/11 22:05"
+    assert _fmt_data(None) == ""

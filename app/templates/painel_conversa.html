@@ -57,11 +57,15 @@
   {% if em_pesquisa or em_cobranca %}
   <div class="aviso" style="margin-top:14px">
     <i class="bi bi-robot"></i>
-    <strong>A Sofia está conduzindo {{ 'uma pesquisa' if em_pesquisa else 'a cobrança da mensalidade' }}
-    nesta conversa.</strong>
-    Ela responde às mensagens do paciente mesmo se a conversa estiver em modo humano.
-    Pra falar você mesma, use <em>Interromper e assumir</em> abaixo — o que já foi
-    respondido fica gravado.
+    {# Um filho só: `.aviso` é flex, e cada pedaço solto de texto virava uma
+       coluna — a frase aparecia partida em quatro, fora de ordem. #}
+    <span>
+      <strong>A Sofia está conduzindo {{ 'uma pesquisa' if em_pesquisa else 'a cobrança da mensalidade' }}
+      nesta conversa.</strong>
+      Ela responde às mensagens do paciente mesmo se a conversa estiver em modo humano.
+      Pra falar você mesma, use <em>Interromper e assumir</em> abaixo — o que já foi
+      respondido fica gravado.
+    </span>
   </div>
   {% endif %}
 

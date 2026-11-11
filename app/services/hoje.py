@@ -382,7 +382,11 @@ async def _resumo(db: AsyncSession, agora: datetime) -> list[dict[str, Any]]:
         alertas = await _contar(db, Conversa.alerta_pesquisa_em, desde)
         linhas.append(
             {
-                "titulo": f"{pesquisas} {'pesquisa conduzida' if pesquisas == 1 else 'pesquisas conduzidas'}",
+                # "Em andamento", não "conduzidas": `pesquisa_iniciada_em` é
+                # zerado quando a pesquisa termina, então este número só enxerga
+                # as que ainda estão abertas. Dizer "conduzidas" mostrava 0 logo
+                # depois de duas pesquisas respondidas.
+                "titulo": f"{pesquisas} {'pesquisa em andamento' if pesquisas == 1 else 'pesquisas em andamento'}",
                 "detalhe": (
                     f"{alertas} {'virou alerta' if alertas == 1 else 'viraram alerta'}"
                     if alertas
@@ -391,12 +395,17 @@ async def _resumo(db: AsyncSession, agora: datetime) -> list[dict[str, Any]]:
             }
         )
 
-    cobrancas = await _contar(db, Conversa.cobranca_encerrada_em, desde)
+    # Conta as cobranças que a Sofia ABRIU (`cobranca_iniciada_em` nunca é limpo).
+    # Antes contava `cobranca_encerrada_em` e dizia "conduzida até o fim, sem
+    # ninguém precisar entrar" — mas a cobrança só se encerra por falta de
+    # resposta, janela fechada, escalada ou a Thainá assumindo. Nenhum desses é
+    # um pagamento: a frase era falsa em todos os casos possíveis.
+    cobrancas = await _contar(db, Conversa.cobranca_iniciada_em, desde)
     if cobrancas:
         linhas.append(
             {
-                "titulo": f"{cobrancas} {'cobrança conduzida' if cobrancas == 1 else 'cobranças conduzidas'} até o fim",
-                "detalhe": "sem ninguém precisar entrar",
+                "titulo": f"{cobrancas} {'cobrança iniciada' if cobrancas == 1 else 'cobranças iniciadas'} pela Sofia",
+                "detalhe": "se foi paga, você vê em Pagamentos",
             }
         )
     return linhas

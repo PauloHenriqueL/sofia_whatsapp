@@ -66,7 +66,7 @@
           <td>{{ a.nome }}</td>
           <td>{{ a.numero }}</td>
           <td>{{ a.motivos }}</td>
-          <td>{{ a.quando.strftime('%d/%m %H:%M') if a.quando else '—' }}</td>
+          <td>{{ (a.quando | data) if a.quando else '—' }}</td>
           <td class="acoes">
             {{ abrir(a) }}
             <form method="post" action="/painel/conversas/{{ a.conversa_id }}/alerta-resolvido"
