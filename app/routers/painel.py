@@ -92,7 +92,20 @@ def _fmt_data_unix(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%d/%m/%Y")
 
 
+def _fmt_telefone(numero) -> str:
+    """5531988887777 -> (31) 98888-7777. O que não parecer celular BR sai como veio."""
+    digitos = "".join(c for c in str(numero or "") if c.isdigit())
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        digitos = digitos[2:]
+    if len(digitos) == 11:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
+    if len(digitos) == 10:
+        return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+    return str(numero or "")
+
+
 templates.env.filters["data"] = _fmt_data
+templates.env.filters["telefone"] = _fmt_telefone
 templates.env.filters["data_unix"] = _fmt_data_unix
 templates.env.filters["desde"] = _ha_quanto_tempo
 templates.env.filters["tamanho"] = _tamanho_legivel

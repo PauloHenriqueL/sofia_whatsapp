@@ -227,7 +227,7 @@ class TestListaEDetalhe:
         await _login(client)
         resp = await client.get("/painel/prompts")
         assert resp.status_code == 200
-        assert "Prompts da Sofia" in resp.text
+        assert "Textos da Sofia" in resp.text
 
     @pytest.mark.asyncio
     async def test_pagina_acompanhamento_renderiza(self, ambiente):

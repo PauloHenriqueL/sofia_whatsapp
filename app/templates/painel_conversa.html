@@ -400,6 +400,25 @@
   </div>
 </div>
 
+{# A conversa abre na mensagem MAIS RECENTE, como em qualquer aplicativo de
+   mensagem. Antes abria na mais antiga e era preciso rolar até o fim. Na
+   atualização automática (a cada 5s) ela só acompanha o fim se a pessoa já
+   estava lá — quem subiu pra ler o histórico não é arrastado de volta. #}
+<script>
+  (function () {
+    const chat = document.getElementById('mensagens');
+    if (!chat) return;
+    let noFim = true;
+    chat.scrollTop = chat.scrollHeight;
+    chat.addEventListener('scroll', function () {
+      noFim = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
+    });
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+      if (e.target === chat && noFim) chat.scrollTop = chat.scrollHeight;
+    });
+  })();
+</script>
+
 {% if pode_digitar %}
 {# Compositor: citar mensagem (P4) e anexar arquivo (P5). #}
 <script>

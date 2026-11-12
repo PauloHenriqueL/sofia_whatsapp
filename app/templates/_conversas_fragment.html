@@ -12,13 +12,32 @@
   </th>
 {% endmacro %}
 
-<table class="table">
+{# Uma etiqueta só, em linguagem de quem atende. Antes eram duas colunas
+   ("modo": bot/humano, e "estado": novo/qualificando/escalado…) com os nomes
+   que o código usa — a pergunta de quem abre a lista é "quem está cuidando
+   desta pessoa agora?", e é isso que a etiqueta responde. #}
+{% macro situacao(c) %}
+  {% if c.arquivada_em %}
+    <span class="badge">Arquivada</span>
+  {% elif c.estado == 'cadastro_pendente' %}
+    <span class="badge badge-escalado"><i class="bi bi-exclamation-triangle"></i> Cadastro falhou</span>
+  {% elif c.modo == 'humano' %}
+    <span class="badge badge-humano"><i class="bi bi-person-raised-hand"></i> Esperando você</span>
+  {% elif c.estado == 'cadastrado' %}
+    <span class="badge badge-cadastrado"><i class="bi bi-check2"></i> Cadastrado</span>
+  {% else %}
+    <span class="badge"><i class="bi bi-robot"></i> Sofia atendendo</span>
+  {% endif %}
+{% endmacro %}
+
+{# No celular (≤640px) cada linha vira um cartão, como numa lista de conversas
+   de aplicativo: nome e hora em cima, situação, e a última mensagem embaixo.
+   As classes `c-*` são o que o CSS usa pra posicionar. #}
+<table class="table lista-conversas">
   <thead>
     <tr>
-      {{ th('numero_whatsapp', 'Número') }}
-      {{ th('nome', 'Nome') }}
-      {{ th('modo', 'Modo') }}
-      {{ th('estado', 'Estado') }}
+      {{ th('nome', 'Paciente') }}
+      {{ th('estado', 'Situação') }}
       <th>Última mensagem</th>
       {{ th('atualizada_em', 'Atividade') }}
       <th></th>
@@ -27,17 +46,16 @@
   <tbody>
     {% for c in conversas %}
     <tr tabindex="0" onclick="window.location='/painel/conversas/{{ c.id }}/'">
-      <td style="font-weight:600">{{ c.numero_whatsapp }}</td>
-      <td>{{ c.nome or '—' }}</td>
-      <td>
-        {% if c.modo == 'humano' %}<span class="badge badge-humano">humano</span>
-        {% else %}<span class="badge">bot</span>{% endif %}
-        {% if c.arquivada_em %}<span class="badge">arquivada</span>{% endif %}
+      <td class="c-paciente" title="{{ c.numero_whatsapp }}">
+        {# O nome é quem a pessoa é; o número é só o contato. Sem nome ainda
+           (conversa nova), o telefone ocupa o lugar dele. #}
+        <div class="c-nome">{{ c.nome or (c.numero_whatsapp | telefone) }}</div>
+        {% if c.nome %}<div class="c-numero">{{ c.numero_whatsapp | telefone }}</div>{% endif %}
       </td>
-      <td><span class="badge badge-{{ c.estado }}">{{ c.estado | rotulo_estado }}</span></td>
-      <td class="muted">{{ c.preview or '' }}</td>
-      <td class="muted">{{ c.atualizada_em | desde }}</td>
-      <td>
+      <td class="c-situacao">{{ situacao(c) }}</td>
+      <td class="c-preview muted">{{ c.preview or '' }}</td>
+      <td class="c-quando muted">{{ c.atualizada_em | desde }}</td>
+      <td class="c-acao">
         {% if c.hamilton_url %}
         <a class="btn btn-ghost btn-sm" href="{{ c.hamilton_url }}" target="_blank" rel="noopener"
            onclick="event.stopPropagation()" title="Completar o cadastro no Hamilton">
@@ -48,7 +66,7 @@
     </tr>
     {% else %}
     <tr>
-      <td colspan="7" class="empty">
+      <td colspan="5" class="empty">
         <i class="bi bi-chat-dots"></i>
         {% if busca %}
           Nada encontrado para "{{ busca }}".
