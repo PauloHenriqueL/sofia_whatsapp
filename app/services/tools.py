@@ -113,9 +113,10 @@ TOOLS = [
                         "description": (
                             "ID da captação (origem) da lista de origens fornecida no "
                             "system prompt, escolhido a partir do que a pessoa contou. "
-                            "OMITA este campo se nenhuma opção da lista corresponder "
-                            "claramente ao que ela disse: captação errada é pior que "
-                            "captação em branco. Nunca invente um ID."
+                            "Se nenhuma opção da lista corresponder claramente ao que "
+                            "ela disse, ou se ela não souber dizer, use o ID da origem "
+                            "'Não sei': captação errada é pior que 'Não sei'. Nunca "
+                            "invente um ID."
                         ),
                     },
                     "is_parceria": {
