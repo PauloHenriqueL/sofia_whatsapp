@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Conversa, Escalada
 from app.services import acompanhamento, cadastro_abandonado
 from app.services import cobranca as cobranca_mod
-from app.services import config_negocio
+from app.services import config_negocio, contato
 from app.services import contrato as contrato_mod
 from app.services import hamilton_client, tools
 
@@ -176,6 +176,19 @@ async def _alertas(db: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
+async def _sem_terapeutas(db: AsyncSession, itens: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Tira da fila as conversas marcadas como de terapeuta (services/contato.py).
+
+    Num lugar só, depois de juntar tudo: a fila nasce de seis consultas
+    diferentes, e filtrar em cada uma é o tipo de regra que a sétima esquece.
+    A escalada aberta continua existindo e aparece na tela da conversa.
+    """
+    if not itens:
+        return itens
+    terapeutas = await contato.ids_de_terapeutas(db)
+    return [i for i in itens if i["conversa_id"] not in terapeutas]
+
+
 def _dedupe(itens: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Uma linha por conversa: fica o sinal mais forte (ver PRIORIDADE)."""
     melhor: dict[int, dict[str, Any]] = {}
@@ -208,6 +221,7 @@ async def listar_pendencias(db: AsyncSession) -> list[dict[str, Any]]:
         + await _cobrancas_travadas(db)
         + await _cadastros_a_confirmar(db)
     )
+    itens = await _sem_terapeutas(db, itens)
     for i in itens:
         i["rotulo"] = ROTULOS[i["tipo"]]
     return _ordenar(_dedupe(itens))
@@ -282,6 +296,7 @@ async def _de_olho(db: AsyncSession, agora: datetime, hamilton) -> tuple[list, s
         erro = "Não consegui falar com o Hamilton agora — a espera pela 1ª consulta não está aqui."
 
     itens.extend(await _contratos_pendentes(db, agora, hamilton))
+    itens = await _sem_terapeutas(db, itens)
 
     # Espera longa primeiro; o resto por recência.
     itens.sort(key=lambda i: i.get("dias") or 0, reverse=True)
@@ -352,7 +367,11 @@ def _quando(iso: str | None) -> datetime | None:
 
 
 async def _contar(db: AsyncSession, coluna, desde: datetime) -> int:
-    q = select(func.count()).select_from(Conversa).where(coluna >= desde)
+    q = (
+        select(func.count())
+        .select_from(Conversa)
+        .where(coluna >= desde, Conversa.eh_terapeuta.is_(False))
+    )
     return int((await db.execute(q)).scalar() or 0)
 
 
@@ -432,7 +451,11 @@ async def montar_hoje(
             await db.execute(
                 select(func.count())
                 .select_from(Conversa)
-                .where(Conversa.criada_em >= desde, Conversa.arquivada_em.is_(None))
+                .where(
+                    Conversa.criada_em >= desde,
+                    Conversa.arquivada_em.is_(None),
+                    Conversa.eh_terapeuta.is_(False),
+                )
             )
         ).scalar()
         or 0

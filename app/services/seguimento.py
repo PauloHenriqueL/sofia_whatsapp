@@ -68,6 +68,8 @@ async def buscar_leads_parados(db: AsyncSession, agora: datetime) -> list[Conver
             # no meio de outra conversa, não é lead sumido. Perguntar "você ainda
             # tem interesse?" pra quem já é paciente não faz sentido nenhum.
             Conversa.pesquisa_avaliacao_id.is_(None),
+            # Terapeuta não é lead: "você ainda tem interesse?" não cabe.
+            Conversa.eh_terapeuta.is_(False),
             ultima_recebida.c.ult <= limite_recente,
             ultima_recebida.c.ult >= limite_janela,
         )

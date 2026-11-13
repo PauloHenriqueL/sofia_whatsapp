@@ -50,6 +50,11 @@ FILTROS = {
     "escalada": "Em escalada",
     "cadastradas_hoje": "Cadastradas hoje",
     "cadastrados": "Já no Hamilton",
+    # Quem está do outro lado (services/contato.py). "Todas" continua mostrando
+    # os dois, com etiqueta: esconder terapeuta por padrão faria sumir da vista
+    # justamente o que a Sofia atendeu por engano como paciente.
+    "pacientes": "Só pacientes",
+    "terapeutas": "Só terapeutas",
     "arquivadas": "Arquivadas",
 }
 
@@ -98,6 +103,10 @@ def _aplicar_filtro(q, filtro: str):
     if filtro == "cadastrados":
         # Pacientes que já entraram no Hamilton (têm pk lá).
         return q.where(Conversa.paciente_hamilton_id.isnot(None))
+    if filtro == "pacientes":
+        return q.where(Conversa.eh_terapeuta.is_(False))
+    if filtro == "terapeutas":
+        return q.where(Conversa.eh_terapeuta.is_(True))
     return q
 
 
@@ -176,6 +185,7 @@ async def listar_conversas(
                 "hamilton_url": url_hamilton_paciente(c.paciente_hamilton_id),
                 "atualizada_em": c.atualizada_em,
                 "arquivada_em": c.arquivada_em,
+                "eh_terapeuta": c.eh_terapeuta,
                 "preview": previews.get(c.id),
             }
         )

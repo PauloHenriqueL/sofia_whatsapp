@@ -108,6 +108,7 @@ def _sem_ficha(q):
         Conversa.paciente_hamilton_id.is_(None),
         Conversa.estado.not_in(ESTADOS_FINALIZADOS),
         Conversa.arquivada_em.is_(None),
+        Conversa.eh_terapeuta.is_(False),
     )
 
 

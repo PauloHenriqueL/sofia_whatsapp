@@ -1,7 +1,9 @@
 {% macro resumo(m) %}{{ (m.texto or '[' ~ m.tipo ~ ']') | truncate(70) }}{% endmacro %}
 
 {# Rótulo amigável de quem falou (o valor cru do banco é 'paciente'/'bot'/'thaina'). #}
-{% set ROTULOS = {'paciente': 'Paciente', 'bot': 'Sofia', 'thaina': 'Thainá'} %}
+{# A origem 'paciente' quer dizer "quem escreveu para a Sofia": numa conversa
+   marcada como de terapeuta, o balão diz Terapeuta. #}
+{% set ROTULOS = {'paciente': 'Terapeuta' if de_terapeuta else 'Paciente', 'bot': 'Sofia', 'thaina': 'Thainá'} %}
 
 {% for m in mensagens %}
   <div class="msg msg-{{ m.origem }}" data-id="{{ m.id }}" data-resumo="{{ resumo(m) }}">

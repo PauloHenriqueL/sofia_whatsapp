@@ -306,6 +306,8 @@ async def _elegivel(db: AsyncSession, conversa: Conversa) -> bool:
 
     if not config_negocio.valor("cobranca_ativa"):
         return False
+    if conversa.eh_terapeuta:
+        return False  # ver services/contato.py
     if ja_abordada(conversa) or e_parceria(conversa):
         return False
     if conversa.arquivada_em is not None or conversa.cobranca_resolvida_em is not None:
@@ -354,6 +356,7 @@ async def _iniciar_pendentes(db: AsyncSession, agora: datetime) -> int:
                     Conversa.cobranca_iniciada_em.is_(None),
                     Conversa.cobranca_resolvida_em.is_(None),
                     Conversa.arquivada_em.is_(None),
+                    Conversa.eh_terapeuta.is_(False),
                 )
             )
         )

@@ -19,6 +19,7 @@ from app.services import (
     captacao,
     cobranca,
     config_negocio,
+    contato,
     conversation,
     encaminhamento,
     escalation,
@@ -420,7 +421,9 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # pacientes, e sem isto o LLM faria triagem e cadastraria o terapeuta como
     # lead. Toque em botão do lembrete recebe os detalhes; o resto, a resposta
     # fixa. Nada disso vira conversa no painel (ver lembretes_terapeutas).
-    if await lembretes_terapeutas.eh_terapeuta(numero):
+    # Se já existia uma conversa com esse número, `ao_reconhecer` a marca como
+    # de terapeuta; só devolve False para quem foi marcado à mão como paciente.
+    if await lembretes_terapeutas.eh_terapeuta(numero) and await _tratar_como_terapeuta(numero):
         # Aceito/Não aceito do aviso de encaminhamento: é o toque que grava o
         # vínculo no Hamilton (ver services/encaminhamento.py).
         botao_encaminhamento = encaminhamento.botao_da_mensagem(mensagem, "enc_")
@@ -477,7 +480,8 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             # Presença humana (UX): marca lida e, se o bot responde, "digitando…".
             if config_negocio.valor("simular_digitacao"):
                 await whatsapp_client.marcar_como_lida(
-                    wamid, com_digitacao=(conversa.modo != "humano")
+                    wamid,
+                    com_digitacao=(conversa.modo != "humano" and not conversa.eh_terapeuta),
                 )
             await session.commit()
 
@@ -492,6 +496,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 )
                 await session.commit()
                 await _enviar_em_bolhas(session, conversa, numero, resposta)
+                return
+
+            # Conversa marcada como de terapeuta (ver services/contato.py): a
+            # mensagem fica guardada, mas a Sofia não faz triagem nem cadastro.
+            # Vem antes dos portões de paciente (áudio e anexo abririam escalada),
+            # mas DEPOIS do botão da proposta de horário: se a equipe mandou uma
+            # proposta para este número, a resposta não pode cair no vazio.
+            if conversa.eh_terapeuta:
+                await _responder_a_terapeuta(session, conversa, numero)
                 return
 
             # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
@@ -550,6 +563,32 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # Texto normal: (re)agenda o turno pra depois da janela; a rajada reseta o
     # timer, então só a última mensagem dispara uma única resposta.
     serializacao.agendar(numero, config_negocio.valor("debounce_segundos"), _turno_agendado)
+
+
+async def _tratar_como_terapeuta(numero: str) -> bool:
+    """O Hamilton reconheceu o número. Marca a conversa que já existia com ele e
+    diz se vale mesmo tratá-lo como terapeuta (ver `contato.ao_reconhecer`)."""
+    try:
+        async with async_session() as session:
+            return await contato.ao_reconhecer(session, numero)
+    except Exception:  # noqa: BLE001 — a marca é conveniência do painel
+        # Sem banco, vale o que o Hamilton disse: o terapeuta recebe os balões
+        # do lembrete como sempre, só a etiqueta fica para a próxima.
+        logger.exception("Não consegui marcar a conversa de %s", mascarar_telefone(numero))
+        return True
+
+
+async def _responder_a_terapeuta(session, conversa, numero: str) -> None:
+    """Resposta fixa a quem foi marcado como terapeuta, no máximo uma por hora.
+
+    Com a conversa em modo humano não sai nada: alguém da equipe está falando
+    com o terapeuta pelo painel, e "este número não lê respostas" no meio disso
+    seria mentira.
+    """
+    if conversa.modo == "humano":
+        return
+    if lembretes_terapeutas.pode_responder_agora(numero):
+        await _enviar_em_bolhas(session, conversa, numero, lembretes_terapeutas.RESPOSTA_TERAPEUTA)
 
 
 async def _avisar_escalada_uma_vez(session, conversa, numero: str) -> None:
@@ -628,6 +667,9 @@ async def _turno_agendado(numero: str) -> None:
         async with async_session() as session:
             conversa = await conversation.obter_conversa_por_numero(session, numero)
             if conversa is None:
+                return
+            # Marcada como terapeuta enquanto o turno esperava a janela.
+            if conversa.eh_terapeuta:
                 return
             # Pode ter virado modo humano (ex.: áudio no meio da rajada): não
             # responde — salvo pesquisa/cobrança em curso, mesma exceção do portão

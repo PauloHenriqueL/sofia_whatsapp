@@ -6,7 +6,19 @@ JSON em SQLite) e timestamps com timezone.
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -125,6 +137,18 @@ class Conversa(Base):
     # única coisa que a Thainá olha: sem isso ela não distingue "a Sofia já cobrou
     # e a pessoa sumiu" de "a Sofia nunca conseguiu falar" — e trataria as duas igual.
     cobranca_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # --- Quem está do outro lado: paciente ou terapeuta (services/contato.py) ---
+    # O número da Sofia é o mesmo para os dois. Terapeuta que o Hamilton
+    # reconhece nem vira conversa, mas os que escaparam (telefone diferente do
+    # cadastro, inativo, ou conversa anterior à regra) ficavam na lista iguais a
+    # um paciente — e a Sofia os tratava como lead.
+    eh_terapeuta: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), index=True
+    )
+    # Quem decidiu a marca acima: NULL = ninguém conferiu ainda; "hamilton" = a
+    # conferência automática; "manual" = alguém clicou no painel. A escolha à
+    # mão nunca é desfeita pela conferência.
+    contato_conferido_por: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

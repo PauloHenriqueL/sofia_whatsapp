@@ -380,6 +380,8 @@ async def motivo_para_pular_entrada(db: AsyncSession, conversa: Conversa) -> str
     """
     if not config_negocio.valor("pesquisa_entrada_ativa"):
         return "pesquisa de entrada desligada no painel"
+    if conversa.eh_terapeuta:
+        return "a conversa é de terapeuta, não de paciente"
     if conversa.estado != "cadastrado" or not conversa.paciente_hamilton_id:
         return "cadastro não concluído no Hamilton"
     if not cadastro.foi_cadastro_novo(conversa):
@@ -853,6 +855,10 @@ async def rodar_pesquisas(db: AsyncSession, agora: datetime | None = None) -> di
         # exceção pros dois modos, então a resposta da pessoa não cai no vazio.
         if em_pesquisa(conversa):
             continue  # já tem pesquisa em curso, ou a conversa está com a Thainá
+        if conversa.eh_terapeuta:
+            # O telefone casa com o de um paciente, mas a conversa foi marcada
+            # como de terapeuta: a Sofia não a conduz (ver services/contato.py).
+            continue
         if cobranca.em_cobranca(conversa):
             # Uma conversa automática por pessoa de cada vez. `_responder_turno` dá
             # precedência à pesquisa, então abordar quem está em cobrança não
@@ -1078,6 +1084,7 @@ async def _abrir_entradas(db: AsyncSession, agora: datetime) -> int:
         Conversa.modo == "bot",
         Conversa.pesquisa_avaliacao_id.is_(None),
         Conversa.arquivada_em.is_(None),
+        Conversa.eh_terapeuta.is_(False),
         Conversa.id.not_in(escaladas_abertas),
     )
     candidatas = list((await db.execute(q)).scalars().all())

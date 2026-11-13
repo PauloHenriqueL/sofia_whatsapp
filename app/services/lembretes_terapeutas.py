@@ -74,14 +74,22 @@ async def eh_terapeuta(numero: str) -> bool:
     return resultado
 
 
+def pode_responder_agora(numero: str) -> bool:
+    """A resposta fixa sai no máximo uma vez por hora para cada número. Quem
+    pergunta já fica com a vez: chame só quando for mesmo enviar."""
+    agora = time.monotonic()
+    if agora - _respondidos.get(numero, -_RESPONDER_A_CADA) < _RESPONDER_A_CADA:
+        return False
+    _respondidos[numero] = agora
+    return True
+
+
 async def responder_terapeuta(numero: str, wamid: str | None) -> None:
     """Resposta fixa (dentro da janela de 24h aberta por ele: texto livre, grátis)."""
     if wamid:
         await whatsapp_client.marcar_como_lida(wamid)
-    agora = time.monotonic()
-    if agora - _respondidos.get(numero, -_RESPONDER_A_CADA) < _RESPONDER_A_CADA:
+    if not pode_responder_agora(numero):
         return
-    _respondidos[numero] = agora
     await whatsapp_client.enviar_texto(numero, RESPOSTA_TERAPEUTA)
     logger.info("Terapeuta %s escreveu para a Sofia; resposta fixa enviada", mascarar_telefone(numero))
 

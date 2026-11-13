@@ -22,6 +22,11 @@ from app.services import hamilton_client, saida, tools
 
 logger = logging.getLogger(__name__)
 
+# Todo número daqui é sobre paciente e lead. Conversa marcada como de terapeuta
+# (services/contato.py) fica de fora: contaria como lead que não converteu.
+_PACIENTE = Conversa.eh_terapeuta.is_(False)
+_DE_TERAPEUTA = select(Conversa.id).where(Conversa.eh_terapeuta.is_(True))
+
 
 async def _scalar(db: AsyncSession, stmt) -> int:
     return int((await db.execute(stmt)).scalar() or 0)
@@ -67,7 +72,11 @@ async def _tempo_ate_primeira_sessao(db: AsyncSession, hamilton=None) -> dict | 
     """
     hamilton = hamilton or hamilton_client.get_hamilton_client()
     conversas = (
-        (await db.execute(select(Conversa).where(Conversa.paciente_hamilton_id.isnot(None))))
+        (
+            await db.execute(
+                select(Conversa).where(Conversa.paciente_hamilton_id.isnot(None), _PACIENTE)
+            )
+        )
         .scalars()
         .all()
     )
@@ -113,22 +122,34 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
     inicio_hoje = agora.replace(hour=0, minute=0, second=0, microsecond=0)
     inicio_7d = (agora - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    total = await _scalar(db, select(func.count(Conversa.id)))
+    total = await _scalar(db, select(func.count(Conversa.id)).where(_PACIENTE))
     leads_hoje = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.criada_em >= inicio_hoje)
+        db,
+        select(func.count(Conversa.id)).where(_PACIENTE).where(Conversa.criada_em >= inicio_hoje),
     )
     cadastrados = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.paciente_hamilton_id.isnot(None))
+        db,
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.paciente_hamilton_id.isnot(None)),
     )
-    humano = await _scalar(db, select(func.count(Conversa.id)).where(Conversa.modo == "humano"))
+    humano = await _scalar(
+        db, select(func.count(Conversa.id)).where(_PACIENTE).where(Conversa.modo == "humano")
+    )
     pendentes = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.estado == "cadastro_pendente")
+        db,
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.estado == "cadastro_pendente"),
     )
     escalados = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.estado == "escalado")
+        db, select(func.count(Conversa.id)).where(_PACIENTE).where(Conversa.estado == "escalado")
     )
     followups = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.seguimento_enviado_em.isnot(None))
+        db,
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.seguimento_enviado_em.isnot(None)),
     )
     # Recuperados: levou follow-up e o paciente voltou a responder depois.
     recuperados = await _scalar(
@@ -137,6 +158,7 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
         .select_from(Conversa)
         .join(Mensagem, Mensagem.conversa_id == Conversa.id)
         .where(
+            _PACIENTE,
             Conversa.seguimento_enviado_em.isnot(None),
             Mensagem.direcao == "recebida",
             Mensagem.criada_em > Conversa.seguimento_enviado_em,
@@ -154,7 +176,7 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
     linhas = (
         await db.execute(
             select(Escalada.motivo, func.count(Escalada.id))
-            .where(Escalada.resolvida_em.is_(None))
+            .where(Escalada.resolvida_em.is_(None), Escalada.conversa_id.not_in(_DE_TERAPEUTA))
             .group_by(Escalada.motivo)
         )
     ).all()
@@ -166,23 +188,29 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
 
     # ── Pesquisa de satisfação (Demanda C) ────────────────────────────────────
     pesquisas_em_curso = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.pesquisa_avaliacao_id.isnot(None))
+        db,
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.pesquisa_avaliacao_id.isnot(None)),
     )
     alertas_abertos = await _scalar(
         db,
-        select(func.count(Conversa.id)).where(
-            Conversa.alerta_pesquisa_em.isnot(None), Conversa.alerta_resolvido_em.is_(None)
-        ),
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.alerta_pesquisa_em.isnot(None), Conversa.alerta_resolvido_em.is_(None)),
     )
     alertas_total = await _scalar(
-        db, select(func.count(Conversa.id)).where(Conversa.alerta_pesquisa_em.isnot(None))
+        db,
+        select(func.count(Conversa.id))
+        .where(_PACIENTE)
+        .where(Conversa.alerta_pesquisa_em.isnot(None)),
     )
 
     # ── Cobrança da mensalidade (Demanda D) ───────────────────────────────────
     cobrancas = (
         await db.execute(
             select(Conversa.cobranca_status, func.count(Conversa.id))
-            .where(Conversa.cobranca_iniciada_em.isnot(None))
+            .where(Conversa.cobranca_iniciada_em.isnot(None), _PACIENTE)
             .group_by(Conversa.cobranca_status)
         )
     ).all()
@@ -207,7 +235,11 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
 
     # Leads por dia nos últimos 7 dias (bucket em Python -> portável).
     datas = (
-        (await db.execute(select(Conversa.criada_em).where(Conversa.criada_em >= inicio_7d)))
+        (
+            await db.execute(
+                select(Conversa.criada_em).where(Conversa.criada_em >= inicio_7d, _PACIENTE)
+            )
+        )
         .scalars()
         .all()
     )

@@ -57,7 +57,7 @@ que fazer com o painel de pagamentos do site.
   `POST /tasks/cobrancas` e **`POST /tasks/stripe`** (diário; encerra o parcelado
   do neuro na última parcela — sem ele a assinatura cobra pra sempre, e isso já
   aconteceu com 18 pacientes). **Sem cron, nada sai.**
-- `alembic upgrade head` (head atual: **`c9e1f4a7b3d8`**).
+- `alembic upgrade head` (head atual: **`a4c2e7b91f30`**).
 
 ### 2. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
@@ -384,6 +384,8 @@ conversa
 ├─ cobranca_iniciada_em (NUNCA limpo: garante 1 cobrança por pessoa — Demanda D)
 ├─ cobranca_encerrada_em (preenchido + iniciada = modo cobrança DESLIGADO)
 ├─ cobranca_lembrete_em, cobranca_status (rótulo na fila do acompanhamento)
+├─ eh_terapeuta (a conversa é de terapeuta, não de paciente — `contato.py`)
+├─ contato_conferido_por (NULL = ninguém conferiu; 'hamilton' ou 'manual')
 ├─ stripe_ref (vínculo paciente ↔ Stripe; sub_/cs_/cus_/plink_/URL)
 ├─ desconto_oferecido_em, desconto_valor, desconto_motivo (auditoria)
 └─ criada_em, atualizada_em
@@ -525,6 +527,49 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
 - **Elegibilidade é auto-declarada** (a pessoa diz que é servidora). Fica registrada na
   `observacao` — é a única evidência se a prefeitura questionar uma consulta. Ver o risco
   registrado em `docs/demandas/01-EM-ANDAMENTO.md`.
+
+### Paciente ou terapeuta (`contato.py`, `conversa.eh_terapeuta`) — 13/11/2026
+O número da Sofia é um só. Terapeuta que o Hamilton reconhece pelo telefone é
+barrado no webhook e **nem vira conversa** (`lembretes_terapeutas.eh_terapeuta`).
+Mesmo assim a lista tinha conversas de terapeuta, iguais às de paciente, por três
+caminhos: a conversa nasceu antes dessa regra, o telefone do WhatsApp é diferente
+do cadastro, ou a pessoa não é mais terapeuta ativo. Nos dois últimos a Sofia
+ainda a tratava como lead.
+- **Quem marca.** O Hamilton, quando o terapeuta escreve (`contato.ao_reconhecer`)
+  e numa conferência aos poucos das conversas antigas (`contato.conferir`,
+  pendurada em `/tasks/lembretes-terapeutas`, 15 por rodada — cada uma é uma
+  chamada ao Hamilton dentro do request do cron, que o cron-job.org corta em 30s).
+  Ou uma pessoa, pelo botão "Marcar como terapeuta / paciente" na conversa.
+- **A escolha à mão vence, nos dois sentidos** (`contato_conferido_por='manual'`):
+  a conferência não a desfaz, e quem foi marcado à mão como *paciente* passa pelo
+  fluxo de paciente mesmo com o Hamilton dizendo que é terapeuta.
+- **Hamilton fora não marca ninguém**: "não sei" não pode virar "é paciente", e a
+  conversa volta na rodada seguinte.
+- **Marcar não apaga nada.** A conversa segue na lista com a etiqueta "Terapeuta"
+  (filtros "Só pacientes" / "Só terapeutas"; o padrão mostra os dois, senão o que a
+  Sofia atendeu por engano sumiria da vista).
+- **O que muda para a Sofia.** O portão fica em `webhook.ingerir_mensagem`, logo
+  depois de guardar a mensagem: sem triagem, sem escalada por áudio/anexo; sai a
+  resposta fixa de terapeuta, no máximo uma por hora, e nada se a conversa estiver
+  em modo humano (alguém da equipe está falando com ele). Marcar também encerra
+  pesquisa e cobrança em curso — ⚠️ a marca é gravada **antes** de fechar a
+  pesquisa, porque `pesquisa.finalizar` emenda a cobrança e é a marca que faz
+  `cobranca._elegivel` recusar.
+- **Quem filtra por `eh_terapeuta`**: follow-up, cadastro abandonado, cobrança,
+  pesquisa (entrada e pendentes do Hamilton), pedidos de encaminhamento, todas as
+  contagens de `metricas.py` e a fila Hoje (num ponto só, `hoje._sem_terapeutas`).
+  **`/painel/acompanhamento` não filtra, de propósito**: quem a Sofia cadastrou no
+  Hamilton por engano continua aparecendo ali para alguém resolver.
+- ⚠️ Terapeuta que o Hamilton reconhece continua **sem** ter as mensagens guardadas
+  (os balões do lembrete levam nome de paciente). Só a conversa marcada à mão
+  passa pela ingestão normal e fica com o histórico.
+- 🔴 **`contato.definir` grava com `UPDATE` explícito, não pelo objeto.**
+  `atualizada_em` tem `onupdate`: pela via normal, a conferência carimbaria
+  "atividade agora" em toda conversa antiga e embaralharia a lista, que ordena
+  por ela. Há teste segurando isso.
+- O portão de terapeuta vem **depois** do botão da proposta de horário: proposta
+  enviada pela equipe a um número marcado não pode ficar sem resposta.
+- Varredura nova que fale com paciente precisa do filtro. Não há trava central.
 
 ### Aviso único pós-escalada (`escalation.AVISO_EM_ATENDIMENTO`) — Demanda B
 - Escalar deixa a conversa em modo humano e a Sofia **ficava totalmente muda**: quem escrevia
@@ -1160,6 +1205,7 @@ sofia/
 │   │   ├── metricas.py       # KPIs do painel (Frente 3)
 │   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
 │   │   ├── captacao.py       # Origem do paciente: lista do Hamilton + validação do ID
+│   │   ├── contato.py        # Paciente ou terapeuta: quem marca a conversa e o que muda
 │   │   ├── hoje.py           # Fila única do que precisa de uma pessoa (home do painel)
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
@@ -1197,6 +1243,7 @@ sofia/
 │   ├── test_captacao.py, test_pesquisa.py   # Demandas A e C
 │   ├── test_cobranca.py, test_pagamentos.py # Demanda D + painel de pagamentos
 │   ├── test_links.py                        # encurtador de link de pagamento
+│   ├── test_contato.py                      # conversa de terapeuta: marca, portão, filtros
 │   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)

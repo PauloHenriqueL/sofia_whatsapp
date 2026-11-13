@@ -247,6 +247,7 @@ async def _conversas_sem_pedido(db: AsyncSession, agora: datetime) -> list[Conve
         await db.execute(
             select(Conversa)
             .where(Conversa.paciente_hamilton_id.is_not(None))
+            .where(Conversa.eh_terapeuta.is_(False))
             .where(Conversa.cadastrado_em >= agora - JANELA_PEDIDO)
             .order_by(Conversa.cadastrado_em)
         )

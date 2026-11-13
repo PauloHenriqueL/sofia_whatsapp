@@ -19,6 +19,13 @@
 {% macro situacao(c) %}
   {% if c.arquivada_em %}
     <span class="badge">Arquivada</span>
+  {% elif c.eh_terapeuta %}
+    {# Terapeuta não é atendido pela Sofia: nenhum dos estados de paciente cabe. #}
+    {% if c.modo == 'humano' %}
+      <span class="badge badge-humano"><i class="bi bi-person-raised-hand"></i> Com a equipe</span>
+    {% else %}
+      <span class="badge"><i class="bi bi-slash-circle"></i> Sofia não atende</span>
+    {% endif %}
   {% elif c.estado == 'cadastro_pendente' %}
     <span class="badge badge-escalado"><i class="bi bi-exclamation-triangle"></i> Cadastro falhou</span>
   {% elif c.modo == 'humano' %}
@@ -36,7 +43,7 @@
 <table class="table lista-conversas">
   <thead>
     <tr>
-      {{ th('nome', 'Paciente') }}
+      {{ th('nome', 'Contato') }}
       {{ th('estado', 'Situação') }}
       <th>Última mensagem</th>
       {{ th('atualizada_em', 'Atividade') }}
@@ -49,7 +56,11 @@
       <td class="c-paciente" title="{{ c.numero_whatsapp }}">
         {# O nome é quem a pessoa é; o número é só o contato. Sem nome ainda
            (conversa nova), o telefone ocupa o lugar dele. #}
-        <div class="c-nome">{{ c.nome or (c.numero_whatsapp | telefone) }}</div>
+        <div class="c-nome">
+          {{ c.nome or (c.numero_whatsapp | telefone) }}
+          {# Quem não tem etiqueta é paciente: é o caso comum e não precisa de rótulo. #}
+          {% if c.eh_terapeuta %}<span class="tag-terapeuta"><i class="bi bi-person-badge"></i> Terapeuta</span>{% endif %}
+        </div>
         {% if c.nome %}<div class="c-numero">{{ c.numero_whatsapp | telefone }}</div>{% endif %}
       </td>
       <td class="c-situacao">{{ situacao(c) }}</td>

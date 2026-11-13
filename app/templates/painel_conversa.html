@@ -7,12 +7,19 @@
 
   <div class="page-head" style="margin-top:10px">
     <div>
-      <h1 style="font-size:23px">{{ (conversa.dados_coletados or {}).get('nome_completo') or conversa.numero_whatsapp }}</h1>
+      <h1 style="font-size:23px">
+        {{ (conversa.dados_coletados or {}).get('nome_completo') or conversa.numero_whatsapp }}
+        {% if conversa.eh_terapeuta %}<span class="tag-terapeuta"><i class="bi bi-person-badge"></i> Terapeuta</span>{% endif %}
+      </h1>
       <div class="subtitle">
         {{ conversa.numero_whatsapp }} ·
         {% if conversa.modo == 'humano' %}<span class="badge badge-humano">modo humano</span>
+        {% elif conversa.eh_terapeuta %}<span class="badge">Sofia não atende</span>
         {% else %}<span class="badge">modo bot</span>{% endif %}
+        {# "Novo", "Cadastrado"… são etapas do atendimento de paciente. #}
+        {% if not conversa.eh_terapeuta %}
         · <span class="badge badge-{{ conversa.estado }}">{{ conversa.estado | rotulo_estado }}</span>
+        {% endif %}
         {% if conversa.arquivada_em %} · <span class="badge">arquivada</span>{% endif %}
       </div>
     </div>
@@ -31,6 +38,21 @@
       {% if conversa.modo == 'humano' %}
         <form method="post" action="/painel/conversas/{{ conversa.id }}/devolver-bot" class="acao-inline">
           <button class="btn btn-ghost" type="submit"><i class="bi bi-robot"></i> Devolver ao bot</button>
+        </form>
+      {% endif %}
+      {# Paciente ou terapeuta: a escolha feita aqui vale mais que a conferência
+         automática no Hamilton (services/contato.py). #}
+      {% if conversa.eh_terapeuta %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/contato" class="acao-inline"
+              onsubmit="return confirm('Marcar esta conversa como de paciente? A Sofia volta a atender este número como paciente.')">
+          <input type="hidden" name="tipo" value="paciente">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-person"></i> Marcar como paciente</button>
+        </form>
+      {% else %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/contato" class="acao-inline"
+              onsubmit="return confirm('Marcar esta conversa como de terapeuta? A Sofia para de tratar este número como paciente: sem triagem, pesquisa ou cobrança. Nada é apagado.')">
+          <input type="hidden" name="tipo" value="terapeuta">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-person-badge"></i> Marcar como terapeuta</button>
         </form>
       {% endif %}
       {% if conversa.arquivada_em %}
@@ -54,6 +76,18 @@
      Pesquisa e cobrança furam o portão do modo humano (Demanda D): a Sofia
      responde mesmo com a conversa escalada. Sem este aviso, "Assumir controle"
      prometia um silêncio que não acontecia. #}
+  {% if conversa.eh_terapeuta %}
+  <div class="aviso" style="margin-top:14px">
+    <i class="bi bi-person-badge"></i>
+    <span>
+      <strong>Esta conversa é de terapeuta.</strong>
+      A Sofia não faz triagem, pesquisa nem cobrança aqui, e a conversa não entra nos resultados.
+      {% if conversa.contato_conferido_por == 'manual' %}Foi marcada à mão no painel.
+      {% else %}O Hamilton reconheceu o telefone.{% endif %}
+      Se for engano, use <em>Marcar como paciente</em>.
+    </span>
+  </div>
+  {% endif %}
   {% if em_pesquisa or em_cobranca %}
   <div class="aviso" style="margin-top:14px">
     <i class="bi bi-robot"></i>
@@ -389,7 +423,11 @@
     {% else %}
       <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir"
             class="compositor-bloqueado">
+        {% if conversa.eh_terapeuta %}
+        <span><i class="bi bi-slash-circle"></i> A Sofia não atende esta conversa.</span>
+        {% else %}
         <span><i class="bi bi-robot"></i> A Sofia está atendendo esta conversa.</span>
+        {% endif %}
         <button class="btn btn-primary" type="submit">
           <i class="bi bi-person-raised-hand"></i> Assumir controle pra responder
         </button>

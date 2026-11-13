@@ -19,6 +19,7 @@ from app.services import (
     cobranca,
     encaminhamento,
     config_negocio,
+    contato,
     lembretes_terapeutas,
     pagamentos,
     pesquisa,
@@ -127,4 +128,7 @@ async def disparar_lembretes_terapeutas(request: Request, db: AsyncSession = Dep
         return JSONResponse({"error": "forbidden"}, status_code=403)
     resultado = await lembretes_terapeutas.rodar()
     resultado["encaminhamento"] = await encaminhamento.rodar(db)
+    # Mesma razão do encaminhamento para vir pendurada aqui. Confere aos poucos
+    # quais conversas antigas são de terapeuta (ver services/contato.py).
+    resultado["contatos"] = await contato.conferir(db)
     return resultado

@@ -11,7 +11,14 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
-from app.services import acompanhamento, cadastro, config_negocio, config_prompt, hamilton_client
+from app.services import (
+    acompanhamento,
+    cadastro,
+    config_negocio,
+    config_prompt,
+    contato,
+    hamilton_client,
+)
 from app.services import encaminhamento as encaminhamento_service
 from app.services import hoje as hoje_service
 from app.services import metricas, midia, painel, usuarios, whatsapp_client
@@ -582,6 +589,7 @@ async def pagina_conversa(
             "conversa": conversa,
             "mensagens": mensagens,
             "escaladas": await painel.listar_escaladas(db, conversa_id),
+            "de_terapeuta": conversa.eh_terapeuta,
             "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
             "max_anexo": midia.TAMANHO_MAXIMO,
             "stripe_configurado": stripe_client.configurado(),
@@ -601,10 +609,15 @@ async def pagina_conversa(
 async def fragment_mensagens(
     request: Request, conversa_id: int, db: AsyncSession = Depends(get_db)
 ):
+    conversa = await painel.obter_conversa(db, conversa_id)
     mensagens = await painel.carregar_mensagens(db, conversa_id)
     return templates.TemplateResponse(
         "_mensagens_fragment.html",
-        {"request": request, "mensagens": mensagens},
+        {
+            "request": request,
+            "mensagens": mensagens,
+            "de_terapeuta": bool(conversa and conversa.eh_terapeuta),
+        },
     )
 
 
@@ -653,7 +666,7 @@ async def responder(
     mensagens = await painel.carregar_mensagens(db, conversa_id)
     return templates.TemplateResponse(
         "_mensagens_fragment.html",
-        {"request": request, "mensagens": mensagens},
+        {"request": request, "mensagens": mensagens, "de_terapeuta": conversa.eh_terapeuta},
     )
 
 
@@ -688,6 +701,20 @@ async def devolver_bot(
     return RedirectResponse(
         _destino_seguro(proximo, f"/painel/conversas/{conversa_id}/"), status_code=303
     )
+
+
+@router.post("/conversas/{conversa_id}/contato")
+async def definir_contato(
+    conversa_id: int, tipo: str = Form(...), db: AsyncSession = Depends(get_db)
+):
+    """Marca à mão se a conversa é de terapeuta ou de paciente (services/contato.py)."""
+    if tipo not in ("terapeuta", "paciente"):
+        raise HTTPException(status_code=400, detail="Tipo de contato inválido")
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    await contato.definir(db, conversa, tipo == "terapeuta", contato.MANUAL)
+    return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/arquivar")
