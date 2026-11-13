@@ -2,6 +2,7 @@
   "name": "Sofia — Allos",
   "short_name": "Sofia",
   "description": "Painel de atendimento da Sofia no WhatsApp",
+  "id": "/painel/",
   "start_url": "/painel/",
   "scope": "/",
   "display": "standalone",
@@ -36,12 +37,12 @@
   ],
   "shortcuts": [
     {
-      "name": "Acompanhamento",
-      "url": "/painel/acompanhamento"
+      "name": "Conversas",
+      "url": "/painel/conversas"
     },
     {
-      "name": "Resultados",
-      "url": "/painel/metricas"
+      "name": "Acompanhamento",
+      "url": "/painel/acompanhamento"
     }
   ]
 }

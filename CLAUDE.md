@@ -678,6 +678,13 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
 - Ícones: "S" da **Fraunces** (`--font-display`) sobre o gradiente do `.brand .logo`. Há versões
   **maskable** (o Android recorta 20% das bordas; sem elas o S fica cortado). Regerar com
   `scripts/gerar_icones.py` (fontTools + Pillow, **não** são dependência de runtime).
+- **Botão "Instalar"** (`static/instalar.js`, topo e login — Demanda F,
+  `docs/demandas/07-APP-INSTALAVEL.md`): nasce com `hidden` e só aparece quando o
+  navegador dispara `beforeinstallprompt`. **Sem detecção de aparelho**: iPhone e
+  Firefox nunca disparam, então nunca veem o botão. 🔴 O `.btn` tem
+  `display:inline-flex`, que **vence o `hidden`**; quem esconde de fato é
+  `[data-instalar][hidden] { display:none !important; }`. No topo ele é filho
+  direto de `.topbar-right` e fica fora de `<form>`, senão some no celular.
 - No mobile a tabela rola na horizontal **mantendo o `thead`**: o padrão do painel esconde o
   cabeçalho em telas pequenas, e sem ele a Thainá perderia a ordenação por coluna.
 

@@ -17,6 +17,12 @@
     </span>
   </a>
   <div class="topbar-right">
+    {# Filho DIRETO de .topbar-right, e fora de <form>: até 760px o CSS esconde
+       `.topbar-right .muted` e `.topbar-right form`, e é no celular que este
+       botão mais interessa. Nasce escondido; quem mostra é o instalar.js. #}
+    <button class="btn btn-sm btn-instalar" type="button" data-instalar hidden>
+      <i class="bi bi-download"></i> Instalar
+    </button>
     <span class="muted"><i class="bi bi-person-circle"></i> {{ request.session.usuario }}</span>
     <form method="post" action="/logout" style="margin:0">
       <button class="btn btn-ghost btn-sm" type="submit"><i class="bi bi-box-arrow-right"></i> Sair</button>

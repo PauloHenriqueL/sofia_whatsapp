@@ -23,6 +23,12 @@
       <button class="btn btn-primary" type="submit"><i class="bi bi-box-arrow-in-right"></i> Entrar</button>
     </form>
 
+    {# Fora do <form> (não pode enviar o login) e sem a classe .btn, que no
+       cartão de login ocupa a largura toda como o "Entrar". #}
+    <button class="login-instalar" type="button" data-instalar hidden>
+      <i class="bi bi-download"></i> Instalar o app
+    </button>
+
     <div class="login-foot">Associação Allos · clínica-escola de psicologia</div>
   </div>
 </div>

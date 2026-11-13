@@ -11,6 +11,9 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="/static/icons/sofia-192.png">
   <link rel="apple-touch-icon" href="/static/icons/sofia-apple-180.png">
+  {# O Chrome avisa no console que só a versão `apple-` está obsoleta; as duas
+     convivem (a da Apple continua sendo a que o iPhone lê). #}
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Sofia">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -22,8 +25,11 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   {# `?v=`: o navegador guarda o CSS em cache e mostrava o estilo antigo depois
      de um deploy. Mude o número sempre que o allos.css mudar. #}
-  <link rel="stylesheet" href="/static/allos.css?v=20261111d">
+  <link rel="stylesheet" href="/static/allos.css?v=20261113a">
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  {# Sem `defer`: precisa estar escutando antes de o navegador avisar que o
+     site pode ser instalado. #}
+  <script src="/static/instalar.js?v=20261113a"></script>
 </head>
 <body>
   {% block corpo %}{% endblock %}
