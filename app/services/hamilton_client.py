@@ -457,6 +457,82 @@ class HamiltonClient:
             corpo = {}
         return resp.status_code, corpo if isinstance(corpo, dict) else {}
 
+    # --- Encaminhamento assistido (ver services/encaminhamento.py) ---
+    # O estado e a reserva do horário moram no Hamilton; a Sofia desenha a tela,
+    # dispara os templates e repassa as respostas.
+
+    @staticmethod
+    def _corpo(resp: httpx.Response) -> dict:
+        try:
+            corpo = resp.json()
+        except ValueError:
+            return {}
+        return corpo if isinstance(corpo, dict) else {}
+
+    async def _encaminhamento(self, method: str, rota: str, aceitos=(200,), **kwargs) -> tuple[int, dict]:
+        """`(status, corpo)` para as rotas em que 4xx é resposta de negócio
+        (horário tomado, transição repetida) e não falha."""
+        resp = await self._request(method, f"/api/v1/encaminhamentos/{rota}", **kwargs)
+        if resp.status_code not in aceitos:
+            raise HamiltonError(f"Encaminhamento {rota} falhou ({resp.status_code}): {resp.text[:200]}")
+        return resp.status_code, self._corpo(resp)
+
+    async def listar_abordagens(self) -> list[dict]:
+        """`[{pk_abordagem, abordagem}]` — o vocabulário da extração de critérios."""
+        resp = await self._request("GET", "/api/v1/abordagens/")
+        if resp.status_code != 200:
+            raise HamiltonError(f"Listagem de abordagens falhou ({resp.status_code})")
+        data = resp.json()
+        if isinstance(data, dict) and "results" in data:
+            data = data["results"]
+        return data if isinstance(data, list) else []
+
+    async def fila_encaminhamentos(self) -> dict:
+        """`{ativo, itens: [{paciente, encaminhamento, criterios, ultima_recusa}]}`."""
+        return (await self._encaminhamento("GET", "fila/"))[1]
+
+    async def registrar_pedido_encaminhamento(self, paciente_id: int, criterios: dict) -> tuple[int, dict]:
+        """Guarda o que o paciente pediu e põe ele na fila. Idempotente.
+        404 = paciente não existe; 409 `tem_terapeuta` = paciente antigo voltando."""
+        return await self._encaminhamento(
+            "POST", "pedido/", aceitos=(200, 404, 409),
+            json={"paciente_id": paciente_id, "criterios": criterios or {}})
+
+    async def candidatos_encaminhamento(self, paciente_id: int, criterios: dict | None = None) -> dict:
+        """`{ativo, candidatos}`. Sem `criterios`, usa os gravados no pedido."""
+        corpo = {"paciente_id": paciente_id}
+        if criterios is not None:
+            corpo["criterios"] = criterios
+        return (await self._encaminhamento("POST", "candidatos/", json=corpo))[1]
+
+    async def reservar_encaminhamento(
+        self, enc_id: int, terapeuta_id: int, dia_semana: int, hora_inicio: str,
+        dat_primeira_sessao: str | None = None,
+    ) -> tuple[int, dict]:
+        """200 reservado; 400 dado inválido; 409 horário tomado ou já escolhido."""
+        return await self._encaminhamento(
+            "POST", f"{enc_id}/reservar/", aceitos=(200, 400, 409),
+            json={"terapeuta_id": terapeuta_id, "dia_semana": dia_semana,
+                  "hora_inicio": hora_inicio, "dat_primeira_sessao": dat_primeira_sessao})
+
+    async def responder_encaminhamento(
+        self, enc_id: int, de: str, aceitou: bool, motivo: str = "",
+    ) -> tuple[int, dict]:
+        """`de` é 'paciente' ou 'terapeuta'. 409 = toque repetido, ou o horário
+        foi ocupado entre a escolha e o aceite."""
+        return await self._encaminhamento(
+            "POST", f"{enc_id}/resposta/", aceitos=(200, 404, 409),
+            json={"de": de, "aceitou": aceitou, "motivo": motivo})
+
+    async def motivo_encaminhamento(self, enc_id: int, motivo: str) -> tuple[int, dict]:
+        """O porquê de uma recusa, escrito depois do toque."""
+        return await self._encaminhamento(
+            "POST", f"{enc_id}/motivo/", aceitos=(200, 400, 404, 409), json={"motivo": motivo})
+
+    async def expirar_encaminhamentos(self) -> dict:
+        """Solta as reservas sem resposta no prazo. `{ativo, expirados}`."""
+        return (await self._encaminhamento("POST", "expirar/"))[1]
+
 
 @lru_cache(maxsize=1)
 def get_hamilton_client() -> HamiltonClient:

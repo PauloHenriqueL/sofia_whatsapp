@@ -180,12 +180,18 @@ async def _enviar_alerta(db: AsyncSession, conversa: Conversa, rotulo: str) -> b
     Thainá de férias, Amanda ainda não assumiu) é um estado normal — a
     escalada/cadastro segue acontecendo, só ninguém é avisado por WhatsApp.
     """
+    dados = conversa.dados_coletados or {}
+    nome = dados.get("nome_completo") or conversa.numero_whatsapp
+    return await alertar_equipe(db, nome, rotulo)
+
+
+async def alertar_equipe(db: AsyncSession, nome: str, rotulo: str) -> bool:
+    """O mesmo `alerta_thaina`, para quando só se tem o nome do paciente (ex.:
+    uma reserva de encaminhamento que venceu, vinda do Hamilton)."""
     telefones = await usuarios.telefones_para_alerta(db)
     if not telefones:
         logger.info("Nenhum usuário com alerta ligado agora; %s não foi notificado", rotulo)
         return False
-    dados = conversa.dados_coletados or {}
-    nome = dados.get("nome_completo") or conversa.numero_whatsapp
     enviou_algum = False
     for telefone in telefones:
         try:

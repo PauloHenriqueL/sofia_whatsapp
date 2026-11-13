@@ -17,6 +17,7 @@ from app.dependencies import get_db
 from app.services import (
     cadastro_abandonado,
     cobranca,
+    encaminhamento,
     config_negocio,
     lembretes_terapeutas,
     pagamentos,
@@ -109,8 +110,13 @@ async def disparar_stripe(request: Request, simular: bool = False):
 
 
 @router.post("/lembretes-terapeutas")
-async def disparar_lembretes_terapeutas(request: Request):
+async def disparar_lembretes_terapeutas(request: Request, db: AsyncSession = Depends(get_db)):
     """Agenda do dia e pendências da semana dos terapeutas (cron a cada 30 min).
+
+    A rodada do encaminhamento assistido vai pendurada aqui, e não num cron
+    novo, porque este é o que comprovadamente existe no painel externo: solta
+    as reservas sem resposta no prazo e registra os pedidos novos. Ela tem a
+    própria trava no Hamilton (``ENCAMINHAMENTO_ATIVO``).
 
     A rodada é barata quando não há ninguém na vez: o Hamilton devolve a fila
     vazia. Quem decide quem recebe, e quando, é ele (ver
@@ -119,4 +125,6 @@ async def disparar_lembretes_terapeutas(request: Request):
     """
     if not _token_valido(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    return await lembretes_terapeutas.rodar()
+    resultado = await lembretes_terapeutas.rodar()
+    resultado["encaminhamento"] = await encaminhamento.rodar(db)
+    return resultado

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app import config
 from app.database import Base
+from app.dependencies import get_db
 from app.main import app
 from app.models import Conversa
 from app.services import config_negocio, hamilton_client, lembretes_terapeutas, serializacao
@@ -139,10 +140,20 @@ async def sofia():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _db():
+        async with maker() as s:
+            yield s
+
+    # A rota do cron usa o banco (rodada do encaminhamento). Sem isto, o
+    # `get_db` de verdade apontaria para o DATABASE_URL do .env — que é o banco
+    # de PRODUÇÃO da Sofia.
+    app.dependency_overrides[get_db] = _db
     with patch("app.routers.webhook.async_session", maker):
         async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://sofia") as c:
             c.banco = maker
             yield c
+    app.dependency_overrides.pop(get_db, None)
     serializacao.limpar()
     await engine.dispose()
 
@@ -193,8 +204,10 @@ class TestCron:
     async def test_envia_a_agenda_confirma_e_nao_repete(self, sofia, hamilton, meta):
         resp = await _cron(sofia)
         assert resp.status_code == 200
-        assert resp.json() == {"agenda": {"enviados": 1, "falhas": 0},
-                               "semanal": {"enviados": 0, "falhas": 0}}
+        corpo = resp.json()
+        assert {k: corpo[k] for k in ("agenda", "semanal")} == {
+            "agenda": {"enviados": 1, "falhas": 0}, "semanal": {"enviados": 0, "falhas": 0}}
+        assert "encaminhamento" in corpo  # a rodada vai pendurada no mesmo cron
 
         [msg] = _templates(meta)
         assert msg["to"] == "+" + TACIA

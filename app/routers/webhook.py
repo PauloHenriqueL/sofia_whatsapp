@@ -20,6 +20,7 @@ from app.services import (
     cobranca,
     config_negocio,
     conversation,
+    encaminhamento,
     escalation,
     lembretes_terapeutas,
     llm_client,
@@ -420,10 +421,20 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # lead. Toque em botão do lembrete recebe os detalhes; o resto, a resposta
     # fixa. Nada disso vira conversa no painel (ver lembretes_terapeutas).
     if await lembretes_terapeutas.eh_terapeuta(numero):
+        # Aceito/Não aceito do aviso de encaminhamento: é o toque que grava o
+        # vínculo no Hamilton (ver services/encaminhamento.py).
+        botao_encaminhamento = encaminhamento.botao_da_mensagem(mensagem, "enc_")
+        if botao_encaminhamento:
+            await encaminhamento.tratar_botao_terapeuta(numero, wamid, *botao_encaminhamento)
+            return
         botao = mensagem.get("button") or {}
         codigo = botao.get("payload") or botao.get("text")
         if tipo == "button" and codigo:
             await lembretes_terapeutas.responder_botao(numero, wamid, codigo)
+        elif tipo == "text" and await encaminhamento.capturar_motivo(
+            numero, (mensagem.get("text") or {}).get("body")
+        ):
+            pass  # era o motivo de uma recusa de encaminhamento
         else:
             await lembretes_terapeutas.responder_terapeuta(numero, wamid)
         return
@@ -469,6 +480,19 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                     wamid, com_digitacao=(conversa.modo != "humano")
                 )
             await session.commit()
+
+            # Resposta à proposta de horário do encaminhamento. Fura o modo
+            # humano pelo mesmo motivo da pesquisa e da cobrança: foi a Sofia
+            # quem perguntou (pelo template), e sem isto o "Pode ser" de quem
+            # está com a Thainá seria ignorado.
+            botao_proposta = encaminhamento.botao_da_mensagem(mensagem, "prop_")
+            if botao_proposta:
+                resposta = await encaminhamento.tratar_botao_paciente(
+                    session, conversa, *botao_proposta
+                )
+                await session.commit()
+                await _enviar_em_bolhas(session, conversa, numero, resposta)
+                return
 
             # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
             # mais, mas avisa UMA vez que a equipe já foi acionada — antes o
@@ -589,8 +613,11 @@ async def _persistir_recebida(session, conversa, tipo, wamid, mensagem) -> str |
         except midia.MidiaError as exc:
             logger.error("Não consegui guardar o anexo da conversa %s: %s", conversa.id, exc)
         return None
+    # Toque em botão de template: guarda o rótulo ("Pode ser"), senão o
+    # histórico do painel mostraria uma mensagem vazia.
+    rotulo = (mensagem.get("button") or {}).get("text") if tipo == "button" else None
     await conversation.registrar_mensagem_recebida(
-        session, conversa, tipo=tipo, texto=None, whatsapp_message_id=wamid
+        session, conversa, tipo=tipo, texto=rotulo, whatsapp_message_id=wamid
     )
     return None
 
