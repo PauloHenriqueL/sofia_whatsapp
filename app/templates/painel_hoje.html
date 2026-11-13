@@ -17,6 +17,28 @@
   </div>
   {% endif %}
 
+  {% if proposta_enviada %}
+  <div class="aviso">
+    <i class="bi bi-send-check"></i>
+    Proposta enviada para {{ proposta_enviada }}. Se a pessoa topar, a Sofia avisa o terapeuta sozinha.
+  </div>
+  {% endif %}
+  {% if aviso_encaminhamento == 'proposta_nao_saiu' %}
+  <div class="aviso aviso--erro">
+    <i class="bi bi-exclamation-triangle"></i>
+    O horário foi reservado, mas a proposta não chegou ao paciente pelo WhatsApp. Fale com ele pela conversa;
+    se ninguém responder, a reserva cai sozinha em 24h.
+  </div>
+  {% elif aviso_encaminhamento == 'fora_da_fila' %}
+  <div class="aviso enc-aviso-atencao">
+    <i class="bi bi-info-circle"></i> Esse paciente já não está na fila: alguém já escolheu um horário ou ele ganhou terapeuta.
+  </div>
+  {% elif aviso_encaminhamento == 'hamilton' %}
+  <div class="aviso aviso--erro">
+    <i class="bi bi-exclamation-triangle"></i> Não consegui falar com o Hamilton agora. Tente de novo em alguns minutos.
+  </div>
+  {% endif %}
+
   <div class="tiras">
     <div class="tira tira--destaque">
       <div class="n">{{ numeros.pendentes }}</div>
@@ -79,6 +101,60 @@
     </div>
     {% endif %}
   </div>
+
+  {# ── Encaminhar: pacientes esperando terapeuta. Escondido com a trava do
+     Hamilton desligada (ENCAMINHAMENTO_ATIVO). ─────────────────────────── #}
+  {% if encaminhar.ativo is not false %}
+  <div class="card card--atencao enc-fila" style="margin-bottom:16px">
+    <div class="card-topo">
+      <div>
+        <h2>
+          <i class="bi bi-person-plus" style="color:var(--teal-500)"></i>
+          Encaminhar
+          {% if encaminhar.itens %}<span class="conta conta--atencao">{{ encaminhar.itens|length }}</span>{% endif %}
+        </h2>
+        <div class="nota">
+          Pacientes esperando terapeuta. Você escolhe; a Sofia propõe o horário ao paciente e, se ele topar,
+          avisa o terapeuta. <b>O vínculo no Hamilton é gravado sozinho</b> quando o terapeuta aceitar.
+        </div>
+      </div>
+    </div>
+    {% if encaminhar.erro %}
+    <div class="card-corpo"><div class="aviso aviso--erro" style="margin:0"><i class="bi bi-exclamation-triangle"></i> {{ encaminhar.erro }}</div></div>
+    {% elif encaminhar.itens %}
+    <div class="fila">
+      {% for e in encaminhar.itens %}
+      <div class="item">
+        <div class="quem">
+          <div class="nome">{{ e.nome }}</div>
+          <div class="meta">{{ e.telefone|telefone }}</div>
+        </div>
+        <div class="oque">
+          <div class="enc-etiquetas">
+            {% for t in e.etiquetas %}
+            <span class="chip {{ '' if t.filtra else 'enc-chip-leitura' }}" {% if not t.filtra %}title="Não filtra: os terapeutas ainda não têm especialidade cadastrada"{% endif %}>{{ t.texto }}</span>
+            {% else %}
+            <span class="muted">sem preferência registrada</span>
+            {% endfor %}
+          </div>
+          {% if e.recusa %}
+          <div class="enc-recusa">
+            <i class="bi bi-arrow-repeat"></i> {{ e.recusa.status|lower }}{% if e.recusa.terapeuta %} ({{ e.recusa.terapeuta }}){% endif %}{% if e.recusa.motivo %}: “{{ e.recusa.motivo }}”{% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="quando">{{ e.quando|desde }}</div>
+        <a class="btn btn-primary btn-sm" href="/painel/encaminhamentos/{{ e.id }}">Escolher terapeuta</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card-corpo">
+      <div class="empty" style="padding:20px">Ninguém esperando terapeuta agora.</div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   {# ── Fila 2: relógio correndo, mas ninguém travado ────────────────────── #}
   {% if de_olho %}

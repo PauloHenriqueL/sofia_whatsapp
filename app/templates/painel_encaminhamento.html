@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block titulo %}Encaminhar {{ paciente.nome }} · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+<div class="container-app enc-pagina">
+  <div class="page-head">
+    <div>
+      <a class="muted enc-voltar" href="/painel/"><i class="bi bi-arrow-left"></i> Hoje</a>
+      <h1>Encaminhar {{ paciente.nome }}</h1>
+      <div class="subtitle">
+        {{ paciente.telefone|telefone }}
+        {% if paciente.dat_nascimento %} · nasceu em {{ paciente.dat_nascimento[8:10] }}/{{ paciente.dat_nascimento[5:7] }}/{{ paciente.dat_nascimento[:4] }}{% endif %}
+        {% if paciente.tipo_pagamento == 'parceria' %} · parceria{% elif paciente.vlr_sessao %} · R$ {{ paciente.vlr_sessao|replace('.', ',') }}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if erro %}
+  <div class="aviso aviso--erro"><i class="bi bi-exclamation-triangle"></i> {{ erro }}</div>
+  {% endif %}
+
+  {% if recusa %}
+  <div class="aviso enc-aviso-atencao">
+    <i class="bi bi-arrow-repeat"></i>
+    <div>
+      <b>Proposta anterior: {{ recusa.status_label|lower }}</b>{% if recusa.terapeuta %} ({{ recusa.terapeuta.nome }}){% endif %}.
+      {% if recusa.motivo_recusa %}“{{ recusa.motivo_recusa }}”{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="enc-grade">
+    {# ── O pedido, editável ─────────────────────────────────────────────── #}
+    <div class="card enc-pedido">
+      <div class="card-topo">
+        <h2><i class="bi bi-chat-quote" style="color:var(--teal-500)"></i> O que a pessoa pediu</h2>
+        <div class="nota">A Sofia tirou isto da conversa. Se algo estiver errado, corrija e busque de novo.</div>
+      </div>
+      <div class="card-corpo">
+        {% if criterios.texto_original %}
+        <blockquote class="enc-fala">{{ criterios.texto_original }}</blockquote>
+        {% endif %}
+
+        {% if criterios.especialidade %}
+        <div class="aviso enc-aviso-atencao">
+          <i class="bi bi-info-circle"></i>
+          <div>Pediu alguém que trabalhe com <b>{{ criterios.especialidade }}</b>. Isso <b>não filtra</b> a lista:
+            os terapeutas ainda não têm especialidade cadastrada. Confira antes de escolher.</div>
+        </div>
+        {% endif %}
+
+        <form id="enc-criterios"
+              hx-post="/painel/encaminhamentos/{{ enc_id }}/candidatos"
+              hx-target="#enc-candidatos"
+              hx-indicator="#enc-carregando">
+          <label class="enc-rotulo" for="enc-modalidade">Formato</label>
+          <select class="input" id="enc-modalidade" name="modalidade">
+            <option value="" {{ 'selected' if not criterios.modalidade }}>Tanto faz</option>
+            <option value="online" {{ 'selected' if criterios.modalidade == 'online' }}>Online</option>
+            <option value="presencial" {{ 'selected' if criterios.modalidade == 'presencial' }}>Presencial</option>
+          </select>
+          <div class="enc-dica">É o único critério que esconde terapeuta da lista.</div>
+
+          <label class="enc-rotulo" for="enc-abordagem">Abordagem</label>
+          <select class="input" id="enc-abordagem" name="abordagem_id">
+            <option value="">Qualquer</option>
+            {% for pk, nome in abordagens %}
+            <option value="{{ pk }}" {{ 'selected' if criterios.abordagem_id == pk }}>{{ nome }}</option>
+            {% endfor %}
+          </select>
+
+          <span class="enc-rotulo">Horários que servem</span>
+          <div id="enc-horarios">
+            {% for h in criterios.horarios or [] %}
+            <div class="enc-horario">
+              <select class="input" name="dia" aria-label="Dia da semana">
+                {% for i, nome in dias %}<option value="{{ i }}" {{ 'selected' if h.dia_semana == i }}>{{ nome }}</option>{% endfor %}
+              </select>
+              <input class="input" type="time" name="hora" step="1800" value="{{ h.hora_inicio }}" aria-label="Hora">
+              <button type="button" class="btn btn-ghost btn-sm enc-tirar" aria-label="Tirar este horário"><i class="bi bi-x-lg"></i></button>
+            </div>
+            {% endfor %}
+          </div>
+          <template id="enc-horario-novo">
+            <div class="enc-horario">
+              <select class="input" name="dia" aria-label="Dia da semana">
+                {% for i, nome in dias %}<option value="{{ i }}">{{ nome }}</option>{% endfor %}
+              </select>
+              <input class="input" type="time" name="hora" step="1800" value="19:00" aria-label="Hora">
+              <button type="button" class="btn btn-ghost btn-sm enc-tirar" aria-label="Tirar este horário"><i class="bi bi-x-lg"></i></button>
+            </div>
+          </template>
+          <button type="button" class="btn btn-ghost btn-sm" id="enc-mais-horario"><i class="bi bi-plus-lg"></i> Horário</button>
+          {% if not criterios.horarios %}<div class="enc-dica">Sem horário, a lista vem pela agenda mais livre.</div>{% endif %}
+
+          <div class="enc-acoes-pedido">
+            <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Buscar terapeutas</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Quem serve ─────────────────────────────────────────────────────── #}
+    <div class="enc-resultado">
+      <div class="enc-resultado-topo">
+        <h2>Terapeutas com vaga</h2>
+        <span id="enc-carregando" class="htmx-indicator muted"><i class="bi bi-hourglass-split"></i> buscando…</span>
+      </div>
+      <div class="enc-dica" style="margin:0 0 10px">Os horários verdes batem exatamente com o pedido. Toque num horário para escolher.</div>
+      <div id="enc-candidatos">{% include "_candidatos_fragment.html" %}</div>
+    </div>
+  </div>
+
+  {# ── Confirmação: aparece quando um horário é tocado ──────────────────── #}
+  <form id="enc-confirmar" class="enc-confirmar" method="post"
+        action="/painel/encaminhamentos/{{ enc_id }}/reservar" hidden>
+    <input type="hidden" name="terapeuta_id">
+    <input type="hidden" name="dia_semana">
+    <input type="hidden" name="hora_inicio">
+    <div class="enc-confirmar-texto">
+      <div class="enc-confirmar-quem"><b id="enc-escolha-nome"></b> · <span id="enc-escolha-slot"></span></div>
+      <div class="enc-dica">O horário fica reservado e a Sofia pergunta ao paciente se serve. O vínculo no Hamilton só é gravado quando o terapeuta aceitar.</div>
+    </div>
+    <label class="enc-data">1ª sessão
+      <input class="input" type="date" name="dat_primeira_sessao" required>
+    </label>
+    <div class="enc-confirmar-botoes">
+      <button type="button" class="btn btn-ghost" id="enc-cancelar">Cancelar</button>
+      <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar proposta</button>
+    </div>
+    <div class="enc-data-erro" id="enc-data-erro" hidden>Essa data não cai no dia do horário escolhido.</div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var form = document.getElementById('enc-confirmar');
+  var data = form.querySelector('[name=dat_primeira_sessao]');
+  var erroData = document.getElementById('enc-data-erro');
+  var diaEscolhido = null;
+
+  // Delegação: a lista é trocada pelo HTMX a cada busca.
+  document.addEventListener('click', function (ev) {
+    var slot = ev.target.closest('.enc-slot');
+    if (slot) {
+      document.querySelectorAll('.enc-slot[aria-pressed=true]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+      });
+      slot.setAttribute('aria-pressed', 'true');
+      form.terapeuta_id.value = slot.dataset.terapeuta;
+      form.dia_semana.value = slot.dataset.dia;
+      form.hora_inicio.value = slot.dataset.hora;
+      diaEscolhido = parseInt(slot.dataset.dia, 10);
+      data.value = slot.dataset.proxima;
+      document.getElementById('enc-escolha-nome').textContent = slot.dataset.nome;
+      document.getElementById('enc-escolha-slot').textContent = slot.dataset.rotulo;
+      erroData.hidden = true;
+      form.hidden = false;
+      return;
+    }
+    if (ev.target.closest('#enc-cancelar')) {
+      form.hidden = true;
+      document.querySelectorAll('.enc-slot[aria-pressed=true]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+      });
+      return;
+    }
+    if (ev.target.closest('.enc-tirar')) {
+      ev.target.closest('.enc-horario').remove();
+      return;
+    }
+    if (ev.target.closest('#enc-mais-horario')) {
+      var modelo = document.getElementById('enc-horario-novo');
+      document.getElementById('enc-horarios').appendChild(modelo.content.cloneNode(true));
+      return;
+    }
+    var mais = ev.target.closest('.enc-ver-mais');
+    if (mais) {
+      document.querySelectorAll('.enc-cand--extra').forEach(function (c) { c.classList.add('enc-cand--visivel'); });
+      mais.remove();
+    }
+  });
+
+  // A data vai escrita nos dois templates: se não cair no dia do horário, o
+  // paciente e o terapeuta recebem uma sessão que a grade não tem.
+  function diaDaSemana(iso) {
+    var d = new Date(iso + 'T12:00:00');
+    return (d.getDay() + 6) % 7; // 0 = segunda, como no Hamilton
+  }
+  form.addEventListener('submit', function (ev) {
+    if (!data.value || diaDaSemana(data.value) !== diaEscolhido) {
+      ev.preventDefault();
+      erroData.hidden = false;
+      data.focus();
+    }
+  });
+})();
+</script>
+{% endblock %}

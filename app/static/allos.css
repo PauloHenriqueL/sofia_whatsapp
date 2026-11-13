@@ -623,3 +623,68 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
   .table.lista-conversas { min-width:0; }
   .table.lista-conversas thead { display:none; }
 }
+
+/* ── Encaminhamento assistido (aba Hoje e /painel/encaminhamentos/<id>) ─────
+   A Thainá escolhe o terapeuta; o vínculo é gravado no "Aceito" dele. */
+.enc-aviso-atencao { background:var(--amber-bg); color:var(--amber-text); border-color:var(--amber-border); align-items:flex-start; }
+.enc-etiquetas { display:flex; flex-wrap:wrap; gap:5px; }
+.enc-chip-leitura { background:transparent; border:1px dashed var(--border-strong); color:var(--text-tertiary); }
+.enc-recusa { margin-top:6px; font-size:12.5px; color:var(--amber-text); }
+.enc-voltar { display:inline-flex; align-items:center; gap:6px; font-size:13px; margin-bottom:6px; }
+.enc-grade { display:flex; flex-direction:column; gap:16px; }
+.enc-fala { margin:0 0 14px; padding:10px 14px; border-left:3px solid var(--teal-300);
+  background:var(--bg-input); border-radius:0 10px 10px 0; color:var(--text-secondary);
+  font-size:13.5px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.enc-rotulo { display:block; font-weight:600; font-size:13px; margin:14px 0 6px; }
+.enc-pedido form > .enc-rotulo:first-of-type { margin-top:0; }
+.enc-dica { color:var(--text-tertiary); font-size:12.5px; margin-top:5px; line-height:1.4; }
+.enc-horario { display:flex; gap:8px; margin-bottom:8px; }
+.enc-horario select { flex:1.4; min-width:0; }
+.enc-horario input { flex:1; min-width:0; }
+.enc-acoes-pedido { margin-top:18px; }
+.enc-resultado-topo { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px; }
+.enc-resultado-topo h2 { font-size:15.5px; font-weight:700; font-family:var(--font-display); margin:0; }
+.htmx-indicator { opacity:0; transition:opacity .2s; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity:1; }
+.enc-lista { display:flex; flex-direction:column; gap:12px; }
+.enc-cand { padding:14px 16px; overflow:visible; }
+.enc-cand--extra { display:none; }
+.enc-cand--extra.enc-cand--visivel { display:block; }
+.enc-cand-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.enc-cand-quem { min-width:0; }
+.enc-cand .nome { font-weight:700; font-size:14.5px; }
+.enc-cand .meta { color:var(--text-tertiary); font-size:12.5px; margin-top:2px; }
+.enc-motivos { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+.enc-slots { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.enc-slot { font:inherit; font-size:13px; font-weight:600; padding:7px 11px; border-radius:10px; cursor:pointer;
+  background:var(--bg-card); color:var(--text-secondary); border:1.5px solid var(--border-strong);
+  min-height:36px; transition:all .15s; }
+.enc-slot:hover { border-color:var(--teal-500); color:var(--teal-600); }
+.enc-slot--exato { border-color:var(--green-border); background:var(--green-bg); color:var(--green-text); }
+.enc-slot[aria-pressed=true] { background:var(--grad-primario); color:#fff; border-color:transparent; box-shadow:var(--sombra-teal); }
+.enc-ver-mais { align-self:flex-start; }
+.enc-confirmar { position:sticky; bottom:0; z-index:5; margin-top:16px; display:flex; flex-wrap:wrap;
+  align-items:center; gap:12px 16px; padding:14px 16px; background:var(--bg-card);
+  border:1.5px solid var(--border-teal); border-radius:16px; box-shadow:0 -6px 24px rgba(0,43,42,.12); }
+.enc-confirmar[hidden] { display:none; }
+.enc-confirmar-texto { flex:1 1 280px; min-width:0; }
+.enc-confirmar-quem { font-size:14.5px; }
+.enc-data { display:flex; flex-direction:column; gap:4px; font-size:12.5px; font-weight:600; color:var(--text-secondary); }
+.enc-data input { width:auto; min-width:160px; }
+.enc-confirmar-botoes { display:flex; gap:8px; }
+.enc-data-erro { flex-basis:100%; color:var(--red-text); font-size:13px; font-weight:600; }
+@media (min-width:1000px) {
+  .enc-grade { display:grid; grid-template-columns:360px minmax(0,1fr); align-items:start; gap:20px; }
+  .enc-pedido { position:sticky; top:124px; }
+}
+/* Acima da barra de abas do celular (fixa, z-index 60): sem isto, "Enviar
+   proposta" fica embaixo dela e não dá para tocar. */
+@media (max-width:760px) {
+  .enc-confirmar { bottom:calc(64px + env(safe-area-inset-bottom)); z-index:61; }
+}
+@media (max-width:640px) {
+  .enc-confirmar { padding:12px; }
+  .enc-confirmar-botoes { width:100%; }
+  .enc-confirmar-botoes .btn { flex:1; justify-content:center; }
+  .enc-data, .enc-data input { width:100%; }
+}

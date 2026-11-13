@@ -1,0 +1,56 @@
+{# Lista de terapeutas que servem ao paciente, na ordem do Hamilton. Trocada
+   inteira pelo HTMX quando a Thainá ajusta os critérios. Tocar num horário
+   preenche a barra de confirmação (ver painel_encaminhamento.html). #}
+{% if candidatos %}
+<div class="enc-lista">
+  {% for c in candidatos %}
+  <div class="card enc-cand {{ 'enc-cand--extra' if loop.index > 8 }}">
+    <div class="enc-cand-topo">
+      <div class="enc-cand-quem">
+        <div class="nome">{{ c.terapeuta.nome }}</div>
+        <div class="meta">
+          {{ c.terapeuta.abordagem or 'sem abordagem' }}
+          · {{ c.terapeuta.modalidade or 'sem modalidade' }}
+          · {{ c.horas }}h livres na semana
+        </div>
+      </div>
+      {% if loop.first %}<span class="chip chip--ok">mais indicado</span>{% endif %}
+    </div>
+    {% if c.motivos %}
+    <div class="enc-motivos">
+      {% for m in c.motivos %}
+      <span class="chip {{ 'chip--ok' if '✓' in m else ('chip--atencao' if '✗' in m else '') }}">{{ m }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="enc-slots" role="group" aria-label="Horários livres de {{ c.terapeuta.nome }}">
+      {% for s in c.slots %}
+      <button type="button"
+              class="enc-slot {{ 'enc-slot--exato' if s.exato }}"
+              data-terapeuta="{{ c.terapeuta.id }}"
+              data-nome="{{ c.terapeuta.nome }}"
+              data-dia="{{ s.dia_semana }}"
+              data-hora="{{ s.hora_inicio }}"
+              data-rotulo="{{ s.rotulo_longo }}"
+              data-proxima="{{ s.proxima }}"
+              aria-pressed="false">{{ s.rotulo }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  {% if candidatos|length > 8 %}
+  <button type="button" class="btn btn-ghost btn-sm enc-ver-mais" data-total="{{ candidatos|length }}">
+    Mostrar todos os {{ candidatos|length }} terapeutas
+  </button>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty">
+    <i class="bi bi-person-x"></i>
+    <div style="font-weight:600; color:var(--text-primary)">Ninguém com vaga nesse formato</div>
+    <div style="font-size:13.5px">Todos os terapeutas que atendem assim estão sem horário livre ou no limite de pacientes.
+      Tente mudar o formato para "Tanto faz".</div>
+  </div>
+</div>
+{% endif %}

@@ -69,6 +69,9 @@ def _hamilton_vazio():
     """Hamilton que responde sem pacientes — evita chamada de rede no teste."""
     falso = AsyncMock()
     falso.status_primeira_consulta = AsyncMock(return_value={})
+    # A home também pergunta a fila do encaminhamento assistido; sem isto o
+    # AsyncMock devolve uma corrotina onde a tela espera a lista de pendências.
+    falso.fila_encaminhamentos = AsyncMock(return_value={"ativo": False, "itens": []})
     return falso
 
 

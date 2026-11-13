@@ -60,6 +60,11 @@ class HamiltonFalso:
         self.expirados: list[dict] = []
         self.slot_tomado = False
         self.tem_terapeuta: set[int] = set()
+        self.na_fila = True
+        self.fila_quebrada = False
+        self.reservas: list[dict] = []
+        self.candidatos_pedidos: list[dict] = []
+        self.reserva_status = 200
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         caminho = request.url.path
@@ -75,6 +80,40 @@ class HamiltonFalso:
             return httpx.Response(200, json=[{"pk_abordagem": 3, "abordagem": "TCC"},
                                              {"pk_abordagem": 5, "abordagem": "Analítica"}])
         corpo = json.loads(request.content or b"{}")
+        if caminho == "/api/v1/encaminhamentos/fila/":
+            if self.fila_quebrada:  # 200 fora do contrato (campo com o tipo errado)
+                return httpx.Response(200, json={"ativo": True, "itens": {"nao": "e lista"}})
+            itens = []
+            if self.na_fila:
+                itens.append({
+                    "paciente": {"id": 579, "nome": "Maria Clara Souza", "telefone": "31911112222",
+                                 "dat_nascimento": "1990-01-01", "vlr_sessao": "200.00",
+                                 "tipo_pagamento": "manual"},
+                    "encaminhamento": {"id": 42, "status": "pendente",
+                                       "created_at": "2026-11-13T12:00:00+00:00"},
+                    "criterios": {"modalidade": "online", "abordagem_id": 3,
+                                  "horarios": [{"dia_semana": 1, "hora_inicio": "19:00"}],
+                                  "especialidade": "luto", "texto_original": "Horários: terças à noite"},
+                    "ultima_recusa": None,
+                })
+            return httpx.Response(200, json={"ativo": self.ativo, "itens": itens if self.ativo else []})
+        if caminho == "/api/v1/encaminhamentos/candidatos/":
+            self.candidatos_pedidos.append(corpo)
+            return httpx.Response(200, json={"ativo": True, "candidatos": [{
+                "terapeuta": {"id": 7, "nome": "Tácia Teste", "abordagem": "TCC", "modalidade": "Online"},
+                "motivos": ["TCC ✓", "Online ✓", "no horário pedido ✓"], "abordagem_ok": True,
+                "distancia": 0, "pontos": 5, "horas_livres": 6.0,
+                "melhor_slot": {"dia_semana": 1, "hora_inicio": "19:00", "hora_fim": "20:00", "distancia": 0},
+                "slots": [{"dia_semana": 1, "hora_inicio": "19:00", "hora_fim": "20:00", "distancia": 0},
+                          {"dia_semana": 3, "hora_inicio": "18:30", "hora_fim": "19:30", "distancia": 2910}],
+            }]})
+        if caminho == "/api/v1/encaminhamentos/42/reservar/":
+            self.reservas.append(corpo)
+            if self.reserva_status != 200:
+                return httpx.Response(self.reserva_status, json={"detail": "x", "codigo": "slot_tomado"})
+            self.status = "aguardando_paciente"
+            self.na_fila = False
+            return httpx.Response(200, json={"encaminhamento": _enc(self.status)})
         if caminho == "/api/v1/encaminhamentos/expirar/":
             return httpx.Response(200, json={"ativo": self.ativo, "expirados": self.expirados})
         if caminho == "/api/v1/encaminhamentos/pedido/":
@@ -157,7 +196,9 @@ async def sofia():
     app.dependency_overrides[get_db] = _db
     with patch("app.routers.webhook.async_session", maker), \
             patch("app.services.encaminhamento.async_session", maker):
-        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://sofia") as c:
+        # https: com o .env de produção o cookie de sessão sai `Secure` e não
+        # voltaria num cliente http (o login do painel "não pegaria").
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="https://sofia") as c:
             c.banco = maker
             async with maker() as s:
                 s.add(Conversa(numero_whatsapp=PACIENTE, paciente_hamilton_id=579,
@@ -412,3 +453,98 @@ class TestProposta:
         async with sofia.banco() as s:
             assert await encaminhamento.propor_ao_paciente(s, enc)
         assert _templates(meta)[0]["to"] == "5531977776666"
+
+
+async def _logar(cliente, maker):
+    from app.services import usuarios
+    async with maker() as s:
+        await usuarios.migrar_usuario_do_env(s)
+    resp = await cliente.post("/login", data={"usuario": config.settings.painel_user,
+                                              "senha": config.settings.painel_password})
+    assert resp.status_code == 303
+
+
+class TestTelaDaThaina:
+    @pytest.mark.asyncio
+    async def test_hoje_mostra_a_fila_de_encaminhar(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        html = (await sofia.get("/painel/")).text
+        assert "Encaminhar" in html
+        assert "Maria Clara Souza" in html
+        assert "/painel/encaminhamentos/42" in html
+        assert "TCC" in html and "ter 19h" in html
+        assert "enc-chip-leitura" in html  # especialidade aparece, mas marcada como "não filtra"
+
+    @pytest.mark.asyncio
+    async def test_trava_desligada_esconde_o_card(self, sofia, hamilton, meta):
+        hamilton.ativo = False
+        await _logar(sofia, sofia.banco)
+        assert "Escolher terapeuta" not in (await sofia.get("/painel/")).text
+
+    @pytest.mark.asyncio
+    async def test_pagina_de_escolha(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.get("/painel/encaminhamentos/42")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "Encaminhar Maria Clara Souza" in html
+        assert "não filtra" in html  # especialidade "luto" lida, sem filtrar
+        assert 'data-terapeuta="7"' in html and 'data-hora="19:00"' in html
+        assert "enc-slot--exato" in html
+        assert hamilton.candidatos_pedidos == [{"paciente_id": 579}]
+
+    @pytest.mark.asyncio
+    async def test_busca_com_criterios_ajustados_grava_no_pedido(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.post("/painel/encaminhamentos/42/candidatos", data={
+            "modalidade": "presencial", "abordagem_id": "", "dia": ["3"], "hora": ["18:30"]})
+        assert resp.status_code == 200
+        assert "Tácia Teste" in resp.text
+        esperado = {"modalidade": "presencial",
+                    "horarios": [{"dia_semana": 3, "hora_inicio": "18:30"}],
+                    "especialidade": "luto", "texto_original": "Horários: terças à noite"}
+        assert hamilton.candidatos_pedidos[-1] == {"paciente_id": 579, "criterios": esperado}
+        assert hamilton.pedidos[-1] == {"paciente_id": 579, "criterios": esperado}
+
+    @pytest.mark.asyncio
+    async def test_reservar_manda_a_proposta_ao_paciente(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.post("/painel/encaminhamentos/42/reservar", data={
+            "terapeuta_id": "7", "dia_semana": "1", "hora_inicio": "19:00",
+            "dat_primeira_sessao": "2026-11-17"})
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/painel/?proposta=Maria")
+        assert hamilton.reservas == [{"terapeuta_id": 7, "dia_semana": 1, "hora_inicio": "19:00",
+                                      "dat_primeira_sessao": "2026-11-17"}]
+        [proposta] = _templates(meta)
+        assert proposta["to"] == PACIENTE
+        assert proposta["template"]["name"] == "proposta_horario_paciente"
+        # Escolhido: some da fila, e a página dele manda de volta para Hoje.
+        resp = await sofia.get("/painel/encaminhamentos/42")
+        assert resp.headers["location"] == "/painel/?aviso=fora_da_fila"
+
+    @pytest.mark.asyncio
+    async def test_horario_tomado_volta_para_a_escolha_com_aviso(self, sofia, hamilton, meta):
+        hamilton.reserva_status = 409
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.post("/painel/encaminhamentos/42/reservar", data={
+            "terapeuta_id": "7", "dia_semana": "1", "hora_inicio": "19:00"})
+        assert resp.headers["location"] == "/painel/encaminhamentos/42?erro=slot_tomado"
+        assert _templates(meta) == []
+        html = (await sofia.get(resp.headers["location"])).text
+        assert "acabou de ser ocupado" in html
+
+    @pytest.mark.asyncio
+    async def test_sem_login_nao_entra(self, sofia, hamilton, meta):
+        resp = await sofia.get("/painel/encaminhamentos/42")
+        assert resp.status_code == 303 and resp.headers["location"] == "/login"
+
+    @pytest.mark.asyncio
+    async def test_hamilton_estranho_nao_derruba_a_home(self, sofia, hamilton, meta):
+        """A fila é o pedaço menos importante da home: resposta fora do contrato
+        vira aviso, não 500 na tela que a Thainá usa o dia inteiro."""
+        hamilton.fila_quebrada = True
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.get("/painel/")
+        assert resp.status_code == 200
+        assert "Não consegui buscar os encaminhamentos no Hamilton agora." in resp.text

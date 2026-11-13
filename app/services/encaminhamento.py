@@ -482,3 +482,153 @@ async def rodar(db: AsyncSession) -> dict:
         "expirados": len(expiracao.get("expirados") or []),
         **await registrar_pedidos(db),
     }
+
+
+# --- Painel: a tela em que a Thainá escolhe ----------------------------------
+
+DIAS_CURTOS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+DIAS_LONGOS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+
+def hora_legivel(hhmm: str | None) -> str:
+    """'19:00' → '19h'; '18:30' → '18h30'."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2})?", hhmm or "")
+    if not m:
+        return hhmm or ""
+    return f"{int(m[1])}h" if m[2] == "00" else f"{int(m[1])}h{m[2]}"
+
+
+def proxima_data(dia_semana: int, hoje=None):
+    """Próxima data (a partir de amanhã) no dia da semana — a mesma regra do
+    Hamilton para a 1ª sessão, para o campo já vir preenchido certo."""
+    from datetime import date as _date
+    dia = (hoje or _date.today()) + timedelta(days=1)
+    return dia + timedelta(days=(dia_semana - dia.weekday()) % 7)
+
+
+def etiquetas(criterios: dict, abordagens: dict[int, str] | None = None) -> list[dict]:
+    """O pedido em etiquetas curtas para a fila. `filtra` diz se o critério
+    entra no match ou é só leitura (especialidade, enquanto não há cadastro)."""
+    abordagens = abordagens or {}
+    saida = []
+    if criterios.get("modalidade"):
+        saida.append({"texto": criterios["modalidade"], "filtra": True})
+    if criterios.get("abordagem_id"):
+        nome = abordagens.get(criterios["abordagem_id"], f"abordagem {criterios['abordagem_id']}")
+        saida.append({"texto": nome, "filtra": True})
+    horarios = criterios.get("horarios") or []
+    if horarios:
+        saida.append({"texto": ", ".join(
+            f"{DIAS_CURTOS[h['dia_semana']]} {hora_legivel(h['hora_inicio'])}" for h in horarios[:4]
+        ) + (" …" if len(horarios) > 4 else ""), "filtra": True})
+    if criterios.get("especialidade"):
+        saida.append({"texto": criterios["especialidade"], "filtra": False})
+    return saida
+
+
+def _quando(iso: str | None):
+    if not iso:
+        return None
+    try:
+        valor = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
+async def _mapa_abordagens(cliente) -> dict[int, str]:
+    try:
+        return {a["pk_abordagem"]: a["abordagem"] for a in await cliente.listar_abordagens()
+                if "pk_abordagem" in a}
+    except hamilton_client.HamiltonError:
+        return {}
+
+
+_ERRO_FILA = "Não consegui buscar os encaminhamentos no Hamilton agora."
+
+
+async def fila_para_painel(cliente=None) -> dict:
+    """A fila do Hamilton pronta para a tela. **Nunca levanta**: qualquer defeito
+    vira `erro`, e a aba Hoje — a home do painel — segue de pé com o resto.
+
+    O `except Exception` é de propósito: não é só o Hamilton fora (`HamiltonError`).
+    Uma resposta 200 com formato inesperado também derrubava a home inteira com 500,
+    e esta fila é o pedaço menos importante da tela."""
+    cliente = cliente or hamilton_client.get_hamilton_client()
+    try:
+        return await _fila_para_painel(cliente)
+    except Exception as exc:  # noqa: BLE001 — ver docstring
+        logger.error("Fila de encaminhamento indisponível: %s", exc, exc_info=True)
+        return {"ativo": None, "itens": [], "erro": _ERRO_FILA}
+
+
+async def _fila_para_painel(cliente) -> dict:
+    fila = await cliente.fila_encaminhamentos()
+    if not fila.get("ativo"):
+        return {"ativo": False, "itens": [], "erro": None}
+    itens_brutos = list(fila.get("itens") or [])
+    abordagens = await _mapa_abordagens(cliente) if any(
+        (i.get("criterios") or {}).get("abordagem_id") for i in itens_brutos) else {}
+    itens = []
+    for i in itens_brutos:
+        enc, paciente, recusa = i.get("encaminhamento") or {}, i.get("paciente") or {}, i.get("ultima_recusa")
+        itens.append({
+            "id": enc.get("id"),
+            "nome": paciente.get("nome") or "Paciente",
+            "telefone": paciente.get("telefone"),
+            "etiquetas": etiquetas(i.get("criterios") or {}, abordagens),
+            "quando": _quando(enc.get("created_at")),
+            "recusa": {
+                "status": recusa.get("status_label"),
+                "terapeuta": (recusa.get("terapeuta") or {}).get("nome"),
+                "motivo": recusa.get("motivo_recusa"),
+            } if recusa else None,
+        })
+    return {"ativo": True, "itens": itens, "erro": None}
+
+
+async def item_da_fila(enc_id: int, cliente=None) -> dict | None:
+    """O item bruto da fila (paciente, encaminhamento, critérios, recusa)."""
+    cliente = cliente or hamilton_client.get_hamilton_client()
+    fila = await cliente.fila_encaminhamentos()
+    for i in fila.get("itens") or []:
+        if (i.get("encaminhamento") or {}).get("id") == enc_id:
+            return i
+    return None
+
+
+def criterios_do_formulario(modalidade: str, abordagem_id: str, dias: list[str],
+                            horas: list[str], anteriores: dict) -> dict:
+    """O que a Thainá ajustou na tela, no formato do Hamilton. Especialidade e
+    fala original vêm do pedido: ela não edita, só lê."""
+    criterios = {k: anteriores[k] for k in ("especialidade", "texto_original") if anteriores.get(k)}
+    if modalidade in ("online", "presencial"):
+        criterios["modalidade"] = modalidade
+    if abordagem_id.isdigit():
+        criterios["abordagem_id"] = int(abordagem_id)
+    horarios = []
+    for dia, hora in zip(dias, horas):
+        if dia.isdigit() and 0 <= int(dia) <= 6 and re.fullmatch(r"\d{2}:\d{2}", hora or ""):
+            horarios.append({"dia_semana": int(dia), "hora_inicio": hora})
+    if horarios:
+        criterios["horarios"] = horarios
+    return criterios
+
+
+def preparar_candidatos(candidatos: list[dict], hoje=None) -> list[dict]:
+    """Candidatos do Hamilton com rótulos de horário, horas livres em português
+    (vírgula decimal) e a data sugerida para a 1ª sessão de cada slot."""
+    saida = []
+    for c in candidatos:
+        slots = []
+        for s in c.get("slots") or []:
+            slots.append({
+                **s,
+                "rotulo": f"{DIAS_CURTOS[s['dia_semana']]} {hora_legivel(s['hora_inicio'])}",
+                "rotulo_longo": f"{DIAS_LONGOS[s['dia_semana']]}, {hora_legivel(s['hora_inicio'])}",
+                "exato": s.get("distancia") == 0,
+                "proxima": proxima_data(s["dia_semana"], hoje).isoformat(),
+            })
+        horas = c.get("horas_livres") or 0
+        saida.append({**c, "slots": slots, "horas": f"{horas:.1f}".replace(".", ",")})
+    return saida

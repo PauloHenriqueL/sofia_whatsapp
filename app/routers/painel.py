@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, requer_login_pagina, verificar_origem
 from app.services import acompanhamento, cadastro, config_negocio, config_prompt, hamilton_client
+from app.services import encaminhamento as encaminhamento_service
 from app.services import hoje as hoje_service
 from app.services import metricas, midia, painel, usuarios, whatsapp_client
 
@@ -158,7 +160,9 @@ async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int):
 
 
 @router.get("/")
-async def pagina_hoje(request: Request, db: AsyncSession = Depends(get_db)):
+async def pagina_hoje(
+    request: Request, db: AsyncSession = Depends(get_db), proposta: str = "", aviso: str = "",
+):
     """A home do painel: o que precisa de uma pessoa, num lugar só.
 
     Era a lista de conversas. A lista continua existindo em `/painel/conversas`,
@@ -168,8 +172,123 @@ async def pagina_hoje(request: Request, db: AsyncSession = Depends(get_db)):
     dados = await hoje_service.montar_hoje(db, pendencias=request.state.pendencias_lista)
     return templates.TemplateResponse(
         "painel_hoje.html",
-        {"request": request, "aba_ativa": "hoje", **dados},
+        {
+            "request": request,
+            "aba_ativa": "hoje",
+            **dados,
+            "encaminhar": await encaminhamento_service.fila_para_painel(),
+            "proposta_enviada": proposta,
+            "aviso_encaminhamento": aviso,
+        },
     )
+
+
+# --- Encaminhamento assistido ----------------------------------------------
+# A Thainá escolhe o terapeuta aqui; quem calcula os candidatos, guarda o
+# estado e segura o horário é o Hamilton (ver services/encaminhamento.py).
+
+_ERROS_RESERVA = {
+    "slot_tomado": "Esse horário acabou de ser ocupado. A lista abaixo já está atualizada: escolha outro.",
+    "transicao": "Este paciente já tem uma proposta em andamento.",
+    "dados": "A data da primeira sessão precisa cair no mesmo dia da semana do horário escolhido.",
+}
+
+
+async def _contexto_encaminhamento(request: Request, enc_id: int, erro: str = "") -> dict | None:
+    cliente = hamilton_client.get_hamilton_client()
+    item = await encaminhamento_service.item_da_fila(enc_id, cliente)
+    if item is None:
+        return None
+    paciente = item.get("paciente") or {}
+    criterios = item.get("criterios") or {}
+    abordagens = await encaminhamento_service._mapa_abordagens(cliente)
+    resposta = await cliente.candidatos_encaminhamento(paciente.get("id"))
+    return {
+        "request": request,
+        "aba_ativa": "hoje",
+        "enc_id": enc_id,
+        "paciente": paciente,
+        "criterios": criterios,
+        "etiquetas": encaminhamento_service.etiquetas(criterios, abordagens),
+        "abordagens": sorted(abordagens.items(), key=lambda a: a[1]),
+        "recusa": item.get("ultima_recusa"),
+        "candidatos": encaminhamento_service.preparar_candidatos(resposta.get("candidatos") or []),
+        "dias": list(enumerate(encaminhamento_service.DIAS_LONGOS)),
+        "erro": _ERROS_RESERVA.get(erro, ""),
+    }
+
+
+@router.get("/encaminhamentos/{enc_id}")
+async def pagina_encaminhamento(request: Request, enc_id: int, erro: str = ""):
+    """Escolher o terapeuta de um paciente da fila."""
+    try:
+        contexto = await _contexto_encaminhamento(request, enc_id, erro)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Tela de encaminhamento %s sem Hamilton: %s", enc_id, exc)
+        return RedirectResponse("/painel/?aviso=hamilton", status_code=303)
+    if contexto is None:
+        # Já escolhido (ou o paciente ganhou terapeuta por outra tela).
+        return RedirectResponse("/painel/?aviso=fora_da_fila", status_code=303)
+    return templates.TemplateResponse("painel_encaminhamento.html", contexto)
+
+
+@router.post("/encaminhamentos/{enc_id}/candidatos")
+async def buscar_candidatos(
+    request: Request,
+    enc_id: int,
+    modalidade: str = Form(""),
+    abordagem_id: str = Form(""),
+    dia: list[str] = Form([]),
+    hora: list[str] = Form([]),
+):
+    """Refaz a lista com os critérios que a Thainá ajustou (HTMX) e grava o
+    ajuste no pedido, para uma recusa futura já reabrir com ele."""
+    cliente = hamilton_client.get_hamilton_client()
+    try:
+        item = await encaminhamento_service.item_da_fila(enc_id, cliente)
+        if item is None:
+            return Response('<div class="aviso aviso--erro">Este paciente saiu da fila.</div>')
+        paciente_id = (item.get("paciente") or {}).get("id")
+        criterios = encaminhamento_service.criterios_do_formulario(
+            modalidade, abordagem_id, dia, hora, item.get("criterios") or {})
+        await cliente.registrar_pedido_encaminhamento(paciente_id, criterios)
+        resposta = await cliente.candidatos_encaminhamento(paciente_id, criterios)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Busca de candidatos do encaminhamento %s falhou: %s", enc_id, exc)
+        return Response('<div class="aviso aviso--erro">Não consegui falar com o Hamilton agora.</div>')
+    return templates.TemplateResponse("_candidatos_fragment.html", {
+        "request": request,
+        "enc_id": enc_id,
+        "candidatos": encaminhamento_service.preparar_candidatos(resposta.get("candidatos") or []),
+    })
+
+
+@router.post("/encaminhamentos/{enc_id}/reservar")
+async def reservar_encaminhamento(
+    enc_id: int,
+    db: AsyncSession = Depends(get_db),
+    terapeuta_id: int = Form(...),
+    dia_semana: int = Form(...),
+    hora_inicio: str = Form(...),
+    dat_primeira_sessao: str = Form(""),
+):
+    """A Thainá escolheu: o Hamilton segura o horário e a Sofia manda a
+    proposta ao paciente. O vínculo só é gravado no "Aceito" do terapeuta."""
+    cliente = hamilton_client.get_hamilton_client()
+    try:
+        status, corpo = await cliente.reservar_encaminhamento(
+            enc_id, terapeuta_id, dia_semana, hora_inicio, dat_primeira_sessao or None)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Reserva do encaminhamento %s falhou: %s", enc_id, exc)
+        return RedirectResponse("/painel/?aviso=hamilton", status_code=303)
+    if status != 200:
+        codigo = corpo.get("codigo") if status == 409 else "dados"
+        return RedirectResponse(f"/painel/encaminhamentos/{enc_id}?erro={codigo}", status_code=303)
+    enc = corpo.get("encaminhamento") or {}
+    nome = (enc.get("paciente") or {}).get("nome") or "o paciente"
+    if not await encaminhamento_service.propor_ao_paciente(db, enc):
+        return RedirectResponse("/painel/?aviso=proposta_nao_saiu", status_code=303)
+    return RedirectResponse(f"/painel/?proposta={quote(nome)}", status_code=303)
 
 
 @router.get("/conversas")
