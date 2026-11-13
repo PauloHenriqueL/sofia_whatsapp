@@ -158,3 +158,76 @@ class TestBaseHtmlLigaOPwa:
 
     def test_viewport_cobre_o_notch(self, html):
         assert "viewport-fit=cover" in html
+
+
+class TestBotaoInstalar:
+    """Demanda F: o botão que abre a instalação (docs/demandas/07-APP-INSTALAVEL.md).
+
+    O que não pode regredir é o `hidden`: o botão só faz alguma coisa depois
+    que o navegador avisa que o site é instalável. Se ele nascer à mostra,
+    aparece no iPhone e no Firefox, onde tocar nele não faz nada.
+    """
+
+    TEMPLATES = ESTATICO.parent / "templates"
+
+    @pytest.fixture
+    def login(self, client):
+        return client.get("/login").text
+
+    def _botao(self, html: str) -> str:
+        import re
+
+        achado = re.search(r"<button[^>]*data-instalar[^>]*>", html)
+        assert achado, "não achei o botão [data-instalar]"
+        return achado.group(0)
+
+    def test_login_tem_o_botao_e_ele_nasce_escondido(self, login):
+        assert " hidden" in self._botao(login)
+
+    def test_botao_do_login_nao_envia_o_formulario(self, login):
+        """`type="button"` e fora do <form>: instalar não pode tentar logar."""
+        assert 'type="button"' in self._botao(login)
+        formulario = login[login.index("<form") : login.index("</form>")]
+        assert "data-instalar" not in formulario
+
+    def test_topo_tem_o_botao_e_ele_nasce_escondido(self):
+        botao = self._botao((self.TEMPLATES / "_topbar.html").read_text())
+        assert " hidden" in botao and 'type="button"' in botao
+
+    def test_botao_do_topo_escapa_das_regras_que_escondem_no_celular(self):
+        """Até 760px o CSS esconde `.topbar-right .muted` e `.topbar-right form`.
+
+        O botão é pro celular: se ganhar a classe `muted` ou for parar dentro
+        do form do "Sair", some justamente onde interessa.
+        """
+        import re
+
+        # Sem os comentários do Jinja: eles citam "<form>" ao explicar a regra.
+        topo = re.sub(r"\{#.*?#\}", "", (self.TEMPLATES / "_topbar.html").read_text(), flags=re.S)
+        assert "muted" not in self._botao(topo)
+        inicio = topo.index('class="topbar-right"')
+        trecho = topo[inicio : topo.index("data-instalar")]
+        assert "<form" not in trecho
+
+    def test_css_garante_que_hidden_esconde(self):
+        """`.btn { display:inline-flex }` vence o `hidden` do navegador."""
+        css = (ESTATICO / "allos.css").read_text()
+        assert "[data-instalar][hidden] { display:none !important; }" in css
+
+    def test_script_e_servido_e_carregado_sem_defer(self, client, login):
+        assert client.get("/static/instalar.js").status_code == 200
+        import re
+
+        tag = re.search(r"<script[^>]*instalar\.js[^>]*>", login)
+        assert tag, "base.html não carrega o instalar.js"
+        assert "defer" not in tag.group(0) and "async" not in tag.group(0)
+
+    def test_script_espera_o_aviso_do_navegador(self):
+        """Sem detecção de aparelho: quem decide é o `beforeinstallprompt`."""
+        codigo = (ESTATICO / "instalar.js").read_text()
+        assert "beforeinstallprompt" in codigo and "appinstalled" in codigo
+        assert "userAgent" not in codigo
+
+    def test_manifest_tem_id_estavel(self, client):
+        """Sem `id`, mudar o `start_url` faria quem já instalou virar "outro app"."""
+        assert json.loads(client.get("/manifest.webmanifest").text)["id"] == "/painel/"

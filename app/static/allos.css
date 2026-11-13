@@ -108,6 +108,30 @@ h1 { font-family:var(--font-display); font-weight:700; font-size:27px; letter-sp
 .btn-danger:hover { background:var(--red-bg); border-color:var(--red-text); }
 .btn-sm { padding:7px 13px; font-size:13px; }
 
+/* Botão "Instalar" (PWA). Nasce com `hidden` e o instalar.js o revela.
+   🔴 O `display:inline-flex` do .btn VENCE o `hidden` do navegador (regra de
+   autor ganha da folha padrão): sem a linha abaixo o botão apareceria sempre,
+   inclusive no iPhone, onde ele não faz nada. */
+[data-instalar][hidden] { display:none !important; }
+.btn-instalar { background:var(--teal-glow); border:1.5px solid var(--border-teal); color:var(--teal-600); white-space:nowrap; }
+.btn-instalar:hover { border-color:var(--teal-500); }
+.btn-instalar:focus-visible, .login-instalar:focus-visible { outline:2px solid var(--teal-500); outline-offset:2px; }
+.login-instalar {
+  display:inline-flex; align-items:center; gap:8px; margin-top:16px; padding:10px 14px; min-height:44px;
+  background:none; border:none; border-radius:12px; cursor:pointer;
+  font-family:inherit; font-size:14px; font-weight:600; color:var(--teal-600);
+}
+.login-instalar:hover { background:var(--teal-glow); }
+@media (max-width:760px) {
+  /* Área de toque de 44px no celular; a topbar tem 60px, cabe. */
+  .btn-instalar { min-height:44px; padding:0 15px; }
+}
+@media (max-width:380px) {
+  /* Em tela bem estreita a marca quebrava em duas linhas e encostava no botão.
+     Só enquanto o botão está à mostra: sem ele, o "· painel Allos" cabe. */
+  .topbar:has([data-instalar]:not([hidden])) .brand small { display:none; }
+}
+
 /* Inputs */
 .input { width:100%; background:var(--bg-input); border:1.5px solid var(--border-strong); border-radius:12px; padding:11px 14px; font-size:14px; color:var(--text-primary); font-family:inherit; transition:all .2s; }
 .input:focus { outline:none; border-color:var(--teal-500); background:var(--bg-card); box-shadow:0 0 0 3px rgba(0,136,136,.15); }

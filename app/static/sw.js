@@ -12,10 +12,11 @@
  * Estratégia: network-first pra tudo, com cache só como acervo dos estáticos
  * (para o app abrir offline mostrando algo, em vez do dinossauro).
  */
-const VERSAO = 'sofia-v1';
+const VERSAO = 'sofia-v2';
 const SHELL = [
   '/static/allos.css',
   '/static/ordenar-tabela.js',
+  '/static/instalar.js',
   '/static/icons/sofia-192.png',
   '/static/icons/sofia-512.png',
 ];
