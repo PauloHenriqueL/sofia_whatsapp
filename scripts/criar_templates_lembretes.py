@@ -32,6 +32,11 @@ template é o gatilho de uma escrita — não é aviso solto. Sem rótulo de
 "novo/reencaminhamento" no texto (texto fixo da Meta não varia, e a variável a
 mais não pagaria o risco na análise). Uma variável por linha, pela mesma regra
 do erro 132018.
+
+`proposta_horario_paciente` (13/11/2026) pergunta ao paciente se o horário que
+a Thainá escolheu serve, antes de o terapeuta ser acionado. É template, e não
+texto livre, porque a escolha costuma vir dias depois da última mensagem do
+paciente — fora da janela de 24h a Meta só entrega template.
 """
 
 import json
@@ -50,6 +55,25 @@ def _botoes(*rotulos: str) -> dict:
 
 
 TEMPLATES = [
+    {
+        # Vai para o PACIENTE: rodapé "Allos", não "Hamilton" (nome interno).
+        "name": "proposta_horario_paciente",
+        "language": "pt_BR",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Olá, {{1}}! Encontramos um horário para a sua terapia na Allos:\n\n"
+                    "Terapeuta: {{2}}\nPrimeira sessão: {{3}}\n\n"
+                    "Esse horário funciona para você?"
+                ),
+                "example": {"body_text": [["Maria", "Tácia Teste", "terça, 18/11, às 19h"]]},
+            },
+            {"type": "FOOTER", "text": "Mensagem automática da Allos"},
+            _botoes("Pode ser", "Prefiro outro horário"),
+        ],
+    },
     {
         "name": "encaminhamento_terapeuta",
         "language": "pt_BR",
