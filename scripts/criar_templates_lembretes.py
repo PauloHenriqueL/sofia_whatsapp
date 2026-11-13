@@ -1,4 +1,4 @@
-"""Cria na Meta os dois templates dos lembretes dos terapeutas (conta Sofia).
+"""Cria na Meta os templates que a Sofia manda para os terapeutas (conta Sofia).
 
     WHATSAPP_WABA_ID=<id da conta> python scripts/criar_templates_lembretes.py            # só mostra
     WHATSAPP_WABA_ID=<id da conta> python scripts/criar_templates_lembretes.py --enviar   # cria
@@ -24,6 +24,14 @@ entregou nenhuma. O v3 diz no texto fixo que é lembrete de atendimentos
 agendados e tira o "Toque abaixo"; as variáveis viram só "2 (9h e 10h)", com o
 rótulo no texto. Enquanto isso o Hamilton manda o v1, que é UTILITY e não tem
 botão. ⚠️ Aprovado não basta: confira a CATEGORIA (este script mostra).
+
+Encaminhamento (13/11/2026): `encaminhamento_terapeuta` avisa o terapeuta de que
+um paciente foi encaminhado para ele e pergunta se aceita. Quem escolhe é a
+Thainá, no painel; o "Aceito" é o que grava o vínculo no Hamilton, então este
+template é o gatilho de uma escrita — não é aviso solto. Sem rótulo de
+"novo/reencaminhamento" no texto (texto fixo da Meta não varia, e a variável a
+mais não pagaria o risco na análise). Uma variável por linha, pela mesma regra
+do erro 132018.
 """
 
 import json
@@ -42,6 +50,29 @@ def _botoes(*rotulos: str) -> dict:
 
 
 TEMPLATES = [
+    {
+        "name": "encaminhamento_terapeuta",
+        "language": "pt_BR",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Olá, {{1}}! Um paciente foi encaminhado para você no Hamilton.\n\n"
+                    "Nome: {{2}}\nNascimento: {{3}}\nContato: {{4}}\n1ª sessão: {{5}}\n\n"
+                    "Valor da sessão: R$ {{6}}\nForma de pagamento: {{7}}\n\n"
+                    "Antes de atender, combine uma ligação ou meet com o paciente "
+                    "para conversar sobre o caso. Confirme abaixo."
+                ),
+                "example": {"body_text": [[
+                    "Tácia", "Maria Clara Souza", "14/03/1992", "+55 31 98855-3344",
+                    "terça, 18/11, às 19h", "200,00", "Pix",
+                ]]},
+            },
+            RODAPE,
+            _botoes("Aceito", "Não aceito"),
+        ],
+    },
     {
         "name": "agenda_do_dia_terapeuta_v3",
         "language": "pt_BR",
