@@ -24,6 +24,7 @@ varreduras automáticas, dos números e da fila Hoje — cada uma filtra por
 """
 
 import logging
+import re
 import time
 
 from sqlalchemy import select, update
@@ -110,6 +111,31 @@ async def ao_reconhecer(db: AsyncSession, numero: str) -> bool:
             mascarar_telefone(numero),
         )
     return True
+
+
+def numero_whatsapp(telefone: str | None) -> str:
+    """O número como o webhook o recebe: só dígitos (o Hamilton manda "+55...")."""
+    return re.sub(r"\D", "", telefone or "")
+
+
+async def conversa_de_terapeuta(db: AsyncSession, telefone: str) -> Conversa:
+    """A conversa do número de um terapeuta, criada e marcada se ainda não existir.
+
+    Usada por quem fala com o terapeuta por iniciativa da Sofia (lembretes,
+    aviso de encaminhamento): é o que faz essas mensagens aparecerem na aba
+    Terapeutas. Conversa que já existe não tem a marca mexida aqui — a escolha
+    à mão vence, e a do Hamilton é feita por `ao_reconhecer`/`conferir`.
+    """
+    numero = numero_whatsapp(telefone)
+    conversa = (
+        await db.execute(select(Conversa).where(Conversa.numero_whatsapp == numero))
+    ).scalar_one_or_none()
+    if conversa is None:
+        conversa = Conversa(numero_whatsapp=numero, eh_terapeuta=True, contato_conferido_por=HAMILTON)
+        db.add(conversa)
+        await db.flush()
+        logger.info("Conversa %s criada para o terapeuta %s", conversa.id, mascarar_telefone(numero))
+    return conversa
 
 
 async def conferir(db: AsyncSession, limite: int = CONFERIDAS_POR_RODADA) -> dict:

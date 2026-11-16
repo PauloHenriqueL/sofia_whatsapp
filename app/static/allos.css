@@ -725,3 +725,21 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
   .enc-confirmar-botoes .btn { flex:1; justify-content:center; }
   .enc-data, .enc-data input { width:100%; }
 }
+
+/* ── Início de contato pelo painel (Demanda G) ───────────────────────────── */
+.compositor-contato { color:var(--text-secondary); }
+.compositor-contato > span { max-width:560px; }
+.janela-status { padding:10px 14px 0; font-size:12.5px; }
+.contato-form .dica { font-size:12.5px; color:var(--text-tertiary); margin-top:4px; }
+.contato-form .consentimento {
+  display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-radius:10px;
+  background:var(--green-bg); border:1px solid var(--green-border); font-size:14px; font-weight:500;
+  color:var(--text-primary); cursor:pointer;
+}
+.contato-form .consentimento input { margin-top:3px; }
+.contato-form .tipo-escolha { display:flex; gap:8px; flex-wrap:wrap; }
+.contato-form .tipo-escolha label {
+  display:flex; gap:8px; align-items:center; padding:8px 14px; border-radius:999px;
+  border:1px solid var(--border, #d9e2e0); font-weight:500; color:var(--text-secondary); cursor:pointer;
+}
+.contato-form .tipo-escolha input:checked + span { color:var(--teal-600); font-weight:600; }

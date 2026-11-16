@@ -1,19 +1,24 @@
 {% extends "base.html" %}
-{% block titulo %}Conversas · Sofia{% endblock %}
+{% block titulo %}{{ titulo_lista }} · Sofia{% endblock %}
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app">
   <div class="page-head">
     <div>
-      <h1>Conversas</h1>
-      <div class="subtitle">Atendimentos da Sofia no WhatsApp</div>
+      <h1>{{ titulo_lista }}</h1>
+      <div class="subtitle">
+        {% if lista == 'terapeutas' %}Lembretes, respostas e o que a equipe falou com cada terapeuta
+        {% else %}Atendimentos da Sofia no WhatsApp{% endif %}
+      </div>
     </div>
-    <a class="btn btn-ghost" href="/painel/metricas"><i class="bi bi-graph-up-arrow"></i> Resultados</a>
+    <a class="btn btn-primary" href="/painel/contatos/novo?tipo={{ 'terapeuta' if lista == 'terapeutas' else 'paciente' }}">
+      <i class="bi bi-plus-lg"></i> Nova conversa
+    </a>
   </div>
 
   {# Abas: as duas telas que a Thainá usa o tempo todo, lado a lado. #}
   <div class="toolbar">
-    <form class="search" method="get" action="/painel/conversas">
+    <form class="search" method="get" action="{{ base_lista }}">
       <input type="hidden" name="ordem" value="{{ ordem }}">
       <input type="hidden" name="dir" value="{{ dir }}">
       <input type="hidden" name="filtro" value="{{ filtro }}">
@@ -21,7 +26,7 @@
       <input class="input" type="search" name="busca" value="{{ busca }}"
              placeholder="Buscar por nome, número ou mensagem...">
       {% if busca %}
-        <a class="btn btn-ghost btn-sm" href="/painel/conversas?filtro={{ filtro }}" title="Limpar busca">
+        <a class="btn btn-ghost btn-sm" href="{{ base_lista }}?filtro={{ filtro }}" title="Limpar busca">
           <i class="bi bi-x-lg"></i>
         </a>
       {% endif %}
@@ -37,7 +42,7 @@
       <div class="dropdown-menu">
         {% for chave, rotulo in filtros.items() %}
           <a class="{{ 'active' if filtro == chave }}"
-             href="/painel/conversas?filtro={{ chave }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}">
+             href="{{ base_lista }}?filtro={{ chave }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}">
             {% if filtro == chave %}<i class="bi bi-check2"></i>{% endif %}{{ rotulo }}
           </a>
         {% endfor %}
@@ -54,14 +59,14 @@
 
   {# O polling preserva busca/ordem/filtro E página, senão a tela "pula" a cada 15s. #}
   <div class="card"
-       hx-get="/painel/fragment/conversas?filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}&pagina={{ pagina }}"
+       hx-get="/painel/fragment/conversas?lista={{ lista }}&filtro={{ filtro }}&busca={{ busca|urlencode }}&ordem={{ ordem }}&dir={{ dir }}&pagina={{ pagina }}"
        hx-trigger="every 15s" hx-swap="innerHTML">
     {% include "_conversas_fragment.html" %}
   </div>
 
   {# Paginação. Antes não existia e a lista parava na 50ª conversa em silêncio. #}
   {% if pagina > 1 or tem_proxima %}
-  {% set base = '/painel/conversas?filtro=' ~ filtro ~ '&busca=' ~ (busca|urlencode) ~ '&ordem=' ~ ordem ~ '&dir=' ~ dir %}
+  {% set base = base_lista ~ '?filtro=' ~ filtro ~ '&busca=' ~ (busca|urlencode) ~ '&ordem=' ~ ordem ~ '&dir=' ~ dir %}
   <div class="toolbar" style="justify-content:space-between; margin-top:12px">
     {% if pagina > 1 %}
       <a class="btn btn-ghost" href="{{ base }}&pagina={{ pagina - 1 }}">

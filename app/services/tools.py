@@ -69,6 +69,9 @@ MOTIVO_LABELS = {
     "audio_recebido": "mandou um áudio que não deu pra entender",
     "anexo_recebido": "mandou uma imagem ou documento (veja no painel)",
     "outro": "outro (ver contexto)",
+    # Não é tool do modelo: abre quando alguém responde ao contato que a equipe
+    # iniciou pelo painel (services/inicio_contato.py).
+    "respondeu_contato": "respondeu ao contato que a equipe iniciou",
 }
 
 TOOLS = [

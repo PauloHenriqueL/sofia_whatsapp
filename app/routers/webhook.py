@@ -23,6 +23,7 @@ from app.services import (
     conversation,
     encaminhamento,
     escalation,
+    inicio_contato,
     lembretes_terapeutas,
     llm_client,
     midia,
@@ -417,30 +418,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     if not numero:
         return
 
-    # Terapeuta respondendo a um lembrete: este número é o mesmo que atende
-    # pacientes, e sem isto o LLM faria triagem e cadastraria o terapeuta como
-    # lead. Toque em botão do lembrete recebe os detalhes; o resto, a resposta
-    # fixa. Nada disso vira conversa no painel (ver lembretes_terapeutas).
-    # Se já existia uma conversa com esse número, `ao_reconhecer` a marca como
-    # de terapeuta; só devolve False para quem foi marcado à mão como paciente.
-    if await lembretes_terapeutas.eh_terapeuta(numero) and await _tratar_como_terapeuta(numero):
-        # Aceito/Não aceito do aviso de encaminhamento: é o toque que grava o
-        # vínculo no Hamilton (ver services/encaminhamento.py).
-        botao_encaminhamento = encaminhamento.botao_da_mensagem(mensagem, "enc_")
-        if botao_encaminhamento:
-            await encaminhamento.tratar_botao_terapeuta(numero, wamid, *botao_encaminhamento)
-            return
-        botao = mensagem.get("button") or {}
-        codigo = botao.get("payload") or botao.get("text")
-        if tipo == "button" and codigo:
-            await lembretes_terapeutas.responder_botao(numero, wamid, codigo)
-        elif tipo == "text" and await encaminhamento.capturar_motivo(
-            numero, (mensagem.get("text") or {}).get("body")
-        ):
-            pass  # era o motivo de uma recusa de encaminhamento
-        else:
-            await lembretes_terapeutas.responder_terapeuta(numero, wamid)
-        return
+    # Terapeuta que o Hamilton reconhece pelo telefone: este número é o mesmo
+    # que atende pacientes, e sem isto o LLM faria triagem e cadastraria o
+    # terapeuta como lead. Desde a Demanda G a mensagem dele é GRAVADA como a de
+    # qualquer conversa (aba Terapeutas); quem responde é `_responder_a_terapeuta`.
+    # `_tratar_como_terapeuta` marca a conversa que já existia e só devolve
+    # False para quem foi marcado à mão como paciente.
+    terapeuta_reconhecido = await lembretes_terapeutas.eh_terapeuta(
+        numero
+    ) and await _tratar_como_terapeuta(numero)
 
     async with serializacao.lock_da_conversa(numero):
         async with async_session() as session:
@@ -449,7 +435,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 logger.info("Mensagem %s já processada, duplicata descartada", wamid)
                 return
 
+            # Nono dígito: a conversa criada pela equipe com "55DD9..." recebe a
+            # resposta de "55DD..." (e vice-versa). Ver services/inicio_contato.py.
+            await inicio_contato.reconciliar_numero(session, numero)
             conversa = await conversation.obter_ou_criar_conversa(session, numero)
+            if terapeuta_reconhecido and not conversa.eh_terapeuta:
+                # Conversa que acabou de nascer (a que já existia foi marcada
+                # por `_tratar_como_terapeuta`, antes do lock).
+                conversa.eh_terapeuta = True
+                conversa.contato_conferido_por = contato.HAMILTON
 
             # Mensagem nova reativa a conversa no painel: arquivada é estado da
             # lista, não do atendimento. O commit da ingestão persiste.
@@ -485,6 +479,11 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 )
             await session.commit()
 
+            # 1ª resposta a um contato que a equipe iniciou pelo painel: escalada
+            # + alerta. A conversa já está em modo humano (iniciar = assumir), e
+            # o aviso de "a equipe vai retornar" já conta como dado.
+            await inicio_contato.registrar_resposta(session, conversa)
+
             # Resposta à proposta de horário do encaminhamento. Fura o modo
             # humano pelo mesmo motivo da pesquisa e da cobrança: foi a Sofia
             # quem perguntou (pelo template), e sem isto o "Pode ser" de quem
@@ -504,7 +503,7 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             # mas DEPOIS do botão da proposta de horário: se a equipe mandou uma
             # proposta para este número, a resposta não pode cair no vazio.
             if conversa.eh_terapeuta:
-                await _responder_a_terapeuta(session, conversa, numero)
+                await _responder_a_terapeuta(session, conversa, mensagem)
                 return
 
             # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
@@ -578,17 +577,35 @@ async def _tratar_como_terapeuta(numero: str) -> bool:
         return True
 
 
-async def _responder_a_terapeuta(session, conversa, numero: str) -> None:
-    """Resposta fixa a quem foi marcado como terapeuta, no máximo uma por hora.
+async def _responder_a_terapeuta(session, conversa, mensagem: dict[str, Any]) -> None:
+    """O que a Sofia responde a uma conversa de terapeuta (a mensagem já foi gravada).
 
-    Com a conversa em modo humano não sai nada: alguém da equipe está falando
-    com o terapeuta pelo painel, e "este número não lê respostas" no meio disso
-    seria mentira.
+    - Aceito/Não aceito do aviso de encaminhamento: sempre, inclusive em modo
+      humano — é o toque que grava o vínculo no Hamilton.
+    - O motivo de uma recusa de encaminhamento: sempre (só casa logo depois dela).
+    - Modo humano: mais nada. Alguém da equipe está falando com o terapeuta pelo
+      painel, e "este número não lê respostas" no meio disso seria mentira.
+    - Toque em botão do lembrete: os detalhes (balões do Hamilton).
+    - O resto: a resposta fixa, no máximo uma por hora.
     """
+    tipo = mensagem.get("type")
+    wamid = mensagem.get("id")
+    botao_encaminhamento = encaminhamento.botao_da_mensagem(mensagem, "enc_")
+    if botao_encaminhamento:
+        await encaminhamento.tratar_botao_terapeuta(session, conversa, wamid, *botao_encaminhamento)
+        return
+    if tipo == "text" and await encaminhamento.capturar_motivo(
+        session, conversa, (mensagem.get("text") or {}).get("body")
+    ):
+        return
     if conversa.modo == "humano":
         return
-    if lembretes_terapeutas.pode_responder_agora(numero):
-        await _enviar_em_bolhas(session, conversa, numero, lembretes_terapeutas.RESPOSTA_TERAPEUTA)
+    botao = mensagem.get("button") or {}
+    codigo = botao.get("payload") or botao.get("text")
+    if tipo == "button" and codigo:
+        await lembretes_terapeutas.responder_botao(session, conversa, wamid, codigo)
+        return
+    await lembretes_terapeutas.responder_terapeuta(session, conversa, wamid)
 
 
 async def _avisar_escalada_uma_vez(session, conversa, numero: str) -> None:

@@ -339,6 +339,27 @@ async def _alertar_conversa(db: AsyncSession, conversa: Conversa, rotulo: str) -
     await escalation.alertar_equipe(db, nome, rotulo)
 
 
+def texto_do_aviso_terapeuta(variaveis: list | None) -> str:
+    """Como o aviso de encaminhamento aparece no painel (o corpo mora na Meta)."""
+    partes = [str(v) for v in (variaveis or []) if str(v).strip()]
+    return "\n".join(["[Aviso de encaminhamento]", *partes])
+
+
+async def _registrar_aviso_terapeuta(db: AsyncSession, aviso: dict, resposta: dict) -> None:
+    """Grava o aviso na conversa do terapeuta. Não derruba o fluxo do paciente."""
+    from app.services import contato
+
+    try:
+        conversa = await contato.conversa_de_terapeuta(db, aviso["telefone"])
+        await conversation.registrar_mensagem_enviada(
+            db, conversa, texto=texto_do_aviso_terapeuta(aviso.get("variaveis")),
+            tipo="template", whatsapp_message_id=whatsapp_client.id_da_resposta(resposta))
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        logger.exception("Aviso de encaminhamento saiu mas não foi gravado no histórico")
+
+
 async def tratar_botao_paciente(db: AsyncSession, conversa: Conversa, codigo: str, enc_id: int) -> str:
     """Toque do paciente na proposta. Devolve o texto a responder a ele (a
     janela de 24h foi aberta pelo toque, então vai como texto livre)."""
@@ -362,9 +383,10 @@ async def tratar_botao_paciente(db: AsyncSession, conversa: Conversa, codigo: st
     enviado = False
     if aviso and aviso.get("telefone"):
         try:
-            await whatsapp_client.enviar_template(
+            resposta_aviso = await whatsapp_client.enviar_template(
                 aviso["telefone"], aviso["template"], aviso["variaveis"], botoes=aviso["botoes"])
             enviado = True
+            await _registrar_aviso_terapeuta(db, aviso, resposta_aviso)
         except whatsapp_client.WhatsAppError as exc:
             logger.error("Aviso ao terapeuta do encaminhamento %s não saiu: %s", enc_id, exc)
     if not enviado:
@@ -402,8 +424,20 @@ async def _alertar(nome: str, rotulo: str) -> None:
         await escalation.alertar_equipe(db, nome, rotulo)
 
 
-async def tratar_botao_terapeuta(numero: str, wamid: str | None, codigo: str, enc_id: int) -> None:
-    """Toque do terapeuta no aviso de encaminhamento."""
+async def tratar_botao_terapeuta(
+    db: AsyncSession, conversa: Conversa, wamid: str | None, codigo: str, enc_id: int
+) -> None:
+    """Toque do terapeuta no aviso de encaminhamento.
+
+    Vale mesmo com a conversa em modo humano: o toque é o que grava o vínculo
+    no Hamilton (ação de negócio, não conversa). As respostas ficam gravadas na
+    conversa do terapeuta.
+    """
+    numero = conversa.numero_whatsapp
+
+    async def _responder(texto: str, sigiloso: bool = False) -> None:
+        await conversation.enviar_texto_e_registrar(db, conversa, texto, sigiloso=sigiloso)
+
     if wamid:
         await whatsapp_client.marcar_como_lida(wamid)
     if _ja_visto(wamid):
@@ -416,36 +450,36 @@ async def tratar_botao_terapeuta(numero: str, wamid: str | None, codigo: str, en
         logger.error("Resposta do terapeuta %s ao encaminhamento %s falhou: %s",
                      mascarar_telefone(numero), enc_id, exc)
         _wamids_vistos.pop(wamid or "", None)  # deixa tocar de novo: não foi culpa dele
-        await whatsapp_client.enviar_texto(
-            numero, "Não consegui registrar agora. Tente tocar de novo em alguns minutos.")
+        await _responder("Não consegui registrar agora. Tente tocar de novo em alguns minutos.")
         return
 
     enc = corpo.get("encaminhamento") or {}
     nome_paciente = (enc.get("paciente") or {}).get("nome") or "Paciente"
     if status == 409 and corpo.get("codigo") == "slot_tomado":
-        await whatsapp_client.enviar_texto(numero, TEXTO_SLOT_TOMADO)
+        await _responder(TEXTO_SLOT_TOMADO)
         await _alertar(nome_paciente, "encaminhamento: horário ocupado antes do aceite, escolher de novo")
         return
     if status != 200:
-        await whatsapp_client.enviar_texto(numero, TEXTO_ENCAMINHAMENTO_FECHADO)
+        await _responder(TEXTO_ENCAMINHAMENTO_FECHADO)
         return
 
     variaveis = ((enc.get("mensagens") or {}).get("paciente") or {}).get("variaveis") or ["", "", ""]
     if aceitou:
-        await whatsapp_client.enviar_texto(
-            numero, TEXTO_TERAPEUTA_ACEITO.format(paciente=nome_paciente, quando=variaveis[2]),
+        await _responder(
+            TEXTO_TERAPEUTA_ACEITO.format(paciente=nome_paciente, quando=variaveis[2]),
             sigiloso=True)
         await _avisar_paciente_confirmado(enc)
         logger.info("Encaminhamento %s aceito pelo terapeuta; vínculo gravado no Hamilton", enc_id)
         return
     _aguardando_motivo[numero] = (enc_id, time.monotonic())
-    await whatsapp_client.enviar_texto(numero, TEXTO_TERAPEUTA_RECUSOU)
+    await _responder(TEXTO_TERAPEUTA_RECUSOU)
     await _alertar(nome_paciente, "encaminhamento: terapeuta recusou, escolher outro (aba Hoje)")
 
 
-async def capturar_motivo(numero: str, texto: str | None) -> bool:
+async def capturar_motivo(db: AsyncSession, conversa: Conversa, texto: str | None) -> bool:
     """Se este terapeuta acabou de recusar, o texto dele é o motivo. Devolve se
     tratou (senão, quem chama segue com a resposta fixa de sempre)."""
+    numero = conversa.numero_whatsapp
     pendente = _aguardando_motivo.get(numero)
     if not pendente or not (texto or "").strip():
         return False
@@ -458,7 +492,7 @@ async def capturar_motivo(numero: str, texto: str | None) -> bool:
         await hamilton_client.get_hamilton_client().motivo_encaminhamento(enc_id, texto.strip())
     except hamilton_client.HamiltonError as exc:
         logger.error("Motivo do encaminhamento %s não gravado: %s", enc_id, exc)
-    await whatsapp_client.enviar_texto(numero, TEXTO_MOTIVO_OBRIGADO)
+    await conversation.enviar_texto_e_registrar(db, conversa, TEXTO_MOTIVO_OBRIGADO)
     return True
 
 

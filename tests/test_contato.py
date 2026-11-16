@@ -487,30 +487,32 @@ class TestPainel:
         )
         await _login(sofia)
 
-        html = (await sofia.get("/painel/conversas")).text
+        html = (await sofia.get("/painel/terapeutas")).text
 
         assert html.count('class="tag-terapeuta"') == 1
         linha_dele = html.split("Renato Terapeuta")[1].split("</tr>")[0]
         assert "tag-terapeuta" in linha_dele
-        # "Sofia atendendo" seria mentira na linha de quem ela não atende.
-        assert "Sofia não atende" in linha_dele
+        # "Sofia atendendo" seria mentira: ela só responde aos botões do lembrete.
+        assert "Respostas automáticas" in linha_dele
 
     @pytest.mark.asyncio
-    async def test_filtros_separam_pacientes_de_terapeutas(self, sofia):
+    async def test_abas_separam_pacientes_de_terapeutas(self, sofia):
         await _nova(sofia, PACIENTE, dados_coletados={"nome_completo": "Paula Paciente"})
         await _nova(
             sofia, RENATO, dados_coletados={"nome_completo": "Renato Terapeuta"}, eh_terapeuta=True
         )
         await _login(sofia)
 
-        so_pacientes = (await sofia.get("/painel/conversas?filtro=pacientes")).text
-        so_terapeutas = (await sofia.get("/painel/conversas?filtro=terapeutas")).text
-        todas = (await sofia.get("/painel/conversas")).text
+        # Demanda G: terapeuta tem aba própria; Conversas é só de paciente.
+        so_pacientes = (await sofia.get("/painel/conversas")).text
+        so_terapeutas = (await sofia.get("/painel/terapeutas")).text
+        fragmento = (await sofia.get("/painel/fragment/conversas?lista=terapeutas")).text
 
         assert "Paula Paciente" in so_pacientes and "Renato Terapeuta" not in so_pacientes
         assert "Renato Terapeuta" in so_terapeutas and "Paula Paciente" not in so_terapeutas
-        # O padrão não esconde ninguém.
-        assert "Paula Paciente" in todas and "Renato Terapeuta" in todas
+        # O polling da aba Terapeutas não pode trocar a lista pela de pacientes.
+        assert "Renato Terapeuta" in fragmento and "Paula Paciente" not in fragmento
+        assert "lista=terapeutas" in so_terapeutas
 
     @pytest.mark.asyncio
     async def test_botao_marca_a_mao_e_desmarca(self, sofia):

@@ -21,7 +21,7 @@ from app.services import (
 )
 from app.services import encaminhamento as encaminhamento_service
 from app.services import hoje as hoje_service
-from app.services import metricas, midia, painel, usuarios, whatsapp_client
+from app.services import inicio_contato, metricas, midia, painel, usuarios, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +124,22 @@ templates.env.filters["e_imagem"] = midia.e_imagem
 templates.env.filters["nome_anexo"] = midia.nome_para_download
 
 
+# Cada lista do painel: rota, título e aba (Demanda G — terapeuta tem aba própria).
+LISTAS = {
+    "pacientes": {"url": "/painel/conversas", "titulo": "Conversas", "aba": "conversas"},
+    "terapeutas": {"url": "/painel/terapeutas", "titulo": "Terapeutas", "aba": "terapeutas"},
+}
+
+
 def _contexto_lista(
-    request: Request, conversas, filtro, busca, ordem, dir_, pagina=1, tem_proxima=False
+    request: Request, conversas, filtro, busca, ordem, dir_, pagina=1, tem_proxima=False,
+    lista: str = "pacientes",
 ) -> dict:
+    cfg = LISTAS.get(lista, LISTAS["pacientes"])
     return {
+        "lista": lista,
+        "base_lista": cfg["url"],
+        "titulo_lista": cfg["titulo"],
         "request": request,
         "conversas": conversas,
         "pagina": pagina,
@@ -137,14 +149,14 @@ def _contexto_lista(
         "ordem": ordem,
         "dir": dir_,
         "filtros": painel.FILTROS,
-        "aba_ativa": "conversas",
+        "aba_ativa": cfg["aba"],
     }
 
 
 POR_PAGINA = 50
 
 
-async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int):
+async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int, lista="pacientes"):
     """Uma página da lista + se existe próxima.
 
     Antes o router chamava `listar_conversas` sem `limite` e ficava com o default
@@ -161,6 +173,7 @@ async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int):
         descendente=(dir_ != "asc"),
         limite=POR_PAGINA + 1,
         offset=(pagina - 1) * POR_PAGINA,
+        lista=lista if lista in LISTAS else "pacientes",
     )
     tem_proxima = len(conversas) > POR_PAGINA
     return conversas[:POR_PAGINA], tem_proxima
@@ -298,6 +311,22 @@ async def reservar_encaminhamento(
     return RedirectResponse(f"/painel/?proposta={quote(nome)}", status_code=303)
 
 
+async def _pagina_lista(request, db, lista, filtro, busca, ordem, dir_, feito, pagina):
+    """`feito` é o aviso pós-ação (ex.: 'arquivada'), pra ação não sumir em silêncio."""
+    conversas, tem_proxima = await _pagina_de_conversas(
+        db, filtro, busca, ordem, dir_, pagina, lista
+    )
+    return templates.TemplateResponse(
+        "painel_lista.html",
+        {
+            **_contexto_lista(
+                request, conversas, filtro, busca, ordem, dir_, max(1, pagina), tem_proxima, lista
+            ),
+            "feito": feito,
+        },
+    )
+
+
 @router.get("/conversas")
 async def pagina_lista(
     request: Request,
@@ -309,17 +338,23 @@ async def pagina_lista(
     pagina: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
-    """`feito` é o aviso pós-ação (ex.: 'arquivada'), pra ação não sumir em silêncio."""
-    conversas, tem_proxima = await _pagina_de_conversas(db, filtro, busca, ordem, dir, pagina)
-    return templates.TemplateResponse(
-        "painel_lista.html",
-        {
-            **_contexto_lista(
-                request, conversas, filtro, busca, ordem, dir, max(1, pagina), tem_proxima
-            ),
-            "feito": feito,
-        },
-    )
+    """Conversas de paciente. As de terapeuta moram na aba Terapeutas."""
+    return await _pagina_lista(request, db, "pacientes", filtro, busca, ordem, dir, feito, pagina)
+
+
+@router.get("/terapeutas")
+async def pagina_terapeutas(
+    request: Request,
+    filtro: str = "todas",
+    busca: str = "",
+    ordem: str = "atualizada_em",
+    dir: str = "desc",
+    feito: str = "",
+    pagina: int = 1,
+    db: AsyncSession = Depends(get_db),
+):
+    """Conversas de terapeuta: lembretes, respostas e o que a equipe falou (Demanda G)."""
+    return await _pagina_lista(request, db, "terapeutas", filtro, busca, ordem, dir, feito, pagina)
 
 
 @router.get("/config")
@@ -551,20 +586,29 @@ async def fragment_conversas(
     ordem: str = "atualizada_em",
     dir: str = "desc",
     pagina: int = 1,
+    lista: str = "pacientes",
     db: AsyncSession = Depends(get_db),
 ):
-    """O polling repassa a página junto do filtro/busca/ordem — sem isso a tela
-    pularia de volta pra página 1 a cada 15 segundos."""
-    conversas, tem_proxima = await _pagina_de_conversas(db, filtro, busca, ordem, dir, pagina)
+    """O polling repassa a página (e a lista) junto do filtro/busca/ordem — sem
+    isso a tela pularia de volta pra página 1 a cada 15 segundos."""
+    conversas, tem_proxima = await _pagina_de_conversas(
+        db, filtro, busca, ordem, dir, pagina, lista
+    )
     return templates.TemplateResponse(
         "_conversas_fragment.html",
-        _contexto_lista(request, conversas, filtro, busca, ordem, dir, max(1, pagina), tem_proxima),
+        _contexto_lista(
+            request, conversas, filtro, busca, ordem, dir, max(1, pagina), tem_proxima, lista
+        ),
     )
 
 
 @router.get("/conversas/{conversa_id}/")
 async def pagina_conversa(
-    request: Request, conversa_id: int, pagamento: str = "", db: AsyncSession = Depends(get_db)
+    request: Request,
+    conversa_id: int,
+    pagamento: str = "",
+    contato: str = "",
+    db: AsyncSession = Depends(get_db),
 ):
     """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect)."""
     from app.services import cobranca as cobranca_service
@@ -575,6 +619,8 @@ async def pagina_conversa(
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     mensagens = await painel.carregar_mensagens(db, conversa_id)
+    janela_ate = await inicio_contato.janela_ate(db, conversa)
+    contato_msg = contato
 
     # Status do pagamento vinculado, resolvido ao vivo no Stripe (tolerante:
     # Stripe fora do ar ou sem chave vira estado "erro"/ausente, nunca 500).
@@ -601,8 +647,103 @@ async def pagina_conversa(
             "em_pesquisa": conversa.pesquisa_avaliacao_id is not None,
             "em_cobranca": cobranca_service.em_cobranca(conversa),
             "cobranca_label": cobranca_service.STATUS_LABELS.get(conversa.cobranca_status or ""),
+            "janela_ate": janela_ate,
+            "janela_aberta": inicio_contato.janela_aberta(janela_ate),
+            "template_inicio": inicio_contato.template_configurado(),
+            "contato_aviso": AVISOS_CONTATO.get(contato_msg),
         },
     )
+
+
+# O que a tela da conversa diz depois de iniciar contato (`?contato=`).
+AVISOS_CONTATO = {
+    "enviado": {"erro": False, "texto": "Convite enviado. Você está com a conversa; "
+                "quando a pessoa responder, ela entra na fila Hoje e chega o alerta."},
+    "criado": {"erro": False, "texto": "Contato adicionado e convite enviado."},
+    "existia": {"erro": False, "texto": "Esse número já tinha conversa: abrimos a dele. "
+                "Nada foi enviado ainda."},
+    "erro": {"erro": True, "texto": "O convite não saiu (o WhatsApp recusou). Confira o "
+             "nome do template em Configurações e tente de novo."},
+    "sem_template": {"erro": True, "texto": "Falta o nome do template de início de contato "
+                     "em Configurações."},
+}
+
+
+async def _iniciar_e_redirecionar(db, conversa, request: Request, sucesso: str):
+    try:
+        await inicio_contato.iniciar(db, conversa, request.session.get("usuario") or "")
+    except inicio_contato.SemTemplate:
+        return RedirectResponse(
+            f"/painel/conversas/{conversa.id}/?contato=sem_template", status_code=303
+        )
+    except whatsapp_client.WhatsAppError as exc:
+        logger.error("Convite de início de contato não saiu (conversa %s): %s", conversa.id, exc)
+        return RedirectResponse(f"/painel/conversas/{conversa.id}/?contato=erro", status_code=303)
+    return RedirectResponse(f"/painel/conversas/{conversa.id}/?contato={sucesso}", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/iniciar-contato")
+async def iniciar_contato(conversa_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Manda o template de início e assume a conversa (services/inicio_contato.py)."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    return await _iniciar_e_redirecionar(db, conversa, request, "enviado")
+
+
+@router.get("/contatos/novo")
+async def pagina_novo_contato(request: Request, tipo: str = "paciente"):
+    return templates.TemplateResponse(
+        "painel_contato_novo.html",
+        {
+            "request": request,
+            "tipo": "terapeuta" if tipo == "terapeuta" else "paciente",
+            "aba_ativa": "terapeutas" if tipo == "terapeuta" else "conversas",
+            "erro": "",
+            "form": {},
+            "template_inicio": inicio_contato.template_configurado(),
+        },
+    )
+
+
+@router.post("/contatos/novo")
+async def criar_novo_contato(
+    request: Request,
+    nome: str = Form(""),
+    numero: str = Form(""),
+    tipo: str = Form("paciente"),
+    nota: str = Form(""),
+    consentimento: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Número novo: cria a conversa e manda o convite (ou abre a que já existia)."""
+    tipo = "terapeuta" if tipo == "terapeuta" else "paciente"
+    erro = ""
+    if not consentimento:
+        erro = "Confirme que a pessoa passou o número para a Allos."
+    else:
+        try:
+            conversa, criada = await inicio_contato.criar_contato(
+                db, nome, numero, tipo == "terapeuta", nota, request.session.get("usuario") or ""
+            )
+        except (inicio_contato.NumeroInvalido, ValueError) as exc:
+            erro = str(exc)
+    if erro:
+        return templates.TemplateResponse(
+            "painel_contato_novo.html",
+            {
+                "request": request,
+                "tipo": tipo,
+                "aba_ativa": "terapeutas" if tipo == "terapeuta" else "conversas",
+                "erro": erro,
+                "form": {"nome": nome, "numero": numero, "nota": nota},
+                "template_inicio": inicio_contato.template_configurado(),
+            },
+            status_code=400,
+        )
+    if not criada:
+        return RedirectResponse(f"/painel/conversas/{conversa.id}/?contato=existia", status_code=303)
+    return await _iniciar_e_redirecionar(db, conversa, request, "criado")
 
 
 @router.get("/conversas/{conversa_id}/fragment/mensagens")
@@ -724,7 +865,8 @@ async def arquivar(conversa_id: int, db: AsyncSession = Depends(get_db)):
     if conversa is None:
         raise HTTPException(status_code=404, detail="Conversa não encontrada")
     await painel.arquivar(db, conversa)
-    return RedirectResponse("/painel/conversas?feito=arquivada", status_code=303)
+    lista = "/painel/terapeutas" if conversa.eh_terapeuta else "/painel/conversas"
+    return RedirectResponse(f"{lista}?feito=arquivada", status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/desarquivar")

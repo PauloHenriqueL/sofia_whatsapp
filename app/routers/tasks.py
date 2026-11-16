@@ -126,7 +126,7 @@ async def disparar_lembretes_terapeutas(request: Request, db: AsyncSession = Dep
     """
     if not _token_valido(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    resultado = await lembretes_terapeutas.rodar()
+    resultado = await lembretes_terapeutas.rodar(db)
     resultado["encaminhamento"] = await encaminhamento.rodar(db)
     # Mesma razão do encaminhamento para vir pendurada aqui. Confere aos poucos
     # quais conversas antigas são de terapeuta (ver services/contato.py).

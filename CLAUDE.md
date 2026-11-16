@@ -57,7 +57,7 @@ que fazer com o painel de pagamentos do site.
   `POST /tasks/cobrancas` e **`POST /tasks/stripe`** (diário; encerra o parcelado
   do neuro na última parcela — sem ele a assinatura cobra pra sempre, e isso já
   aconteceu com 18 pacientes). **Sem cron, nada sai.**
-- `alembic upgrade head` (head atual: **`a4c2e7b91f30`**).
+- `alembic upgrade head` (head atual: **`c7e1f5a20b48`**).
 
 ### 2. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
@@ -560,9 +560,20 @@ ainda a tratava como lead.
   contagens de `metricas.py` e a fila Hoje (num ponto só, `hoje._sem_terapeutas`).
   **`/painel/acompanhamento` não filtra, de propósito**: quem a Sofia cadastrou no
   Hamilton por engano continua aparecendo ali para alguém resolver.
-- ⚠️ Terapeuta que o Hamilton reconhece continua **sem** ter as mensagens guardadas
-  (os balões do lembrete levam nome de paciente). Só a conversa marcada à mão
-  passa pela ingestão normal e fica com o histórico.
+- **Desde a Demanda G (16/11/2026) tudo é gravado e o terapeuta tem aba própria**
+  (`/painel/terapeutas`; `/painel/conversas` passou a ser só de paciente e os
+  filtros "Só pacientes/terapeutas" saíram). O portão antigo, que desviava o
+  terapeuta reconhecido **antes** de gravar, virou só a marca: a mensagem passa
+  pela ingestão normal e quem responde é `webhook._responder_a_terapeuta`.
+  Lembretes (`lembretes_terapeutas.rodar`) e o aviso de encaminhamento também são
+  gravados, criando a conversa se preciso (`contato.conversa_de_terapeuta`).
+- 🔴 **Os balões de agenda ficam no banco COM nome de paciente** (decisão do Paulo,
+  16/11): o painel mostra a conversa como o terapeuta a viu. Antes era evitado de
+  propósito. `sigiloso=True` só tira o texto do LOG. Risco registrado em
+  `docs/demandas/08-CONTATOS-E-TERAPEUTAS.md`.
+- **Modo humano vale para terapeuta**: assumida a conversa, a Sofia só grava —
+  nem resposta fixa nem balões. Exceção: Aceito/Não aceito do encaminhamento e o
+  motivo da recusa continuam sendo tratados (gravam o vínculo no Hamilton).
 - 🔴 **`contato.definir` grava com `UPDATE` explícito, não pelo objeto.**
   `atualizada_em` tem `onupdate`: pela via normal, a conferência carimbaria
   "atividade agora" em toda conversa antiga e embaralharia a lista, que ordena
@@ -570,6 +581,28 @@ ainda a tratava como lead.
 - O portão de terapeuta vem **depois** do botão da proposta de horário: proposta
   enviada pela equipe a um número marcado não pode ficar sem resposta.
 - Varredura nova que fale com paciente precisa do filtro. Não há trava central.
+
+### Iniciar conversa pelo painel (`inicio_contato.py`) — Demanda G
+- **Fora da janela de 24h só sai template.** A conversa mostra até quando a janela
+  vai (conta da última mensagem **recebida**); fechada, o compositor vira o botão
+  "Iniciar contato", que manda o template `template_inicio_contato`
+  (`/painel/config`, {{1}} = primeiro nome). Antes o texto fora da janela falhava
+  em silêncio.
+- **Número novo** (`/painel/contatos/novo`): nome + celular BR + checkbox de
+  consentimento (gravado em `contato_consentimento_por`). Número repetido — em
+  qualquer forma do nono dígito — abre a conversa que já existe.
+- **Iniciar = assumir** (`painel.assumir`). `aviso_escalada_em` é carimbado na hora,
+  para a pessoa não receber "a equipe já vai te responder". A 1ª resposta abre a
+  escalada `respondeu_contato` + `alerta_thaina` (`registrar_resposta`, uma vez só,
+  via `contato_respondido_em`). A fila Hoje abre exceção a terapeuta **só** para
+  esse motivo.
+- 🔴 **Nono dígito.** O WhatsApp às vezes identifica o celular sem o 9; sem
+  defesa, a resposta nasceria numa 2ª conversa em modo bot e a Sofia faria
+  triagem com quem a equipe chamou. Duas defesas: o `wa_id` devolvido no envio
+  substitui o número digitado, e `reconciliar_numero` (webhook, antes de criar
+  conversa) adota a outra forma.
+- Só para quem deu o número para a Allos. Prospecção fria ficou fora de escopo: o
+  número é o mesmo da Sofia, e denúncia de spam derruba o limite de envio de tudo.
 
 ### Aviso único pós-escalada (`escalation.AVISO_EM_ATENDIMENTO`) — Demanda B
 - Escalar deixa a conversa em modo humano e a Sofia **ficava totalmente muda**: quem escrevia
@@ -1206,6 +1239,7 @@ sofia/
 │   │   ├── midia.py          # Imagem/documento recebidos (baixa, guarda, serve)
 │   │   ├── captacao.py       # Origem do paciente: lista do Hamilton + validação do ID
 │   │   ├── contato.py        # Paciente ou terapeuta: quem marca a conversa e o que muda
+│   │   ├── inicio_contato.py # A equipe inicia a conversa (template, número novo, nono dígito)
 │   │   ├── hoje.py           # Fila única do que precisa de uma pessoa (home do painel)
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
@@ -1243,7 +1277,8 @@ sofia/
 │   ├── test_captacao.py, test_pesquisa.py   # Demandas A e C
 │   ├── test_cobranca.py, test_pagamentos.py # Demanda D + painel de pagamentos
 │   ├── test_links.py                        # encurtador de link de pagamento
-│   ├── test_contato.py                      # conversa de terapeuta: marca, portão, filtros
+│   ├── test_contato.py                      # conversa de terapeuta: marca, portão, abas
+│   ├── test_inicio_contato.py               # iniciar conversa, número novo, nono dígito
 │   └── test_config_negocio.py, test_utils.py
 │
 └── logs/                     # Local dev (ignorar em git)

@@ -3,7 +3,7 @@
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app" style="max-width:1180px">
-  <a href="/painel/conversas" class="muted"><i class="bi bi-arrow-left"></i> Voltar pras conversas</a>
+  <a href="{{ '/painel/terapeutas' if conversa.eh_terapeuta else '/painel/conversas' }}" class="muted"><i class="bi bi-arrow-left"></i> Voltar {{ 'pros terapeutas' if conversa.eh_terapeuta else 'pras conversas' }}</a>
 
   <div class="page-head" style="margin-top:10px">
     <div>
@@ -14,7 +14,7 @@
       <div class="subtitle">
         {{ conversa.numero_whatsapp }} ·
         {% if conversa.modo == 'humano' %}<span class="badge badge-humano">modo humano</span>
-        {% elif conversa.eh_terapeuta %}<span class="badge">Sofia não atende</span>
+        {% elif conversa.eh_terapeuta %}<span class="badge">Só respostas automáticas</span>
         {% else %}<span class="badge">modo bot</span>{% endif %}
         {# "Novo", "Cadastrado"… são etapas do atendimento de paciente. #}
         {% if not conversa.eh_terapeuta %}
@@ -124,6 +124,8 @@
      caixa pequena depois de cinco fichas. #}
   <div class="conversa-grade">
   <aside class="conversa-lado">
+  {# Terapeuta não tem triagem: os campos de paciente seriam todos "não informado". #}
+  {% if not conversa.eh_terapeuta %}
   <div class="card datas-card" style="margin:14px 0; padding:16px 18px">
     <h2 style="font-size:16px; margin:0 0 10px">Dados coletados</h2>
     <dl class="datas">
@@ -166,6 +168,7 @@
       {% endif %}
     </dl>
   </div>
+  {% endif %}
 
   {# ── Pesquisa de satisfação ───────────────────────────────────────────────
      Só aparece quando há pesquisa em curso ou alerta pendente. Antes disto, o
@@ -373,8 +376,45 @@
      humano — é o que a exceção do portão do webhook faz. Marcar a conversa como
      humana não cala a Sofia nesses dois modos; só interromper cala. #}
   {% set pode_digitar = conversa.modo == 'humano' and not em_pesquisa and not em_cobranca %}
+  {# Demanda G: fora da janela de 24h da Meta, texto livre não sai. Antes o
+     compositor aparecia mesmo assim e a mensagem falhava em silêncio. #}
+  {% if contato_aviso %}
+    <div class="aviso {{ 'aviso--erro' if contato_aviso.erro else 'aviso--ok' }}" style="margin-top:14px">
+      <i class="bi {{ 'bi-exclamation-triangle' if contato_aviso.erro else 'bi-check2-circle' }}"></i>
+      {{ contato_aviso.texto }}
+    </div>
+  {% endif %}
   <div class="card compositor" style="margin-top:14px">
-    {% if pode_digitar %}
+    {% if not janela_aberta and not em_pesquisa and not em_cobranca %}
+      <form method="post" action="/painel/conversas/{{ conversa.id }}/iniciar-contato"
+            class="compositor-bloqueado compositor-contato"
+            onsubmit="return confirm('Mandar o convite de início de contato? Você assume a conversa: a Sofia para de responder.')">
+        <span>
+          <i class="bi bi-clock-history"></i>
+          {% if conversa.contato_iniciado_em and not conversa.contato_respondido_em %}
+            Convite enviado {{ conversa.contato_iniciado_em|data }}{% if conversa.contato_iniciado_por %} por {{ conversa.contato_iniciado_por }}{% endif %}.
+            Esperando a resposta: o texto livre libera quando a pessoa responder.
+          {% elif janela_ate %}
+            Faz mais de 24h que {{ 'o terapeuta' if conversa.eh_terapeuta else 'a pessoa' }} não escreve.
+            A Meta só deixa mandar o convite de início de contato.
+          {% else %}
+            {{ 'Este terapeuta' if conversa.eh_terapeuta else 'Esta pessoa' }} ainda não escreveu.
+            O primeiro passo é o convite de início de contato.
+          {% endif %}
+        </span>
+        {% if template_inicio %}
+          <button class="btn btn-primary" type="submit">
+            <i class="bi bi-send"></i>
+            {{ 'Mandar de novo' if conversa.contato_iniciado_em and not conversa.contato_respondido_em else 'Iniciar contato' }}
+          </button>
+        {% else %}
+          <a class="btn btn-ghost" href="/painel/config">Configurar o template</a>
+        {% endif %}
+      </form>
+    {% elif pode_digitar %}
+      <div class="janela-status muted">
+        <i class="bi bi-clock"></i> Janela aberta até {{ janela_ate|data }}. Depois disso, só o convite.
+      </div>
       {# Barra de citação (P4): aparece quando a Thainá clica no ícone de responder. #}
       <div id="barra-citacao" class="citacao-barra" hidden>
         <i class="bi bi-reply"></i>
@@ -424,7 +464,7 @@
       <form method="post" action="/painel/conversas/{{ conversa.id }}/assumir"
             class="compositor-bloqueado">
         {% if conversa.eh_terapeuta %}
-        <span><i class="bi bi-slash-circle"></i> A Sofia não atende esta conversa.</span>
+        <span><i class="bi bi-robot"></i> A Sofia só responde sozinha aos botões do lembrete.</span>
         {% else %}
         <span><i class="bi bi-robot"></i> A Sofia está atendendo esta conversa.</span>
         {% endif %}
@@ -457,7 +497,8 @@
   })();
 </script>
 
-{% if pode_digitar %}
+{# O compositor só existe com a janela aberta (Demanda G). #}
+{% if pode_digitar and janela_aberta %}
 {# Compositor: citar mensagem (P4) e anexar arquivo (P5). #}
 <script>
   (function () {

@@ -149,6 +149,22 @@ class Conversa(Base):
     # conferência automática; "manual" = alguém clicou no painel. A escolha à
     # mão nunca é desfeita pela conferência.
     contato_conferido_por: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Início de contato pelo painel (Demanda G): a equipe mandou o template de
+    # início para alguém que não tinha escrito, ou estava fora da janela de 24h.
+    # `respondido_em` garante que só a 1ª resposta abre escalada e alerta.
+    contato_iniciado_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    contato_iniciado_por: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contato_respondido_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Quem confirmou, ao adicionar o número à mão, que a pessoa passou o número
+    # para a Allos. É o registro do consentimento (Meta e LGPD).
+    contato_consentimento_por: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Nota interna de quem iniciou ("retorno sobre a vaga de quinta"): vai no
+    # contexto da escalada quando a pessoa responder. Nunca vai para a pessoa.
+    contato_nota: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     mensagens: Mapped[list["Mensagem"]] = relationship(
         back_populates="conversa", cascade="all, delete-orphan"

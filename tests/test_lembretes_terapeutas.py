@@ -194,6 +194,20 @@ async def _toque_de(cliente, numero, rotulo, payload, wamid):
     await serializacao.aguardar_pendentes()
 
 
+async def _historico(cliente, numero):
+    from app.models import Mensagem
+    async with cliente.banco() as s:
+        conversa = (
+            await s.execute(select(Conversa).where(Conversa.numero_whatsapp == numero))
+        ).scalar_one()
+        msgs = (
+            await s.execute(
+                select(Mensagem).where(Mensagem.conversa_id == conversa.id).order_by(Mensagem.id)
+            )
+        ).scalars().all()
+        return conversa, list(msgs)
+
+
 async def _conversas(cliente):
     async with cliente.banco() as s:
         return (await s.execute(select(func.count()).select_from(Conversa))).scalar_one()
@@ -228,6 +242,16 @@ class TestCron:
         assert len(_templates(meta)) == 1
 
     @pytest.mark.asyncio
+    async def test_lembrete_fica_gravado_na_conversa_do_terapeuta(self, sofia, hamilton, meta):
+        await _cron(sofia)
+        conversa, [msg] = await _historico(sofia, TACIA)
+        assert conversa.eh_terapeuta
+        assert msg.tipo == "template" and msg.origem == "bot"
+        assert msg.texto.startswith("[Lembrete automático: Agenda do dia]")
+        assert "2 sessões (9h e 10h)" in msg.texto
+        assert msg.whatsapp_message_id == "wamid.1"
+
+    @pytest.mark.asyncio
     async def test_envio_sem_botoes_continua_valendo(self, sofia, hamilton, meta):
         del hamilton.fila["agenda"]["envios"][0]["botoes"]
         await _cron(sofia)
@@ -258,19 +282,25 @@ class TestCron:
 
 class TestTerapeutaRespondendo:
     @pytest.mark.asyncio
-    async def test_resposta_fixa_sem_llm_sem_conversa(self, sofia, hamilton, meta):
+    async def test_resposta_fixa_sem_llm_e_conversa_gravada(self, sofia, hamilton, meta):
         with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
             await _mensagem_de(sofia, TACIA, "ok, obrigada!", "wamid.t1")
             await _mensagem_de(sofia, TACIA, "e amanhã?", "wamid.t2")
         llm.assert_not_called()
 
-        # Uma resposta fixa só (não repete a cada mensagem), e nenhuma conversa
-        # nasce — então ela não aparece como lead no painel da Thainá.
+        # Uma resposta fixa só (não repete a cada mensagem). Desde a Demanda G a
+        # conversa nasce marcada como de terapeuta, com tudo gravado.
         [resposta] = _textos(meta)
         assert resposta["to"] == TACIA
         assert resposta["text"]["body"] == lembretes_terapeutas.RESPOSTA_TERAPEUTA
         assert "Alan ou o Victor" in resposta["text"]["body"]
-        assert await _conversas(sofia) == 0
+        conversa, msgs = await _historico(sofia, TACIA)
+        assert conversa.eh_terapeuta and conversa.contato_conferido_por == "hamilton"
+        assert [(m.origem, m.texto) for m in msgs] == [
+            ("paciente", "ok, obrigada!"),
+            ("bot", lembretes_terapeutas.RESPOSTA_TERAPEUTA),
+            ("paciente", "e amanhã?"),
+        ]
 
     @pytest.mark.asyncio
     async def test_paciente_segue_o_fluxo_normal(self, sofia, hamilton, meta):
@@ -288,16 +318,32 @@ class TestTerapeutaRespondendo:
 
 class TestTerapeutaTocandoNoBotao:
     @pytest.mark.asyncio
-    async def test_balloes_na_ordem_sem_llm_sem_conversa(self, sofia, hamilton, meta):
+    async def test_balloes_na_ordem_sem_llm_e_gravados(self, sofia, hamilton, meta):
         with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
             await _toque_de(sofia, TACIA, "Agenda de hoje", "agenda_hoje:2026-10-29", "wamid.b1")
         llm.assert_not_called()
         assert hamilton.detalhes == [{"telefone": TACIA, "payload": "agenda_hoje:2026-10-29"}]
         assert [t["text"]["body"] for t in _textos(meta)] == BALOES_HOJE
         assert all(t["to"] == TACIA for t in _textos(meta))
-        # Marcado como lido, e nada vira conversa no painel.
+        # Marcado como lido, e os balões ficam gravados por inteiro (decisão G).
         assert any(p.get("status") == "read" and p.get("message_id") == "wamid.b1" for p in meta)
-        assert await _conversas(sofia) == 0
+        _, msgs = await _historico(sofia, TACIA)
+        assert [m.texto for m in msgs] == ["Agenda de hoje", *BALOES_HOJE]
+
+    @pytest.mark.asyncio
+    async def test_em_modo_humano_so_grava(self, sofia, hamilton, meta):
+        await _mensagem_de(sofia, TACIA, "oi", "wamid.h0")
+        meta.clear()
+        async with sofia.banco() as s:
+            conversa = (await s.execute(select(Conversa))).scalar_one()
+            conversa.modo = "humano"
+            await s.commit()
+        await _mensagem_de(sofia, TACIA, "tudo bem?", "wamid.h1")
+        await _toque_de(sofia, TACIA, "Agenda de hoje", "agenda_hoje:2026-10-29", "wamid.h2")
+        assert _textos(meta) == []
+        assert hamilton.detalhes == []
+        _, msgs = await _historico(sofia, TACIA)
+        assert [m.texto for m in msgs][-2:] == ["tudo bem?", "Agenda de hoje"]
 
     @pytest.mark.asyncio
     async def test_toque_repetido_nao_manda_de_novo(self, sofia, hamilton, meta):

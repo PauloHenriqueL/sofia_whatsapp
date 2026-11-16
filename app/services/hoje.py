@@ -99,6 +99,7 @@ async def _escaladas_abertas(db: AsyncSession) -> list[dict[str, Any]]:
             "nome": _nome(c),
             "numero": c.numero_whatsapp,
             "texto": tools.MOTIVO_LABELS.get(e.motivo, e.motivo),
+            "motivo": e.motivo,
             "quando": e.criada_em,
         }
         for e, c in (await db.execute(q)).all()
@@ -186,7 +187,13 @@ async def _sem_terapeutas(db: AsyncSession, itens: list[dict[str, Any]]) -> list
     if not itens:
         return itens
     terapeutas = await contato.ids_de_terapeutas(db)
-    return [i for i in itens if i["conversa_id"] not in terapeutas]
+    # Exceção (Demanda G): o terapeuta que respondeu a um contato que a equipe
+    # iniciou é alguém esperando resposta de uma pessoa, como qualquer escalada.
+    return [
+        i
+        for i in itens
+        if i["conversa_id"] not in terapeutas or i.get("motivo") == "respondeu_contato"
+    ]
 
 
 def _dedupe(itens: list[dict[str, Any]]) -> list[dict[str, Any]]:

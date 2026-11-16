@@ -194,6 +194,15 @@ CAMPOS: dict[str, Campo] = {
         "É o CNPJ que já vai na nota. <em>Em branco, a Sofia oferece só o cartão.</em>",
         "valores",
     ),
+    "template_inicio_contato": Campo(
+        "Template para iniciar contato",
+        "inicio_contato_allos",
+        "texto",
+        "Nome do template aprovado na Meta que a equipe usa para falar com quem não "
+        "escreveu nas últimas 24h. Ele recebe o nome da pessoa como {{1}}. "
+        "<em>Em branco, o botão “Iniciar contato” fica desligado.</em>",
+        "valores",
+    ),
     "debounce_segundos": Campo(
         "Espera antes de responder",
         int(settings.debounce_segundos),

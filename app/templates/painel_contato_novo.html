@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block titulo %}Nova conversa · Sofia{% endblock %}
+{% block corpo %}
+{% include "_topbar.html" %}
+{# Demanda G (docs/demandas/08): a equipe inicia a conversa com quem ainda não
+   escreveu. Sai o template de início de contato com o primeiro nome; o texto
+   livre libera quando a pessoa responder. #}
+<div class="container-app" style="max-width:600px">
+  <div class="page-head">
+    <div>
+      <h1>Nova conversa</h1>
+      <div class="subtitle">Para {{ 'um terapeuta' if tipo == 'terapeuta' else 'um paciente' }} que ainda não falou com a Sofia</div>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="{{ '/painel/terapeutas' if tipo == 'terapeuta' else '/painel/conversas' }}">
+      <i class="bi bi-arrow-left"></i> Voltar
+    </a>
+  </div>
+
+  {% if erro %}
+    <div class="aviso aviso--erro"><i class="bi bi-exclamation-triangle"></i> {{ erro }}</div>
+  {% endif %}
+  {% if not template_inicio %}
+    <div class="aviso aviso--erro">
+      <i class="bi bi-exclamation-triangle"></i>
+      <span>Falta o nome do template de início de contato em <a href="/painel/config">Configurações</a>. Sem ele o contato é criado, mas o convite não sai.</span>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-corpo">
+      <form method="post" action="/painel/contatos/novo" class="contato-form">
+        <div class="login-field">
+          <label for="nome">Nome</label>
+          <input class="input" type="text" id="nome" name="nome" value="{{ form.nome or '' }}"
+                 required maxlength="120" autocomplete="off" placeholder="Ex.: Maria Souza">
+          <div class="dica">O primeiro nome vai no convite: “Olá, Maria”.</div>
+        </div>
+        <div class="login-field">
+          <label for="numero">Celular com DDD</label>
+          <input class="input" type="tel" id="numero" name="numero" value="{{ form.numero or '' }}"
+                 required inputmode="tel" autocomplete="off" placeholder="(31) 98888-7777">
+          <div class="dica">Só número brasileiro. O 55 entra sozinho.</div>
+        </div>
+        <div class="login-field">
+          <label>É</label>
+          <div class="tipo-escolha">
+            <label><input type="radio" name="tipo" value="paciente" {{ 'checked' if tipo != 'terapeuta' }}><span>Paciente</span></label>
+            <label><input type="radio" name="tipo" value="terapeuta" {{ 'checked' if tipo == 'terapeuta' }}><span>Terapeuta</span></label>
+          </div>
+        </div>
+        <div class="login-field">
+          <label for="nota">Nota interna <span class="muted">(opcional)</span></label>
+          <textarea class="input" id="nota" name="nota" rows="2" maxlength="500"
+                    placeholder="Ex.: retorno sobre a vaga de quinta">{{ form.nota or '' }}</textarea>
+          <div class="dica">Não vai para a pessoa. Aparece para quem atender a resposta.</div>
+        </div>
+        <div class="login-field">
+          <label class="consentimento">
+            <input type="checkbox" name="consentimento" value="1" required>
+            <span>Esta pessoa passou o número para a Allos e espera nosso contato.</span>
+          </label>
+        </div>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Adicionar e mandar o convite</button>
+        <p class="dica" style="margin-top:10px">Você assume a conversa: a Sofia não responde. Quando a pessoa responder, ela entra na fila Hoje e chega o alerta no WhatsApp.</p>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

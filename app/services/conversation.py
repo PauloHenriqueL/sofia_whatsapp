@@ -149,3 +149,32 @@ async def registrar_mensagem_enviada(
     session.add(mensagem)
     await session.flush()
     return mensagem
+
+
+async def enviar_texto_e_registrar(
+    session: AsyncSession,
+    conversa: Conversa,
+    texto: str,
+    origem: str = "bot",
+    sigiloso: bool = False,
+) -> Mensagem:
+    """Manda texto livre pelo WhatsApp e grava no histórico da conversa.
+
+    Para envios que não passam pelo `webhook._enviar_em_bolhas` (lembretes e
+    encaminhamento dos terapeutas). `sigiloso` só tira o texto do LOG: a
+    mensagem vai inteira para o banco, porque o painel mostra a conversa como o
+    terapeuta a viu (decisão da Demanda G). Falha no envio propaga e nada é
+    gravado — o painel não pode mostrar como enviado o que não saiu.
+    """
+    from app.services import whatsapp_client
+
+    resposta = await whatsapp_client.enviar_texto(conversa.numero_whatsapp, texto, sigiloso=sigiloso)
+    mensagem = await registrar_mensagem_enviada(
+        session,
+        conversa,
+        texto=texto,
+        origem=origem,
+        whatsapp_message_id=whatsapp_client.id_da_resposta(resposta),
+    )
+    await session.commit()
+    return mensagem

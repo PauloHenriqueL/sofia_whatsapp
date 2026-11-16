@@ -50,11 +50,6 @@ FILTROS = {
     "escalada": "Em escalada",
     "cadastradas_hoje": "Cadastradas hoje",
     "cadastrados": "Já no Hamilton",
-    # Quem está do outro lado (services/contato.py). "Todas" continua mostrando
-    # os dois, com etiqueta: esconder terapeuta por padrão faria sumir da vista
-    # justamente o que a Sofia atendeu por engano como paciente.
-    "pacientes": "Só pacientes",
-    "terapeutas": "Só terapeutas",
     "arquivadas": "Arquivadas",
 }
 
@@ -103,9 +98,18 @@ def _aplicar_filtro(q, filtro: str):
     if filtro == "cadastrados":
         # Pacientes que já entraram no Hamilton (têm pk lá).
         return q.where(Conversa.paciente_hamilton_id.isnot(None))
-    if filtro == "pacientes":
+    return q
+
+
+# As duas listas do painel (Demanda G): pacientes em /painel/conversas e
+# terapeutas em /painel/terapeutas. `None` = as duas juntas (só a API JSON).
+LISTAS = ("pacientes", "terapeutas")
+
+
+def _aplicar_lista(q, lista: str | None):
+    if lista == "pacientes":
         return q.where(Conversa.eh_terapeuta.is_(False))
-    if filtro == "terapeutas":
+    if lista == "terapeutas":
         return q.where(Conversa.eh_terapeuta.is_(True))
     return q
 
@@ -157,6 +161,7 @@ async def listar_conversas(
     busca: str = "",
     ordem: str = "atualizada_em",
     descendente: bool = True,
+    lista: str | None = None,
 ) -> list[dict]:
     """Lista conversas com preview da última mensagem, filtradas/ordenadas/buscadas.
 
@@ -165,7 +170,7 @@ async def listar_conversas(
     busca, ordenação e paginação ficam no SQL (a lista cresce com o tempo).
     """
     busca = (busca or "").strip()
-    q = _aplicar_filtro(select(Conversa), filtro)
+    q = _aplicar_lista(_aplicar_filtro(select(Conversa), filtro), lista)
     if busca:
         q = _aplicar_busca(q, busca)
     q = _aplicar_ordem(q, ordem, descendente).limit(limite).offset(offset)
