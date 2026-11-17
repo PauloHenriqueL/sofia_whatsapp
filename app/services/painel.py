@@ -183,7 +183,10 @@ async def listar_conversas(
             {
                 "id": c.id,
                 "numero_whatsapp": c.numero_whatsapp,
-                "nome": (c.dados_coletados or {}).get("nome_completo"),
+                # Paciente tem `nome_completo` (ele se apresenta); terapeuta não
+                # conversa com a Sofia, então o nome vem do cadastro do Hamilton.
+                "nome": (c.dados_coletados or {}).get("nome_completo")
+                or (c.dados_coletados or {}).get("nome_terapeuta"),
                 "modo": c.modo,
                 "estado": c.estado,
                 "paciente_hamilton_id": c.paciente_hamilton_id,

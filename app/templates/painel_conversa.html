@@ -8,7 +8,7 @@
   <div class="page-head" style="margin-top:10px">
     <div>
       <h1 style="font-size:23px">
-        {{ (conversa.dados_coletados or {}).get('nome_completo') or conversa.numero_whatsapp }}
+        {{ (conversa.dados_coletados or {}).get('nome_completo') or (conversa.dados_coletados or {}).get('nome_terapeuta') or (conversa.numero_whatsapp | telefone) }}
         {% if conversa.eh_terapeuta %}<span class="tag-terapeuta"><i class="bi bi-person-badge"></i> Terapeuta</span>{% endif %}
       </h1>
       <div class="subtitle">

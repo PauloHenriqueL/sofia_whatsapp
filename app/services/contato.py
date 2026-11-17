@@ -38,6 +38,13 @@ logger = logging.getLogger(__name__)
 
 HAMILTON = "hamilton"
 MANUAL = "manual"
+# Nome do terapeuta, como está no Hamilton. Vive no JSON `dados_coletados` para
+# não exigir coluna nova; `nome_completo` continua sendo o do paciente.
+CHAVE_NOME = "nome_terapeuta"
+# "já perguntei o nome ao Hamilton". Sem isto, quem ele não conhece (marcado à
+# mão) ou quem está sem nome no cadastro seria reconsultado a cada rodada do
+# cron, para sempre.
+CHAVE_NOME_CONFERIDO = "nome_terapeuta_conferido"
 
 # Cada conferência é uma chamada ao Hamilton, uma depois da outra, dentro do
 # request do cron — e o cron-job.org desiste em 30s. Quinze cabem com folga; a
@@ -66,23 +73,30 @@ async def _interromper_automaticos(db: AsyncSession, conversa: Conversa) -> None
             await pesquisa.limpar(db, conversa)
 
 
-async def definir(db: AsyncSession, conversa: Conversa, eh_terapeuta: bool, por: str) -> None:
-    """Grava quem é o contato e quem decidiu. Virando terapeuta, a Sofia solta a conversa."""
+async def definir(db: AsyncSession, conversa: Conversa, eh_terapeuta: bool, por: str,
+                  nome: str | None = None) -> None:
+    """Grava quem é o contato e quem decidiu. Virando terapeuta, a Sofia solta a conversa.
+
+    `nome` é o do cadastro no Hamilton. Guardamos porque a lista do painel só
+    tinha o telefone do terapeuta, e a Thainá não reconhece ninguém por número.
+    """
     # A marca vem ANTES de encerrar a pesquisa: `pesquisa.finalizar` emenda a
     # cobrança, e é a marca que faz `cobranca._elegivel` recusar.
     #
     # UPDATE explícito, e não atribuição no objeto: `atualizada_em` tem
     # `onupdate`, e a conferência do cron passaria a carimbar "atividade agora"
     # em toda conversa antiga, embaralhando a lista (que ordena por ela).
-    await db.execute(
-        update(Conversa)
-        .where(Conversa.id == conversa.id)
-        .values(
-            eh_terapeuta=eh_terapeuta,
-            contato_conferido_por=por,
-            atualizada_em=Conversa.atualizada_em,
-        )
-    )
+    valores = {
+        "eh_terapeuta": eh_terapeuta,
+        "contato_conferido_por": por,
+        "atualizada_em": Conversa.atualizada_em,
+    }
+    if eh_terapeuta:
+        dados = {**(conversa.dados_coletados or {}), CHAVE_NOME_CONFERIDO: True}
+        if nome:
+            dados[CHAVE_NOME] = nome
+        valores["dados_coletados"] = dados
+    await db.execute(update(Conversa).where(Conversa.id == conversa.id).values(**valores))
     await db.refresh(conversa)
     if eh_terapeuta:
         await _interromper_automaticos(db, conversa)
@@ -169,10 +183,55 @@ async def conferir(db: AsyncSession, limite: int = CONFERIDAS_POR_RODADA) -> dic
             logger.warning("Conferência de terapeutas interrompida: %s", exc)
             break
         eh_terapeuta = isinstance(achado, dict) and achado.get("terapeuta") is True
-        await definir(db, conversa, eh_terapeuta, HAMILTON)
+        nome = (achado or {}).get("nome") if eh_terapeuta else None
+        await definir(db, conversa, eh_terapeuta, HAMILTON, nome=nome)
         resumo["conferidas"] += 1
         resumo["terapeutas"] += int(eh_terapeuta)
+    resumo["nomes"] = await _preencher_nomes(db, cliente, prazo)
     return resumo
+
+
+async def _preencher_nomes(db: AsyncSession, cliente, prazo: float) -> int:
+    """Nome de quem já estava marcado como terapeuta antes de guardarmos nomes.
+
+    Sem isto a lista de Terapeutas seguiria só com telefone para as conversas
+    antigas — e o nome só chegaria quando a pessoa escrevesse de novo.
+    """
+    pendentes = (
+        (
+            await db.execute(
+                select(Conversa)
+                .where(Conversa.eh_terapeuta.is_(True))
+                .order_by(Conversa.atualizada_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    preenchidos = 0
+    for conversa in pendentes:
+        dados = conversa.dados_coletados or {}
+        if dados.get(CHAVE_NOME) or dados.get(CHAVE_NOME_CONFERIDO):
+            continue  # já tem nome, ou já perguntamos e o Hamilton não sabe
+        if time.monotonic() > prazo:
+            break
+        try:
+            achado = await cliente.terapeuta_por_telefone(conversa.numero_whatsapp)
+        except hamilton_client.HamiltonError as exc:
+            logger.warning("Nomes de terapeutas: rodada interrompida: %s", exc)
+            break
+        nome = (achado or {}).get("nome") if isinstance(achado, dict) else None
+        novos = {**dados, CHAVE_NOME_CONFERIDO: True}
+        if nome:
+            novos[CHAVE_NOME] = nome
+        await db.execute(
+            update(Conversa)
+            .where(Conversa.id == conversa.id)
+            .values(dados_coletados=novos, atualizada_em=Conversa.atualizada_em)
+        )
+        await db.commit()
+        preenchidos += int(bool(nome))
+    return preenchidos
 
 
 async def ids_de_terapeutas(db: AsyncSession) -> set[int]:

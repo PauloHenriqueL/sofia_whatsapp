@@ -66,7 +66,8 @@ class HamiltonFalso:
             telefone = request.url.params.get("telefone")
             self.consultados.append(telefone)
             if telefone == TACIA:
-                return httpx.Response(200, json={"terapeuta": True, "terapeuta_id": 7})
+                return httpx.Response(200, json={"terapeuta": True, "terapeuta_id": 7,
+                                                 "nome": "Tácia Hellen"})
             return httpx.Response(404, json={"terapeuta": False})
         # Filas do cron (lembretes, encaminhamento): vazias e desligadas.
         return httpx.Response(200, json={"ativo": False, "envios": []})
@@ -274,7 +275,7 @@ class TestConferencia:
         async with sofia.banco() as s:
             resumo = await contato.conferir(s)
 
-        assert resumo == {"conferidas": 2, "terapeutas": 1}
+        assert resumo == {"conferidas": 2, "terapeutas": 1, "nomes": 0}
         assert (await _ler(sofia, tacia)).eh_terapeuta is True
         conferido = await _ler(sofia, paciente)
         assert (conferido.eh_terapeuta, conferido.contato_conferido_por) == (False, "hamilton")
@@ -282,7 +283,7 @@ class TestConferencia:
         # Cada conversa é conferida uma vez: a segunda rodada não chama ninguém.
         hamilton.consultados.clear()
         async with sofia.banco() as s:
-            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0}
+            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0, "nomes": 0}
         assert hamilton.consultados == []
 
     @pytest.mark.asyncio
@@ -307,7 +308,7 @@ class TestConferencia:
         tacia = await _nova(sofia, TACIA, eh_terapeuta=False, contato_conferido_por=contato.MANUAL)
 
         async with sofia.banco() as s:
-            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0}
+            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0, "nomes": 0}
 
         assert (await _ler(sofia, renato)).eh_terapeuta is True
         assert (await _ler(sofia, tacia)).eh_terapeuta is False
@@ -318,7 +319,7 @@ class TestConferencia:
         hamilton.fora_do_ar = True
 
         async with sofia.banco() as s:
-            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0}
+            assert await contato.conferir(s) == {"conferidas": 0, "terapeutas": 0, "nomes": 0}
 
         # "Não sei" não vira "é paciente": a conversa volta na próxima rodada.
         assert (await _ler(sofia, cid)).contato_conferido_por is None
@@ -338,7 +339,7 @@ class TestConferencia:
         resp = await sofia.post("/tasks/lembretes-terapeutas", headers={"X-Tasks-Token": "segredo"})
 
         assert resp.status_code == 200
-        assert resp.json()["contatos"] == {"conferidas": 1, "terapeutas": 1}
+        assert resp.json()["contatos"] == {"conferidas": 1, "terapeutas": 1, "nomes": 0}
         assert (await _ler(sofia, cid)).eh_terapeuta is True
 
 
@@ -551,3 +552,42 @@ class TestPainel:
 
         assert resp.status_code == 303 and resp.headers["location"].startswith("/login")
         assert (await _ler(sofia, cid)).eh_terapeuta is False
+
+
+class TestNomeDoTerapeuta:
+    """A lista do painel só tinha o telefone, e ninguém reconhece um terapeuta
+    por número. O nome vem do cadastro do Hamilton, não da conversa."""
+
+    @pytest.mark.asyncio
+    async def test_conferencia_guarda_o_nome_do_cadastro(self, sofia, hamilton):
+        cid = await _nova(sofia, TACIA)
+        async with sofia.banco() as s:
+            await contato.conferir(s)
+        conversa = await _ler(sofia, cid)
+        assert conversa.eh_terapeuta is True
+        assert (conversa.dados_coletados or {})[contato.CHAVE_NOME] == "Tácia Hellen"
+
+    @pytest.mark.asyncio
+    async def test_nome_aparece_na_lista_do_painel(self, sofia, hamilton):
+        await _nova(sofia, TACIA)
+        async with sofia.banco() as s:
+            await contato.conferir(s)
+        from app import config
+
+        resp = await sofia.post("/login", data={"usuario": config.settings.painel_user,
+                                                "senha": config.settings.painel_password})
+        assert resp.status_code == 303
+        html = (await sofia.get("/painel/terapeutas")).text
+        assert "Tácia Hellen" in html
+
+    @pytest.mark.asyncio
+    async def test_quem_o_hamilton_nao_conhece_nao_e_reconsultado(self, sofia, hamilton):
+        """Marcado à mão: pergunta-se uma vez e nunca mais — senão o cron bate
+        no Hamilton por essa conversa a cada 30 minutos, para sempre."""
+        await _nova(sofia, PACIENTE, eh_terapeuta=True, contato_conferido_por=contato.MANUAL)
+        async with sofia.banco() as s:
+            await contato.conferir(s)
+        hamilton.consultados.clear()
+        async with sofia.banco() as s:
+            await contato.conferir(s)
+        assert hamilton.consultados == []
