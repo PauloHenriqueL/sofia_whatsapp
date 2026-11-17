@@ -95,12 +95,12 @@ saber distinguir os três. Hoje o roteiro trata todo `[PARCERIA/CONVÊNIO]` como
 **O preço normal da terapia é R$ 250,00** (`preco_terapia_mensal` = 250 em
 produção). A Rede Cidadã é R$ 200,00 — um desconto de parceria, não gratuidade.
 
-⚠️ **O modelo de dados não expressa isso.** `is_parceria` é um booleano: serve
-para "gratuito" e para "Profectum", mas **não** para "R$ 200". Marcar a Rede
-Cidadã como parceria zeraria o valor de quem deve pagar R$ 200. Duas saídas a
-decidir: um `vlr_sessao` próprio por origem no Hamilton, ou a Sofia aplicar o
-valor da parceria no cadastro (e `is_parceria` seguir significando só "custeado
-por terceiro").
+✅ **RESOLVIDO em 17/11** (Hamilton `cacdc33`, Sofia `92afbac`): a captação ganhou
+`vlr_sessao` opcional — preço fechado da origem. A **Rede Cidadã (28) está com
+R$ 200,00** no cadastro de produção, segue com `is_parceria=False`, e a Sofia
+carimba esse valor no cadastro pelo mesmo caminho da flag de parceria (dado do
+sistema, não palavra do modelo). Origem sem valor próprio segue no padrão;
+parceria continua zerando. ⏰ Falta **deploy** dos dois lados.
 
 **Também a decidir:** se a Sofia pode citar o R$ 200 da Rede Cidadã (ao contrário
 do Profectum, aqui o valor é conhecido e dela).
