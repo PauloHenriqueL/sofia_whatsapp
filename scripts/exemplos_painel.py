@@ -6,7 +6,7 @@ Seguras de propósito:
 - `seguimento_enviado_em` preenchido: o follow-up automático nunca dispara;
 - `contato_conferido_por='manual'`: a conferência do cron não pergunta ao Hamilton;
 - `criada_em` 90 dias atrás: ficam fora do "pessoas novas nos 7 dias";
-- sem `Escalada`: não entram na fila "Precisa de você agora".
+- escalada só nos casos que de fato param a Sofia: é na aba Hoje que a Thainá trabalha.
 Apagar é um DELETE por `numero_whatsapp LIKE '55000000%'`.
 """
 import asyncio
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from app.database import async_session
-from app.models import Conversa, Mensagem
+from app.models import Conversa, Escalada, Mensagem
 
 AGORA = datetime.now(timezone.utc)
 VELHO = AGORA - timedelta(days=90)
@@ -62,13 +62,16 @@ EXEMPLOS = [
         ("bot", "Anotado! Cadastro feito. A Thainá entra em contato pra combinar o horário e "
                 "dizer quem vai te atender."),
     ]),
-    ("05", "[EXEMPLO] Profectum — origem não marcada como parceria", "escalado", [
+    ("05", "[EXEMPLO] Profectum — parceria", "cadastrado", [
         ("paciente", "Boa noite, me indicaram vocês pelo Profectum"),
         ("bot", "Boa noite! Sou a Sofia, da Allos. Me conta o que você está buscando?"),
         ("paciente", "Terapia pra mim. Pelo Profectum é gratuito, né?"),
-        ("bot", "[ATENÇÃO — ponto a decidir: hoje o Profectum está cadastrado como origem, mas "
-                "NÃO está marcado como parceria no Hamilton. Do jeito que está, a Sofia trata "
-                "como paciente comum e cobra R$ 200,00. Se for parceria, marcar no admin.]"),
+        ("bot", "É sim: pelo Profectum o atendimento é custeado pela parceria, você não paga "
+                "nada. Vou fazer seu cadastro então. Me diz seu nome completo e sua data de "
+                "nascimento?"),
+        ("paciente", "Rafael Moreira Dias, 02/09/1994"),
+        ("bot", "Anotado! A Thainá entra em contato pra combinar o horário e dizer quem vai "
+                "te atender."),
     ]),
     ("06", "[EXEMPLO] Menor de 18 — termo dos pais", "cadastrado", [
         ("paciente", "oi, tenho 16 anos e queria fazer terapia"),
@@ -95,31 +98,43 @@ EXEMPLOS = [
 ]
 
 
-async def main():
-    async with async_session() as db:
-        existentes = (await db.execute(
-            select(Conversa).where(Conversa.numero_whatsapp.like("55000000%"))
-        )).scalars().all()
-        if existentes:
-            ids = [c.id for c in existentes]
-            await db.execute(delete(Mensagem).where(Mensagem.conversa_id.in_(ids)))
-            await db.execute(delete(Conversa).where(Conversa.id.in_(ids)))
-            print(f"removidos {len(ids)} exemplos antigos")
+# Motivo da escalada por exemplo: é o que faz o caso aparecer em "Precisa de
+# você agora", onde a Thainá trabalha. Só os que de fato param a Sofia.
+ESCALADAS = {
+    "01": ("neuro_reuniao", "Avaliação neuropsicológica para o filho de 8 anos; aceitou a reunião com a Amanda."),
+    "02": ("menor_11", "Filha de 9 anos, ansiedade. Online inviável nessa idade — ver vaga no presencial da sede."),
+    "03": ("crise", "RISCO DE VIDA. Pessoa sozinha, falou em se matar hoje. Atender agora."),
+    "08": ("pedido_humano", "Diz ser terapeuta (Juliana) mas o número não está no cadastro do Hamilton."),
+}
 
+
+async def main():
+    """Idempotente **sem trocar os ids**: a conversa de cada número é reaproveitada.
+
+    Recriar apagando quebra quem estiver com a tela aberta — o link da fila
+    aponta para o id antigo e a página responde "Conversa não encontrada".
+    """
+    async with async_session() as db:
         for i, (sufixo, nome, estado, falas) in enumerate(EXEMPLOS):
-            conversa = Conversa(
-                numero_whatsapp=f"55000000000{sufixo}",
-                modo="humano",
-                estado=estado,
-                dados_coletados={"nome_completo": nome, "exemplo": True},
-                seguimento_enviado_em=AGORA,
-                contato_conferido_por="manual",
-                eh_terapeuta=False,
-                criada_em=VELHO,
-                atualizada_em=AGORA - timedelta(minutes=5 * i),
-            )
-            db.add(conversa)
-            await db.flush()
+            numero = f"55000000000{sufixo}"
+            conversa = (
+                await db.execute(select(Conversa).where(Conversa.numero_whatsapp == numero))
+            ).scalar_one_or_none()
+            if conversa is None:
+                conversa = Conversa(numero_whatsapp=numero, criada_em=VELHO)
+                db.add(conversa)
+                await db.flush()
+            conversa.modo = "humano"
+            conversa.estado = estado
+            conversa.dados_coletados = {"nome_completo": nome, "exemplo": True}
+            conversa.seguimento_enviado_em = AGORA
+            conversa.contato_conferido_por = "manual"
+            conversa.eh_terapeuta = False
+            conversa.arquivada_em = None
+            conversa.atualizada_em = AGORA - timedelta(minutes=5 * i)
+
+            await db.execute(delete(Mensagem).where(Mensagem.conversa_id == conversa.id))
+            await db.execute(delete(Escalada).where(Escalada.conversa_id == conversa.id))
             base = AGORA - timedelta(days=90)
             for j, (quem, texto) in enumerate(falas):
                 db.add(Mensagem(
@@ -130,9 +145,13 @@ async def main():
                     texto=texto,
                     criada_em=base + timedelta(minutes=j),
                 ))
+            if sufixo in ESCALADAS:
+                motivo, contexto = ESCALADAS[sufixo]
+                db.add(Escalada(conversa_id=conversa.id, motivo=motivo, contexto=contexto,
+                                criada_em=AGORA - timedelta(minutes=10 * i)))
             print(f"  {conversa.id}: {nome}")
         await db.commit()
-        print(f"{len(EXEMPLOS)} conversas de exemplo criadas")
+        print(f"{len(EXEMPLOS)} conversas de exemplo em dia")
 
 
 asyncio.run(main())
@@ -144,7 +163,8 @@ asyncio.run(main())
 #   from app.database import engine
 #   async def m():
 #       async with engine.begin() as c:
-#           await c.execute(text(\"DELETE FROM mensagem WHERE conversa_id IN \"
-#                                \"(SELECT id FROM conversa WHERE numero_whatsapp LIKE '55000000%')\"))
+#           for t in ('escalada', 'mensagem'):
+#               await c.execute(text(f\"DELETE FROM {t} WHERE conversa_id IN \"
+#                                    \"(SELECT id FROM conversa WHERE numero_whatsapp LIKE '55000000%')\"))
 #           await c.execute(text(\"DELETE FROM conversa WHERE numero_whatsapp LIKE '55000000%'\"))
 #   asyncio.run(m())"
