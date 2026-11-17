@@ -1,5 +1,11 @@
 """Conversas de EXEMPLO no painel da Sofia, para a Thainá ver os casos que aparecem.
 
+⚠️ **Valores aqui são escritos à mão e envelhecem.** A mensalidade real vive em
+`preco_terapia_mensal` (250 em 17/11/2026) e o desconto máximo em
+`desconto_maximo_pct` (10%). Ao mudar o preço no painel, reescrever os diálogos
+2 e 7 e rodar este script de novo — senão a Thainá treina num valor que não
+existe mais.
+
 Dois deles ("(a implementar)" no título) mostram o comportamento **decidido**, que
 ainda não está no roteiro: criança como paciente comum e Profectum sem falar de
 dinheiro. Ver `docs/demandas/09-BACKLOG-ROTEIRO.md`.
@@ -41,7 +47,7 @@ EXEMPLOS = [
         ("bot", "Boa tarde! Que bom que procurou. Me conta um pouquinho: o que vocês estão "
                 "buscando pra ela?"),
         ("paciente", "Ela anda muito ansiosa desde que mudou de escola"),
-        ("bot", "Entendi, obrigada por contar. A mensalidade é R$ 200,00, com uma sessão por "
+        ("bot", "Entendi, obrigada por contar. A mensalidade é R$ 250,00, com uma sessão por "
                 "semana, online. Vou fazer o cadastro dela: me diz o nome completo e a data de "
                 "nascimento da sua filha?"),
         ("paciente", "Helena Martins Rocha, 14/05/2017"),
@@ -94,8 +100,8 @@ EXEMPLOS = [
         ("bot", "Ótimo. Vou anotar aqui pra equipe já chegar com o termo preparado."),
     ]),
     ("07", "[EXEMPLO] Objeção de preço — desconto", "cadastrado", [
-        ("paciente", "R$ 200 tá fora do meu orçamento agora"),
-        ("bot", "Entendo, e obrigada por falar aberto. Consigo fazer R$ 180,00 na mensalidade, "
+        ("paciente", "R$ 250 tá fora do meu orçamento agora"),
+        ("bot", "Entendo, e obrigada por falar aberto. Consigo fazer R$ 225,00 na mensalidade, "
                 "que é o máximo que está na minha mão. Isso ajuda?"),
         ("paciente", "ajuda sim"),
         ("bot", "Então deixo registrado assim. A Thainá confirma com você antes da primeira "
