@@ -103,16 +103,28 @@ def mapear_dados(dados: dict[str, Any]) -> dict[str, Any]:
     """
     observacao = _itens_intake(dados)
     parceria = bool(dados.get("is_parceria"))
+    # Preço fechado da origem (Rede Cidadã etc.), carimbado na validação da
+    # captação a partir do cadastro do Hamilton. Parceria continua zerando tudo.
+    valor_origem = None if parceria else dados.get("vlr_sessao_origem")
     # Mensalidade só faz sentido pra terapia paga (neuro é orçamento à parte, e
     # parceria não tem mensalidade nenhuma).
     if not parceria and "neuro" not in (dados.get("motivo_busca") or "").lower():
-        preco = config_negocio.valor("preco_terapia_mensal")
-        observacao.append(f"Mensalidade: R$ {preco:,}".replace(",", "."))
+        if valor_origem:
+            observacao.append(
+                f"Mensalidade: R$ {float(valor_origem):,.2f} (valor da origem)"
+                .replace(",", "X").replace(".", ",").replace("X", ".")
+            )
+        else:
+            preco = config_negocio.valor("preco_terapia_mensal")
+            observacao.append(f"Mensalidade: R$ {preco:,}".replace(",", "."))
 
     payload: dict[str, Any] = {
         "nome": dados.get("nome_completo"),
         "telefone": normalizar_telefone(dados.get("telefone_contato")),
-        "vlr_sessao": "0.00" if parceria else f"{config_negocio.valor('preco_terapia_mensal')}.00",
+        "vlr_sessao": (
+            "0.00" if parceria
+            else valor_origem or f"{config_negocio.valor('preco_terapia_mensal')}.00"
+        ),
         # `parceria` tira o paciente do dropdown de cobrança manual do Hamilton.
         # Sem isso ele entra como 'manual' e reaparece na fila de quem deve
         # mensalidade — justamente quem não deve nada.

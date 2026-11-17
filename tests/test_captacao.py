@@ -203,3 +203,52 @@ class TestValidarCaptacaoNoWebhook:
             r = await webhook._validar_captacao({"captacao_id": 7})
         assert "captacao_id" not in r
         assert r["is_parceria"] is False
+
+
+class TestValorDaOrigem:
+    """Rede Cidadã não é gratuita: é R$ 200 contra os R$ 250 de todo mundo.
+
+    `is_parceria` é booleano e não sabe dizer isso — marcá-la zeraria o valor
+    de quem deve pagar. O valor vem do cadastro da origem no Hamilton.
+    """
+
+    def test_origem_sem_valor_proprio_nao_mexe_no_preco(self):
+        assert captacao.valor_da_origem({"pk_captacao": 4, "nome": "Não sei"}) is None
+        assert captacao.valor_da_origem({"pk_captacao": 4, "vlr_sessao": None}) is None
+        assert captacao.valor_da_origem(None) is None
+
+    def test_origem_com_preco_fechado(self):
+        rede = {"pk_captacao": 28, "nome": "Rede Cidadã", "vlr_sessao": "200.00"}
+        assert captacao.valor_da_origem(rede) == "200.00"
+
+    def test_valor_quebrado_no_cadastro_nao_derruba_o_cadastro(self):
+        assert captacao.valor_da_origem({"pk_captacao": 28, "vlr_sessao": "duzentos"}) is None
+
+    def test_payload_do_hamilton_usa_o_valor_da_origem(self):
+        from app.services.hamilton_client import mapear_dados
+
+        from app.services import config_negocio
+
+        padrao = f"{config_negocio.valor('preco_terapia_mensal')}.00"  # 250 em produção
+        comum = mapear_dados({"nome_completo": "Fulana", "telefone_contato": "31999990000"})
+        assert comum["vlr_sessao"] == padrao
+        assert comum["tipo_pagamento"] == "manual"
+
+        # Valor de propósito diferente do padrão da suíte, senão o teste passaria
+        # sozinho sem o override fazer nada.
+        rede = mapear_dados({
+            "nome_completo": "Fulana", "telefone_contato": "31999990000",
+            "captacao_id": 28, "vlr_sessao_origem": "199.00",
+        })
+        assert rede["vlr_sessao"] == "199.00" != padrao
+        assert rede["tipo_pagamento"] == "manual"  # paga, só que menos
+
+    def test_parceria_continua_zerando_mesmo_com_valor_na_origem(self):
+        from app.services.hamilton_client import mapear_dados
+
+        p = mapear_dados({
+            "nome_completo": "Fulana", "telefone_contato": "31999990000",
+            "is_parceria": True, "vlr_sessao_origem": "200.00",
+        })
+        assert p["vlr_sessao"] == "0.00"
+        assert p["tipo_pagamento"] == "parceria"

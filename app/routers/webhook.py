@@ -347,6 +347,12 @@ async def _validar_captacao(argumentos: dict) -> dict:
         argumentos["is_parceria"] = False
     else:
         argumentos["is_parceria"] = captacao.e_parceria(escolhida)
+        # Preço fechado da origem (ex.: Rede Cidadã, R$ 200), quando houver. Vem
+        # do Hamilton pelo mesmo caminho da parceria, e pelo mesmo motivo: valor
+        # é dado de cadastro, não palavra do modelo.
+        valor = captacao.valor_da_origem(escolhida)
+        if valor:
+            argumentos["vlr_sessao_origem"] = valor
     return argumentos
 
 

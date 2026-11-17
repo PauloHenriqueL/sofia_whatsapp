@@ -114,6 +114,28 @@ def nao_sei(captacoes: list[dict]) -> dict | None:
     return None
 
 
+def valor_da_origem(captacao: dict | None) -> str | None:
+    """Valor que o paciente **desta origem** paga, quando difere do normal.
+
+    Existe porque `is_parceria` é booleano e só sabe dizer "alguém custeia, o
+    paciente não paga". A Rede Cidadã não é gratuita: é R$ 200 contra os R$ 250
+    de todo mundo. Sem este campo o preço teria que viver no roteiro — dinheiro
+    dependendo de o modelo lembrar de um número.
+
+    Devolve `None` quando a origem cobra o valor padrão.
+    """
+    if not captacao:
+        return None
+    bruto = captacao.get("vlr_sessao")
+    if bruto in (None, "", 0, "0", "0.00"):
+        return None
+    try:
+        return f"{float(bruto):.2f}"
+    except (TypeError, ValueError):
+        logger.warning("Valor inválido na captação %r: %r", _id(captacao), bruto)
+        return None
+
+
 def e_parceria(captacao: dict | None) -> bool:
     """Se a origem é de um órgão parceiro (o atendimento é custeado por ele)."""
     return bool(captacao and captacao.get("is_parceria"))
