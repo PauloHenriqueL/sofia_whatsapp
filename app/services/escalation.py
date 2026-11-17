@@ -7,12 +7,12 @@ registrar a escalada e alertar a Thainá pelo template aprovado na Meta.
 import logging
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversa, Escalada
+from app.models import Conversa, Escalada, Mensagem
 from app.services import tools, usuarios, whatsapp_client
 from app.config import settings
 
@@ -117,6 +117,65 @@ async def garantir_escalada_prometida(
         "registrada pela rede de proteção (motivo=%s)",
         conversa.id,
         motivo,
+    )
+    return True
+
+
+# --- Trava contra conversa com outro robô ---------------------------------
+#
+# Em 30/10/2026 a Sofia trocou **174 mensagens num dia** com o menu automático
+# da Claro: 109 chegaram, ela respondeu 65. Nenhum paciente do outro lado, e
+# cada volta é uma chamada ao modelo e uma mensagem na Meta. Parou por acaso,
+# quando a conversa acabou escalada.
+#
+# O teto é por conversa e por hora. Gente de verdade quase nunca encosta nele
+# (uma rajada humana vira UMA resposta, por causa da janela de agrupamento);
+# robô encosta em minutos.
+RESPOSTAS_POR_HORA = 15
+MOTIVO_LOOP = "loop_automatico"
+
+
+async def passou_do_teto(session: AsyncSession, conversa: Conversa) -> bool:
+    """Se a Sofia já respondeu demais nesta conversa na última hora."""
+    desde = datetime.now(timezone.utc) - timedelta(hours=1)
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(Mensagem)
+            .where(
+                Mensagem.conversa_id == conversa.id,
+                Mensagem.origem == "bot",
+                Mensagem.criada_em >= desde,
+            )
+        )
+    ).scalar_one()
+    return total >= RESPOSTAS_POR_HORA
+
+
+async def travar_se_for_loop(session: AsyncSession, conversa: Conversa) -> bool:
+    """Teto estourado: cala a Sofia, escala e avisa a Thainá. Devolve se travou.
+
+    Escala em vez de só silenciar porque, se do outro lado houver gente, alguém
+    precisa aparecer — e `registrar_escalada` já põe a conversa em modo humano,
+    que é o portão que cala a Sofia no webhook.
+    """
+    if not await passou_do_teto(session, conversa):
+        return False
+    await registrar_escalada(
+        session,
+        conversa,
+        MOTIVO_LOOP,
+        contexto=(
+            f"A Sofia respondeu {RESPOSTAS_POR_HORA}+ vezes nesta conversa em uma hora. "
+            "Parei de responder: do outro lado costuma estar outro robô (menu automático "
+            "de operadora, por exemplo). Se for uma pessoa, responda por aqui."
+        ),
+    )
+    await alertar_thaina(session, conversa, MOTIVO_LOOP)
+    logger.warning(
+        "Conversa %s travada por teto de respostas (%d/h): possível loop com outro robô",
+        conversa.id,
+        RESPOSTAS_POR_HORA,
     )
     return True
 

@@ -179,6 +179,11 @@ async def processar_turno_bot(session, conversa) -> str | None:
 
     Falha do LLM cai em resposta de degradação, sem derrubar a conversa.
     """
+    # Antes de qualquer coisa: se a Sofia já respondeu demais nesta conversa na
+    # última hora, provavelmente é outro robô do outro lado (ver escalation).
+    if await escalation.travar_se_for_loop(session, conversa):
+        return None
+
     historico = await conversation.carregar_historico(session, conversa)
     # Origens do Hamilton: o modelo escolhe uma delas no cadastro em vez de
     # descrever a origem por escrito (ver services/captacao.py).

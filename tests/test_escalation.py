@@ -1,6 +1,6 @@
 """Testes da escalada: motivos novos + rótulo legível no alerta da Thainá."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import Conversa, Escalada
+from app.models import Conversa, Escalada, Mensagem
 from app.services import escalation
 from app.services import painel as painel_service
 from app.services import tools, usuarios, whatsapp_client
@@ -236,3 +236,60 @@ class TestAlertarCadastro:
                 db_com_usuario_de_alerta, conversa, {"status": "cadastrado"}
             )
         assert "Joana" not in " ".join(r.getMessage() for r in caplog.records)
+
+
+class TestTravaDeLoop:
+    """Em 30/10 a Sofia respondeu 65 vezes ao menu automático da Claro.
+
+    Nenhum paciente do outro lado, e cada volta era uma chamada ao modelo.
+    """
+
+    @staticmethod
+    async def _conversa(db, respostas: int, minutos_atras: int = 0) -> Conversa:
+        conversa = Conversa(numero_whatsapp="5531988887777", modo="bot", estado="novo")
+        db.add(conversa)
+        await db.flush()
+        quando = datetime.now(timezone.utc) - timedelta(minutes=minutos_atras)
+        for _ in range(respostas):
+            db.add(Mensagem(conversa_id=conversa.id, direcao="enviada", origem="bot",
+                            tipo="texto", texto="oi", criada_em=quando))
+        await db.flush()
+        return conversa
+
+    @pytest.mark.asyncio
+    async def test_conversa_normal_nao_trava(self, db_com_usuario_de_alerta):
+        db = db_com_usuario_de_alerta
+        conversa = await self._conversa(db, respostas=3)
+        assert await escalation.travar_se_for_loop(db, conversa) is False
+        assert conversa.modo == "bot"
+
+    @pytest.mark.asyncio
+    async def test_teto_estourado_cala_a_sofia_e_escala(self, db_com_usuario_de_alerta):
+        db = db_com_usuario_de_alerta
+        conversa = await self._conversa(db, respostas=escalation.RESPOSTAS_POR_HORA)
+
+        with patch.object(whatsapp_client, "enviar_template",
+                          new=AsyncMock(return_value={"messages": [{"id": "wamid.x"}]})) as envio:
+            assert await escalation.travar_se_for_loop(db, conversa) is True
+            assert envio.await_count == 1
+
+        # Modo humano é o portão que cala a Sofia no webhook.
+        assert (conversa.modo, conversa.estado) == ("humano", "escalado")
+        escaladas = (await db.execute(
+            select(Escalada).where(Escalada.conversa_id == conversa.id)
+        )).scalars().all()
+        assert [e.motivo for e in escaladas] == [escalation.MOTIVO_LOOP]
+
+    @pytest.mark.asyncio
+    async def test_resposta_antiga_nao_conta(self, db_com_usuario_de_alerta):
+        """O teto é por hora: conversa longa de ontem não trava hoje."""
+        db = db_com_usuario_de_alerta
+        conversa = await self._conversa(
+            db, respostas=escalation.RESPOSTAS_POR_HORA + 5, minutos_atras=180
+        )
+        assert await escalation.travar_se_for_loop(db, conversa) is False
+
+    def test_o_modelo_nao_pode_escalar_com_esse_motivo(self):
+        """É trava do sistema, não escolha da Sofia."""
+        assert escalation.MOTIVO_LOOP not in tools.MOTIVOS_ESCALADA
+        assert escalation.MOTIVO_LOOP in tools.MOTIVO_LABELS
