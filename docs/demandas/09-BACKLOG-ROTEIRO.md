@@ -130,9 +130,13 @@ reunião (é uma `SessaoSemanal`? um `Plantaoevento`? algo novo — a reunião *
 leva tempo); e a coleta dos três dados no roteiro.
 
 **Decisões em aberto:**
-- **Qual Amanda?** Há duas terapeutas com esse nome no Hamilton: **56 Amanda
-  Borges de Souza** e **88 Amanda Soares Alves**. Não dá para adivinhar — a
-  mensagem vai para o WhatsApp de uma pessoa.
+- ~~Qual Amanda?~~ **Respondido (Victor, 17/11): é a 88, Amanda Soares Alves**
+  (tel. 31974002976). A outra homônima, 56 Amanda Borges de Souza, não entra.
+- ⚠️ **A agenda da 88 já é de atendimento.** Ela é terapeuta com grade cheia
+  (terça, quarta, quinta, sexta e sábado) e seis pacientes de teto. Se a reunião
+  de neuro sair dessa mesma grade, cada reunião marcada tira um horário de
+  terapia dela — e o encaminhamento assistido deixa de oferecer esse slot. Ou a
+  reunião tem grade própria, ou isso precisa ser aceito de propósito.
 - A reunião **ocupa** o horário na grade dela (impedindo que vire sessão) ou é só
   um aviso?
 - Se não houver horário livre, o que a Sofia faz — escala como hoje?
