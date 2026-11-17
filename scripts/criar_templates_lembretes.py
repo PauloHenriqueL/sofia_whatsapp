@@ -56,6 +56,26 @@ def _botoes(*rotulos: str) -> dict:
 
 TEMPLATES = [
     {
+        # A EQUIPE inicia a conversa (Demanda G): fora da janela de 24h a Meta
+        # só aceita template. Texto e botão vieram de
+        # docs/demandas/08-CONTATOS-E-TERAPEUTAS.md.
+        "name": "inicio_contato_allos",
+        "language": "pt_BR",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Olá, {{1}}! Aqui é a equipe da Allos, retornando o contato que "
+                    "você pediu.\n\nPodemos falar por aqui?"
+                ),
+                "example": {"body_text": [["Maria"]]},
+            },
+            {"type": "FOOTER", "text": "Associação Allos"},
+            _botoes("Pode falar"),
+        ],
+    },
+    {
         # Vai para o PACIENTE: rodapé "Allos", não "Hamilton" (nome interno).
         "name": "proposta_horario_paciente",
         "language": "pt_BR",
