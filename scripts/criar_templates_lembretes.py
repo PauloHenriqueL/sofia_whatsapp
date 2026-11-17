@@ -37,6 +37,13 @@ do erro 132018.
 a Thainá escolheu serve, antes de o terapeuta ser acionado. É template, e não
 texto livre, porque a escolha costuma vir dias depois da última mensagem do
 paciente — fora da janela de 24h a Meta só entrega template.
+
+`encaminhamento_terapeuta_v2` (17/11/2026): o v1 dizia "Valor da sessão", mas o
+número que o Hamilton manda na variável 6 é a MENSALIDADE (`vlr_sessao` da
+ficha, gravado pela Sofia com o preço mensal do painel). Só o rótulo mudou; as
+variáveis são as mesmas. O v1 fica na Meta até o v2 ser aprovado como UTILITY —
+só então troque `TEMPLATE_TERAPEUTA` em `principais/encaminhamento.py` do
+Hamilton, que é quem diz à Sofia qual template enviar.
 """
 
 import json
@@ -111,6 +118,29 @@ TEMPLATES = [
                 "example": {"body_text": [[
                     "Tácia", "Maria Clara Souza", "14/03/1992", "+55 31 98855-3344",
                     "terça, 18/11, às 19h", "200,00", "Pix",
+                ]]},
+            },
+            RODAPE,
+            _botoes("Aceito", "Não aceito"),
+        ],
+    },
+    {
+        "name": "encaminhamento_terapeuta_v2",
+        "language": "pt_BR",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Olá, {{1}}! Um paciente foi encaminhado para você no Hamilton.\n\n"
+                    "Nome: {{2}}\nNascimento: {{3}}\nContato: {{4}}\n1ª sessão: {{5}}\n\n"
+                    "Valor da mensalidade: R$ {{6}}\nForma de pagamento: {{7}}\n\n"
+                    "Antes de atender, combine uma ligação ou meet com o paciente "
+                    "para conversar sobre o caso. Confirme abaixo."
+                ),
+                "example": {"body_text": [[
+                    "Tácia", "Maria Clara Souza", "14/03/1992", "+55 31 98855-3344",
+                    "terça, 18/11, às 19h", "250,00", "Pix",
                 ]]},
             },
             RODAPE,

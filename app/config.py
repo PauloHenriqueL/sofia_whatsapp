@@ -97,7 +97,7 @@ class Settings(BaseSettings):
 
     # Valores de negócio (mudáveis no Render, sem mexer no código). São injetados
     # no que a Sofia fala via llm_client.carregar_system_prompt().
-    preco_terapia_mensal: int = 200
+    preco_terapia_mensal: int = 250
     preco_neuro: int = 1000
     parcelas_max: int = 5
     # Desconto máximo que a Sofia pode oferecer sozinha na mensalidade da terapia,
