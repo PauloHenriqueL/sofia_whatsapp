@@ -1,5 +1,9 @@
 """Conversas de EXEMPLO no painel da Sofia, para a Thainá ver os casos que aparecem.
 
+Dois deles ("(a implementar)" no título) mostram o comportamento **decidido**, que
+ainda não está no roteiro: criança como paciente comum e Profectum sem falar de
+dinheiro. Ver `docs/demandas/09-BACKLOG-ROTEIRO.md`.
+
 Seguras de propósito:
 - número fictício (5500000000NN): nenhuma mensagem alcança gente de verdade;
 - `modo='humano'`: a Sofia não conduz, não responde e não escala;
@@ -32,16 +36,21 @@ EXEMPLOS = [
         ("paciente", "Pode sim"),
         ("bot", "Combinado! Vou passar seu contato pra Amanda e ela fala com você pra marcar."),
     ]),
-    ("02", "[EXEMPLO] Criança de 9 anos — menor de 11", "escalado", [
+    ("02", "[EXEMPLO] (a implementar) Mãe cadastrando a filha de 9 anos", "cadastrado", [
         ("paciente", "Boa tarde, queria terapia para minha filha de 9 anos"),
         ("bot", "Boa tarde! Que bom que procurou. Me conta um pouquinho: o que vocês estão "
                 "buscando pra ela?"),
         ("paciente", "Ela anda muito ansiosa desde que mudou de escola"),
-        ("bot", "Entendo. Preciso te falar uma coisa com franqueza: nessa idade o atendimento "
-                "online costuma não funcionar tão bem — criança pequena precisa de outro tipo "
-                "de contato. A Allos tem atendimento presencial na sede, com poucas vagas. Vou "
-                "pedir pra Thainá olhar o caso dela e ver a melhor opção, pode ser?"),
-        ("paciente", "Pode, obrigada"),
+        ("bot", "Entendi, obrigada por contar. A mensalidade é R$ 200,00, com uma sessão por "
+                "semana, online. Vou fazer o cadastro dela: me diz o nome completo e a data de "
+                "nascimento da sua filha?"),
+        ("paciente", "Helena Martins Rocha, 14/05/2017"),
+        ("bot", "Anotado! Como ela é menor de 18, vai ser necessário o termo de consentimento "
+                "dos pais ou responsável — a Thainá te explica, é simples. Me passa um telefone "
+                "de contato pra ficha dela? Pode ser o seu mesmo."),
+        ("paciente", "pode ser esse meu"),
+        ("bot", "Perfeito. A Thainá entra em contato pra combinar o horário e dizer quem vai "
+                "atender a Helena."),
     ]),
     ("03", "[EXEMPLO] Risco de vida — crise", "escalado", [
         ("paciente", "não aguento mais, vou me matar hoje"),
@@ -62,13 +71,16 @@ EXEMPLOS = [
         ("bot", "Anotado! Cadastro feito. A Thainá entra em contato pra combinar o horário e "
                 "dizer quem vai te atender."),
     ]),
-    ("05", "[EXEMPLO] Profectum — parceria", "cadastrado", [
+    ("05", "[EXEMPLO] (a implementar) Profectum — dinheiro é com o financeiro deles", "cadastrado", [
         ("paciente", "Boa noite, me indicaram vocês pelo Profectum"),
         ("bot", "Boa noite! Sou a Sofia, da Allos. Me conta o que você está buscando?"),
         ("paciente", "Terapia pra mim. Pelo Profectum é gratuito, né?"),
-        ("bot", "É sim: pelo Profectum o atendimento é custeado pela parceria, você não paga "
-                "nada. Vou fazer seu cadastro então. Me diz seu nome completo e sua data de "
-                "nascimento?"),
+        ("bot", "Quem cuida dessa parte é o setor financeiro do Profectum — vale perguntar "
+                "direto com eles, que te explicam certinho. Do nosso lado eu já posso seguir: o "
+                "atendimento é online, uma sessão por semana de 50 minutos, em dia e horário "
+                "fixos. Posso fazer seu cadastro?"),
+        ("paciente", "pode sim"),
+        ("bot", "Me diz seu nome completo e sua data de nascimento?"),
         ("paciente", "Rafael Moreira Dias, 02/09/1994"),
         ("bot", "Anotado! A Thainá entra em contato pra combinar o horário e dizer quem vai "
                 "te atender."),
@@ -102,7 +114,6 @@ EXEMPLOS = [
 # você agora", onde a Thainá trabalha. Só os que de fato param a Sofia.
 ESCALADAS = {
     "01": ("neuro_reuniao", "Avaliação neuropsicológica para o filho de 8 anos; aceitou a reunião com a Amanda."),
-    "02": ("menor_11", "Filha de 9 anos, ansiedade. Online inviável nessa idade — ver vaga no presencial da sede."),
     "03": ("crise", "RISCO DE VIDA. Pessoa sozinha, falou em se matar hoje. Atender agora."),
     "08": ("pedido_humano", "Diz ser terapeuta (Juliana) mas o número não está no cadastro do Hamilton."),
 }
