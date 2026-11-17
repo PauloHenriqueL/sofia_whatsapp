@@ -252,3 +252,22 @@ class TestValorDaOrigem:
         })
         assert p["vlr_sessao"] == "0.00"
         assert p["tipo_pagamento"] == "parceria"
+
+
+class TestListaComPrecoProprio:
+    def test_origem_com_preco_aparece_marcada_na_lista(self):
+        linhas = captacao.linhas_para_prompt([
+            {"pk_captacao": 4, "nome": "Não sei"},
+            {"pk_captacao": 28, "nome": "Rede Cidadã", "vlr_sessao": "200.00"},
+            {"pk_captacao": 13, "nome": "Prefeitura X", "is_parceria": True},
+        ])
+        assert "- 4: Não sei" in linhas
+        assert "- 28: Rede Cidadã [MENSALIDADE R$ 200,00]" in linhas
+        # Parceria é custeada: valor nenhum, nem que o cadastro tenha um.
+        assert "- 13: Prefeitura X [PARCERIA/CONVÊNIO]" in linhas
+
+    def test_parceria_com_valor_no_cadastro_nao_mostra_valor(self):
+        linhas = captacao.linhas_para_prompt([
+            {"pk_captacao": 57, "nome": "Profectum", "is_parceria": True, "vlr_sessao": "200.00"},
+        ])
+        assert "MENSALIDADE" not in linhas

@@ -150,11 +150,19 @@ def linhas_para_prompt(captacoes: list[dict]) -> str:
 
     As de parceria são marcadas: o modelo precisa saber quais convênios existem
     pra distinguir "prefeitura conveniada" de "prefeitura que a gente não atende".
+
+    A origem com **preço fechado** (Rede Cidadã, R$ 200 contra os R$ 250 normais)
+    também vem marcada, com o valor. É assim que a Sofia diz o preço certo sem
+    guardar número nenhum no roteiro: ela lê da lista, que vem do cadastro.
     """
     if not captacoes:
         return "(lista indisponível agora — omita o campo captacao_id)"
     linhas = []
     for c in captacoes:
         marca = " [PARCERIA/CONVÊNIO]" if e_parceria(c) else ""
+        valor = None if e_parceria(c) else valor_da_origem(c)
+        if valor:
+            reais = f"{float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            marca += f" [MENSALIDADE R$ {reais}]"
         linhas.append(f"- {_id(c)}: {c.get('nome')}{marca}")
     return "\n".join(linhas)
