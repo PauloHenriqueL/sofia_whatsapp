@@ -9,7 +9,7 @@ import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada, Mensagem
@@ -131,25 +131,32 @@ async def garantir_escalada_prometida(
 # O teto é por conversa e por hora. Gente de verdade quase nunca encosta nele
 # (uma rajada humana vira UMA resposta, por causa da janela de agrupamento);
 # robô encosta em minutos.
-RESPOSTAS_POR_HORA = 15
+#
+# Conta RESPOSTAS (turnos), não mensagens: cada resposta sai em 2 ou 3 bolhas, e
+# contar bolhas fazia uma conversa normal de cadastro (explicação, dados,
+# confirmação, pesquisa de entrada) bater no teto em uns 6 turnos — a Sofia se
+# calava no meio e escalava como "robô". Uma resposta é uma sequência de
+# mensagens do bot que vem depois de uma mensagem de outra origem.
+RESPOSTAS_POR_HORA = 20
 MOTIVO_LOOP = "loop_automatico"
 
 
 async def passou_do_teto(session: AsyncSession, conversa: Conversa) -> bool:
     """Se a Sofia já respondeu demais nesta conversa na última hora."""
     desde = datetime.now(timezone.utc) - timedelta(hours=1)
-    total = (
+    origens = (
         await session.execute(
-            select(func.count())
-            .select_from(Mensagem)
-            .where(
-                Mensagem.conversa_id == conversa.id,
-                Mensagem.origem == "bot",
-                Mensagem.criada_em >= desde,
-            )
+            select(Mensagem.origem)
+            .where(Mensagem.conversa_id == conversa.id, Mensagem.criada_em >= desde)
+            .order_by(Mensagem.criada_em, Mensagem.id)
         )
-    ).scalar_one()
-    return total >= RESPOSTAS_POR_HORA
+    ).scalars().all()
+    respostas = sum(
+        1
+        for i, origem in enumerate(origens)
+        if origem == "bot" and (i == 0 or origens[i - 1] != "bot")
+    )
+    return respostas >= RESPOSTAS_POR_HORA
 
 
 async def travar_se_for_loop(session: AsyncSession, conversa: Conversa) -> bool:

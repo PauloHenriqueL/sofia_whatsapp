@@ -172,11 +172,61 @@ def _e_estrutura_de_dados(linha: str) -> bool:
     return False
 
 
+# Abaixo disso, repetir é normal ("Oi!", "Certo."): só se mexe em trecho que dá
+# uma frase de verdade.
+_MIN_CHARS_REPETICAO = 20
+
+
+def _normalizar(trecho: str) -> str:
+    return " ".join(trecho.split()).casefold()
+
+
+def sem_repeticao(texto: str) -> str:
+    """Tira a fala que o modelo escreveu duas vezes na mesma resposta.
+
+    Em 17/11/2026, em produção, a resposta a "Busco terapia" saiu como o
+    parágrafo inteiro e, logo abaixo, o mesmo texto já quebrado em bolhas
+    ("A. B?\\nA.\\n\\nB?"). O paciente recebeu tudo duas vezes. Nenhum prompt
+    garante que isso não volte, então a garantia fica aqui, junto das outras.
+
+    Dois casos, ambos conservadores (só texto IDÊNTICO, ignorando espaços e
+    quebras de linha):
+    1. a resposta inteira é X seguido de X: fica a segunda cópia, que é a que
+       vem com as bolhas separadas;
+    2. um bloco (bolha) igual a um bloco anterior: sai a repetição.
+    """
+    if not texto:
+        return texto
+
+    # 1. Resposta dobrada. Procura o ponto em que a segunda metade começa.
+    palavras = list(re.finditer(r"\S+", texto))
+    n = len(palavras)
+    if n >= 4 and n % 2 == 0:
+        meio = n // 2
+        primeira = [m.group().casefold() for m in palavras[:meio]]
+        segunda = [m.group().casefold() for m in palavras[meio:]]
+        if primeira == segunda and len(" ".join(primeira)) >= _MIN_CHARS_REPETICAO:
+            texto = texto[palavras[meio].start():]
+
+    # 2. Bolha repetida.
+    blocos = [b for b in re.split(r"\n\s*\n", texto.strip()) if b.strip()]
+    vistos: set[str] = set()
+    mantidos = []
+    for bloco in blocos:
+        chave = _normalizar(bloco)
+        if len(chave) >= _MIN_CHARS_REPETICAO and chave in vistos:
+            continue
+        vistos.add(chave)
+        mantidos.append(bloco.strip())
+    return "\n\n".join(mantidos)
+
+
 def limpar(texto: str | None) -> str:
     """Devolve o texto pronto pra enviar; string vazia se nada sobrou.
 
     Quem chama trata o vazio como "não enviar bolha nenhuma".
     """
+    global _bloqueios
     if not texto:
         return ""
 
@@ -209,7 +259,6 @@ def limpar(texto: str | None) -> str:
     normalizado = re.sub(r"\n{3,}", "\n\n", normalizado).strip()
 
     if removeu_estrutura or limpo != normalizado:
-        global _bloqueios
         _bloqueios += 1
         motivo = "estrutura_de_dados" if removeu_estrutura else "token_interno"
         if _amostras is not None:  # laboratório only; ver `gravar_amostras`
@@ -221,6 +270,21 @@ def limpar(texto: str | None) -> str:
             len(texto),
             len(limpo),
         )
+
+    # Fala repetida, à parte do resto: é outro defeito (o modelo se repetiu, não
+    # vazou estrutura) e só troca o texto quando algo de fato saiu — senão a
+    # reformatação dos blocos contaria como bloqueio.
+    sem_rep = sem_repeticao(limpo)
+    if _normalizar(sem_rep) != _normalizar(limpo):
+        _bloqueios += 1
+        if _amostras is not None:
+            _amostras.append({"motivo": "repeticao", "antes": limpo, "depois": sem_rep})
+        logger.warning(
+            "Saída do modelo com fala repetida; repetição removida (antes=%d chars, depois=%d chars)",
+            len(limpo),
+            len(sem_rep),
+        )
+        limpo = sem_rep
     if not limpo:
         logger.error("Saída do modelo virou vazia após sanitização; nada foi enviado")
     return limpo

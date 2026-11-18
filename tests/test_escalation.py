@@ -245,16 +245,29 @@ class TestTravaDeLoop:
     """
 
     @staticmethod
-    async def _conversa(db, respostas: int, minutos_atras: int = 0) -> Conversa:
+    async def _conversa(db, respostas: int, minutos_atras: int = 0, bolhas: int = 1) -> Conversa:
         conversa = Conversa(numero_whatsapp="5531988887777", modo="bot", estado="novo")
         db.add(conversa)
         await db.flush()
         quando = datetime.now(timezone.utc) - timedelta(minutes=minutos_atras)
+        # Cada resposta: uma mensagem do outro lado e três bolhas da Sofia.
         for _ in range(respostas):
-            db.add(Mensagem(conversa_id=conversa.id, direcao="enviada", origem="bot",
-                            tipo="texto", texto="oi", criada_em=quando))
-        await db.flush()
+            db.add(Mensagem(conversa_id=conversa.id, direcao="recebida", origem="paciente",
+                            tipo="texto", texto="menu", criada_em=quando))
+            await db.flush()
+            for _ in range(bolhas):
+                db.add(Mensagem(conversa_id=conversa.id, direcao="enviada", origem="bot",
+                                tipo="texto", texto="oi", criada_em=quando))
+                await db.flush()
         return conversa
+
+    @pytest.mark.asyncio
+    async def test_bolhas_de_uma_resposta_contam_como_uma(self, db_com_usuario_de_alerta):
+        """Em 17/11 o teto contava bolhas: cadastro normal travava em ~6 turnos."""
+        db = db_com_usuario_de_alerta
+        conversa = await self._conversa(db, respostas=escalation.RESPOSTAS_POR_HORA - 1, bolhas=3)
+        assert await escalation.travar_se_for_loop(db, conversa) is False
+        assert conversa.modo == "bot"
 
     @pytest.mark.asyncio
     async def test_conversa_normal_nao_trava(self, db_com_usuario_de_alerta):

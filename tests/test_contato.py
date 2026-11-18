@@ -266,6 +266,87 @@ class TestHamiltonReconhece:
         assert (await _ler(sofia, cid)).eh_terapeuta is False
 
 
+async def _botao_de(cliente, numero, payload, wamid):
+    corpo = json.dumps({"entry": [{"changes": [{"value": {"messages": [{
+        "from": numero, "id": wamid, "type": "button",
+        "button": {"payload": payload, "text": "Aceito"},
+    }]}}]}]}).encode()
+    assinatura = "sha256=" + hmac.new(b"segredo-do-app", corpo, hashlib.sha256).hexdigest()
+    resp = await cliente.post(
+        "/webhook/whatsapp",
+        content=corpo,
+        headers={"X-Hub-Signature-256": assinatura, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200
+    await serializacao.aguardar_pendentes()
+
+
+class TestModoTeste:
+    """17/11/2026: a equipe testando o fluxo de paciente pelo próprio celular."""
+
+    @pytest.fixture(autouse=True)
+    def _modo_teste(self):
+        config_negocio._cache["terapeutas_como_pacientes"] = True
+
+    @pytest.mark.asyncio
+    async def test_terapeuta_novo_e_atendido_como_paciente(self, sofia, hamilton, meta):
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=_LLM()):
+            await _mensagem_de(sofia, TACIA, "Busco terapia", "wamid.t1")
+
+        assert _textos(meta) == ["Oi! Sou a Sofia da Allos."]
+        # Nem pergunta ao Hamilton se é terapeuta.
+        assert hamilton.consultados == []
+
+    @pytest.mark.asyncio
+    async def test_conversa_marcada_pelo_hamilton_vira_paciente(self, sofia, hamilton, meta):
+        cid = await _nova(sofia, TACIA, eh_terapeuta=True, contato_conferido_por=contato.HAMILTON)
+
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=_LLM()):
+            await _mensagem_de(sofia, TACIA, "Busco terapia", "wamid.t1")
+
+        assert _textos(meta) == ["Oi! Sou a Sofia da Allos."]
+        conversa = await _ler(sofia, cid)
+        assert conversa.eh_terapeuta is False
+        # A conferência do cron não mexe; a próxima mensagem com o modo desligado remarca.
+        assert conversa.contato_conferido_por == contato.HAMILTON
+
+    @pytest.mark.asyncio
+    async def test_desligado_o_hamilton_remarca_na_proxima_mensagem(self, sofia, hamilton, meta):
+        cid = await _nova(sofia, TACIA, eh_terapeuta=False, contato_conferido_por=contato.HAMILTON)
+        config_negocio._cache["terapeutas_como_pacientes"] = False
+
+        with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
+            await _mensagem_de(sofia, TACIA, "oi", "wamid.t1")
+        llm.assert_not_called()
+        assert (await _ler(sofia, cid)).eh_terapeuta is True
+
+    @pytest.mark.asyncio
+    async def test_marcada_a_mao_como_terapeuta_continua_terapeuta(self, sofia, hamilton, meta):
+        cid = await _nova(sofia, RENATO, eh_terapeuta=True, contato_conferido_por=contato.MANUAL)
+
+        with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
+            await _mensagem_de(sofia, RENATO, "oi", "wamid.r1")
+        llm.assert_not_called()
+        assert _textos(meta) == [lembretes_terapeutas.RESPOSTA_TERAPEUTA]
+        assert (await _ler(sofia, cid)).eh_terapeuta is True
+
+    @pytest.mark.asyncio
+    async def test_aceite_do_encaminhamento_vale_na_conversa_de_paciente(
+        self, sofia, hamilton, meta
+    ):
+        """O "Aceito" do terapeuta-paciente grava o vínculo, não vira "me manda texto"."""
+        await _nova(sofia, TACIA, eh_terapeuta=False, contato_conferido_por=contato.HAMILTON)
+
+        with patch(
+            "app.routers.webhook.encaminhamento.tratar_botao_terapeuta", new=AsyncMock()
+        ) as tratar, patch("app.routers.webhook.llm_client.get_llm_client") as llm:
+            await _botao_de(sofia, TACIA, "enc_aceito:42", "wamid.b1")
+
+        llm.assert_not_called()
+        tratar.assert_awaited_once()
+        assert tratar.await_args.args[2:] == ("wamid.b1", "enc_aceito", 42)
+
+
 class TestConferencia:
     @pytest.mark.asyncio
     async def test_marca_quem_o_hamilton_reconhece_e_registra_quem_nao(self, sofia, hamilton):

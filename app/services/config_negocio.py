@@ -153,6 +153,21 @@ CAMPOS: dict[str, Campo] = {
         "Os tiques azuis e o indicador de digitação, como uma pessoa faria.",
         "automacoes",
     ),
+    # Modo teste (17/11/2026): a equipe testando o fluxo inteiro em produção pelo
+    # próprio celular. Sem isto o Hamilton reconhece o terapeuta pelo telefone e
+    # a Sofia só devolve "este número só envia lembretes". Desligada por padrão:
+    # ligada, terapeuta vira lead (triagem, cadastro, follow-up). Os toques nos
+    # botões de encaminhamento e de lembrete continuam valendo como terapeuta.
+    # Ao desligar, a conversa volta a ser de terapeuta na próxima mensagem dele.
+    "terapeutas_como_pacientes": Campo(
+        "Modo teste: terapeuta conversa como paciente",
+        False,
+        "bool",
+        "Ligada, a Sofia atende terapeutas como se fossem pacientes novos, pra equipe "
+        "testar o fluxo inteiro. <em>Desligue ao fim do teste — quem foi marcado à mão "
+        "como terapeuta continua sendo terapeuta.</em>",
+        "automacoes",
+    ),
     "preco_terapia_mensal": Campo(
         "Mensalidade da terapia",
         settings.preco_terapia_mensal,

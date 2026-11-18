@@ -435,9 +435,15 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # qualquer conversa (aba Terapeutas); quem responde é `_responder_a_terapeuta`.
     # `_tratar_como_terapeuta` marca a conversa que já existia e só devolve
     # False para quem foi marcado à mão como paciente.
-    terapeuta_reconhecido = await lembretes_terapeutas.eh_terapeuta(
-        numero
-    ) and await _tratar_como_terapeuta(numero)
+    #
+    # Modo teste (`terapeutas_como_pacientes`): a equipe testando o fluxo de
+    # paciente pelo próprio celular. Nem pergunta ao Hamilton.
+    modo_teste = bool(config_negocio.valor("terapeutas_como_pacientes"))
+    terapeuta_reconhecido = (
+        not modo_teste
+        and await lembretes_terapeutas.eh_terapeuta(numero)
+        and await _tratar_como_terapeuta(numero)
+    )
 
     async with serializacao.lock_da_conversa(numero):
         async with async_session() as session:
@@ -455,6 +461,16 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
                 # por `_tratar_como_terapeuta`, antes do lock).
                 conversa.eh_terapeuta = True
                 conversa.contato_conferido_por = contato.HAMILTON
+            if modo_teste and conversa.eh_terapeuta and (
+                conversa.contato_conferido_por != contato.MANUAL
+            ):
+                # Marca do Hamilton sai, para a conversa seguir o fluxo de paciente
+                # inteiro (pedido de encaminhamento, lista do painel). Fica
+                # `HAMILTON` como conferente: a conferência do cron não mexe, e
+                # `ao_reconhecer` remarca na próxima mensagem com o modo desligado.
+                # Marca feita à mão é decisão de gente e não é desfeita.
+                conversa.eh_terapeuta = False
+                logger.info("Modo teste: conversa %s atendida como paciente", conversa.id)
 
             # Mensagem nova reativa a conversa no painel: arquivada é estado da
             # lista, não do atendimento. O commit da ingestão persiste.
@@ -515,6 +531,17 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
             # proposta para este número, a resposta não pode cair no vazio.
             if conversa.eh_terapeuta:
                 await _responder_a_terapeuta(session, conversa, mensagem)
+                return
+
+            # Ação de terapeuta numa conversa de paciente: o aceite do
+            # encaminhamento, o motivo de uma recusa e (no modo teste) o botão do
+            # lembrete. Acontece quando o terapeuta está sendo atendido como
+            # paciente — modo teste, ou marcado à mão como paciente —, e sem isto
+            # o "Aceito" dele cairia em "me manda por texto" e o vínculo não
+            # seria gravado no Hamilton.
+            if await _acao_de_terapeuta_em_conversa_de_paciente(
+                session, conversa, mensagem, modo_teste
+            ):
                 return
 
             # Modo humano: a Thainá responde pelo painel. A Sofia não conversa
@@ -617,6 +644,35 @@ async def _responder_a_terapeuta(session, conversa, mensagem: dict[str, Any]) ->
         await lembretes_terapeutas.responder_botao(session, conversa, wamid, codigo)
         return
     await lembretes_terapeutas.responder_terapeuta(session, conversa, wamid)
+
+
+async def _acao_de_terapeuta_em_conversa_de_paciente(
+    session, conversa, mensagem: dict[str, Any], modo_teste: bool
+) -> bool:
+    """Trata o que só um terapeuta manda, quando a conversa está como de paciente.
+
+    Devolve se tratou. Os dois primeiros casos só casam com o que a Sofia mandou
+    a um terapeuta (o botão `enc_` do aviso de encaminhamento e o texto logo
+    depois de uma recusa), então valem sempre. O botão do lembrete pede uma
+    consulta ao Hamilton e só é olhado no modo teste.
+    """
+    tipo = mensagem.get("type")
+    wamid = mensagem.get("id")
+    botao_encaminhamento = encaminhamento.botao_da_mensagem(mensagem, "enc_")
+    if botao_encaminhamento:
+        await encaminhamento.tratar_botao_terapeuta(session, conversa, wamid, *botao_encaminhamento)
+        return True
+    if tipo == "text" and await encaminhamento.capturar_motivo(
+        session, conversa, (mensagem.get("text") or {}).get("body")
+    ):
+        return True
+    if modo_teste and tipo == "button":
+        botao = mensagem.get("button") or {}
+        codigo = botao.get("payload") or botao.get("text")
+        if codigo and await lembretes_terapeutas.eh_terapeuta(conversa.numero_whatsapp):
+            await lembretes_terapeutas.responder_botao(session, conversa, wamid, codigo)
+            return True
+    return False
 
 
 async def _avisar_escalada_uma_vez(session, conversa, numero: str) -> None:

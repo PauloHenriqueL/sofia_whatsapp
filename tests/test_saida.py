@@ -172,3 +172,36 @@ class TestObservabilidade:
         # contou. Só o laboratório liga, e lá os pacientes são fictícios.
         saida.limpar("Fim.@endsection")
         assert saida.amostras() == []
+
+
+class TestFalaRepetida:
+    """17/11/2026, produção: a resposta a "Busco terapia" chegou duas vezes."""
+
+    PARAGRAFO = (
+        "Entendi. A terapia é online, por chamada de vídeo, com sessões semanais de 50 "
+        "minutos. A primeira sessão é gratuita e, se você decidir continuar, a mensalidade "
+        "é R$ 250. Quer que eu te explique melhor como funciona?"
+    )
+    QUEBRADO = (
+        "Entendi. A terapia é online, por chamada de vídeo, com sessões semanais de 50 "
+        "minutos. A primeira sessão é gratuita e, se você decidir continuar, a mensalidade "
+        "é R$ 250.\n\nQuer que eu te explique melhor como funciona?"
+    )
+
+    def test_caso_real_fica_so_a_versao_em_bolhas(self):
+        dobrado = self.PARAGRAFO + "\n" + self.QUEBRADO
+        assert saida.limpar(dobrado) == self.QUEBRADO
+        assert saida.bloqueios() == 1
+
+    def test_bolha_repetida_sai(self):
+        texto = "Anotei seu nome.\n\nQual é a sua data de nascimento?\n\nQual é a sua data de nascimento?"
+        assert saida.limpar(texto) == "Anotei seu nome.\n\nQual é a sua data de nascimento?"
+
+    def test_fala_normal_nao_muda_nem_conta(self):
+        assert saida.limpar(self.QUEBRADO) == self.QUEBRADO
+        assert saida.bloqueios() == 0
+
+    def test_repeticao_curta_e_legitima(self):
+        texto = "Certo!\n\nAnotei aqui.\n\nCerto!"
+        assert saida.limpar(texto) == texto
+        assert saida.bloqueios() == 0
