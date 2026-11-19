@@ -53,18 +53,26 @@ TEXTO_PACIENTE_SIM = (
     "te mandamos uma mensagem por aqui."
 )
 TEXTO_PACIENTE_NAO = (
-    "Tudo bem! Vamos procurar outro horário e te mandamos uma nova proposta por aqui."
+    "Tudo bem! Vamos procurar outro horário e te mandamos uma nova proposta por aqui. "
+    "Se quiser, me conta o que não funcionou nessa (o dia, o horário, outra coisa), "
+    "que a equipe já leva em conta."
 )
 TEXTO_PROPOSTA_VENCIDA = (
     "Essa proposta não está mais valendo. Nossa equipe vai te mandar uma nova em breve."
 )
+# Sem marcar gênero ("quem vai te atender", não "o/a terapeuta") e com prazo:
+# sem ele o paciente fica esperando no escuro (decisão dos gestores, 18/11/2026).
+PRAZO_CONTATO_TERAPEUTA = "24 horas"
 TEXTO_PACIENTE_CONFIRMADO = (
-    "Tudo certo! {terapeuta} confirmou o seu atendimento. A primeira sessão é {quando}. "
-    "Antes disso, vocês vão combinar uma conversa rápida para se conhecerem."
+    "Tudo certo! {terapeuta} confirmou o seu atendimento, e a primeira sessão é {quando}. "
+    "Antes disso, quem vai te atender vai te chamar aqui no WhatsApp em até "
+    f"{PRAZO_CONTATO_TERAPEUTA} para se apresentar e confirmar a primeira sessão."
 )
+# O paciente ouviu que vai ser chamado em até 24h: o terapeuta precisa saber disso.
 TEXTO_TERAPEUTA_ACEITO = (
-    "Obrigado! {paciente} já está vinculado(a) a você no Hamilton, com a primeira "
-    "sessão na sua grade ({quando})."
+    "Obrigado! O atendimento de {paciente} já está registrado com você no Hamilton, "
+    "com a primeira sessão na sua grade ({quando}). Chame {paciente} no WhatsApp em até "
+    f"{PRAZO_CONTATO_TERAPEUTA} para se apresentar e confirmar a primeira sessão."
 )
 TEXTO_TERAPEUTA_RECUSOU = (
     "Tudo bem, a equipe vai encaminhar para outra pessoa. Se quiser, responda esta "
@@ -78,6 +86,15 @@ TEXTO_SLOT_TOMADO = (
 TEXTO_ENCAMINHAMENTO_FECHADO = (
     "Esse encaminhamento não está mais aberto. Se tiver dúvida, fale com o Alan ou o Victor."
 )
+
+# Marcas em `dados_coletados` para a resposta ESCRITA à proposta (18/11/2026).
+# Sem elas, "não, esse horário não dá" caía na IA, que só sabia escalar: o
+# Hamilton nunca ficava sabendo da recusa e o paciente sumia da fila "Pacientes
+# esperando terapeuta" até a reserva vencer. Enquanto a proposta está aberta a IA
+# ganha `responder_proposta`; depois de uma recusa sem motivo, ganha
+# `registrar_motivo_recusa` (ver `ferramentas_da_conversa`).
+CHAVE_PROPOSTA = "proposta_aberta"
+CHAVE_RECUSA_SEM_MOTIVO = "recusa_sem_motivo"
 
 # O terapeuta que tocou em "Não aceito" tem um tempo para escrever o motivo. Na
 # memória de propósito: o motivo é opcional, e perdê-lo num restart custa só o
@@ -328,6 +345,9 @@ async def propor_ao_paciente(db: AsyncSession, enc: dict) -> bool:
         await conversation.registrar_mensagem_enviada(
             db, conversa, texto_da_proposta(mensagem["variaveis"]),
             origem="bot", tipo="template", whatsapp_message_id=wamid)
+        if enc.get("id"):
+            _marcar(conversa, CHAVE_PROPOSTA, int(enc["id"]))
+            _marcar(conversa, CHAVE_RECUSA_SEM_MOTIVO, None)
         await db.commit()
     return True
 
@@ -360,24 +380,107 @@ async def _registrar_aviso_terapeuta(db: AsyncSession, aviso: dict, resposta: di
         logger.exception("Aviso de encaminhamento saiu mas não foi gravado no histórico")
 
 
+def _marcar(conversa: Conversa, chave: str, valor) -> None:
+    """Grava (ou tira, com `None`) uma marca em `dados_coletados`. Dict novo de
+    propósito: mutar o JSON no lugar não é detectado pelo SQLAlchemy."""
+    dados = dict(conversa.dados_coletados or {})
+    if valor is None:
+        dados.pop(chave, None)
+    else:
+        dados[chave] = valor
+    conversa.dados_coletados = dados
+
+
+def proposta_aberta(conversa: Conversa) -> int | None:
+    """Id do encaminhamento cuja proposta espera resposta deste paciente."""
+    valor = (conversa.dados_coletados or {}).get(CHAVE_PROPOSTA)
+    return int(valor) if isinstance(valor, int) or str(valor or "").isdigit() else None
+
+
+def recusa_sem_motivo(conversa: Conversa) -> int | None:
+    """Id do encaminhamento recusado pelo paciente que ainda não disse o porquê."""
+    valor = (conversa.dados_coletados or {}).get(CHAVE_RECUSA_SEM_MOTIVO)
+    return int(valor) if isinstance(valor, int) or str(valor or "").isdigit() else None
+
+
 async def tratar_botao_paciente(db: AsyncSession, conversa: Conversa, codigo: str, enc_id: int) -> str:
     """Toque do paciente na proposta. Devolve o texto a responder a ele (a
     janela de 24h foi aberta pelo toque, então vai como texto livre)."""
-    aceitou = codigo == "prop_sim"
+    _, texto = await _registrar_resposta_paciente(db, conversa, enc_id, codigo == "prop_sim")
+    return texto
+
+
+async def responder_proposta_por_texto(
+    db: AsyncSession, conversa: Conversa, aceitou: bool, motivo: str = ""
+) -> dict:
+    """A resposta ESCRITA à proposta, pela ferramenta `responder_proposta`.
+
+    Mesmo efeito do toque no botão. Devolve o resultado para o modelo escrever a
+    fala final: ele não pode inventar o que aconteceu no Hamilton."""
+    enc_id = proposta_aberta(conversa)
+    if enc_id is None:
+        return {"status": "sem_proposta_aberta",
+                "orientacao": "Não há proposta de horário esperando resposta. Siga a conversa normalmente."}
+    situacao, texto = await _registrar_resposta_paciente(
+        db, conversa, enc_id, aceitou, (motivo or "").strip())
+    orientacao = {
+        "recusa_registrada": (
+            "A recusa foi registrada e a equipe já foi avisada para procurar outro horário. "
+            "NÃO escale e NÃO diga que vai chamar a Thainá: o próximo passo é a nova proposta. "
+            + ("" if (motivo or "").strip() else
+               "Pergunte, numa frase, o que não funcionou nessa proposta (o dia, o horário, outra coisa).")
+        ),
+        "aceite_registrado": (
+            "O aceite foi registrado e o terapeuta foi avisado. Diga que, assim que a confirmação "
+            "chegar, a pessoa recebe uma mensagem por aqui."
+        ),
+        "proposta_vencida": "Essa proposta não vale mais. Diga que a equipe vai mandar uma nova em breve.",
+        "erro": "Não deu para registrar agora. Diga que recebeu e que a equipe confirma por aqui.",
+    }[situacao]
+    return {"status": situacao, "texto_de_referencia": texto, "orientacao": orientacao}
+
+
+async def registrar_motivo_recusa_paciente(db: AsyncSession, conversa: Conversa, motivo: str) -> dict:
+    """O porquê de uma recusa do paciente, escrito depois dela (ferramenta
+    `registrar_motivo_recusa`). Vai para a fila da triagem, junto da recusa."""
+    enc_id = recusa_sem_motivo(conversa)
+    motivo = (motivo or "").strip()
+    if enc_id is None or not motivo:
+        return {"status": "nada_a_registrar"}
+    _marcar(conversa, CHAVE_RECUSA_SEM_MOTIVO, None)
+    try:
+        status, _ = await hamilton_client.get_hamilton_client().motivo_encaminhamento(enc_id, motivo)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Motivo da recusa do encaminhamento %s não registrado: %s", enc_id, exc)
+        return {"status": "erro"}
+    return {"status": "motivo_registrado" if status == 200 else "nada_a_registrar",
+            "orientacao": "Agradeça em uma frase e diga que a nova proposta chega por aqui."}
+
+
+async def _registrar_resposta_paciente(
+    db: AsyncSession, conversa: Conversa, enc_id: int, aceitou: bool, motivo: str = ""
+) -> tuple[str, str]:
+    """Botão ou texto, o mesmo caminho: registra no Hamilton e devolve
+    `(situação, texto para o paciente)`."""
     cliente = hamilton_client.get_hamilton_client()
     try:
-        status, corpo = await cliente.responder_encaminhamento(enc_id, "paciente", aceitou)
+        status, corpo = await cliente.responder_encaminhamento(enc_id, "paciente", aceitou, motivo)
     except hamilton_client.HamiltonError as exc:
         logger.error("Resposta do paciente ao encaminhamento %s não registrada: %s", enc_id, exc)
         await _alertar_conversa(db, conversa, "encaminhamento: resposta do paciente não registrada, conferir")
-        return "Recebi! Nossa equipe vai confirmar e te responde por aqui."
+        return "erro", "Recebi! Nossa equipe vai confirmar e te responde por aqui."
+    # Respondida (ou vencida/já respondida): a proposta não espera mais nada.
+    if proposta_aberta(conversa) == enc_id:
+        _marcar(conversa, CHAVE_PROPOSTA, None)
     if status != 200:
-        return TEXTO_PROPOSTA_VENCIDA
+        return "proposta_vencida", TEXTO_PROPOSTA_VENCIDA
 
     enc = corpo.get("encaminhamento") or {}
     if not aceitou:
+        if not motivo:
+            _marcar(conversa, CHAVE_RECUSA_SEM_MOTIVO, enc_id)
         await _alertar_conversa(db, conversa, "encaminhamento: paciente pediu outro horário (aba Hoje)")
-        return TEXTO_PACIENTE_NAO
+        return "recusa_registrada", TEXTO_PACIENTE_NAO
 
     aviso = (enc.get("mensagens") or {}).get("terapeuta")
     enviado = False
@@ -392,7 +495,7 @@ async def tratar_botao_paciente(db: AsyncSession, conversa: Conversa, codigo: st
     if not enviado:
         # Sem o aviso o terapeuta nunca responde, e a reserva só cairia no prazo.
         await _alertar_conversa(db, conversa, "encaminhamento: aviso ao terapeuta NÃO saiu, avisar à mão")
-    return TEXTO_PACIENTE_SIM
+    return "aceite_registrado", TEXTO_PACIENTE_SIM
 
 
 # --- 4. Resposta do terapeuta ------------------------------------------------

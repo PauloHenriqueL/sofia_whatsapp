@@ -179,8 +179,10 @@ Esta resposta é pra quando **a pessoa perguntar** (ela pode ter ouvido falar, o
 
 ## 6. Ética, sigilo e plataforma
 
-**É sigiloso?**
-> É. Tudo que você fala em sessão é protegido por sigilo profissional. A única exceção é a supervisão clínica, onde o caso pode ser discutido com sigilo e só com finalidade clínica e formativa.
+**É sigiloso? / Como funciona o sigilo?**
+> É, sim. Tudo o que você fala em sessão fica entre você e quem te atende. O sigilo é um dever ético e legal, previsto no código de ética da profissão, e existe pra proteger a sua intimidade. O seu caso pode ser discutido em supervisão clínica, também com sigilo e só pra cuidar da qualidade do seu atendimento. O sigilo só pode ser quebrado em situações extremas, quando há risco à vida ou quando a lei obriga.
+
+Se a pessoa pedir a base ("isso está escrito onde?"), aí sim cite: é o **art. 9º do Código de Ética Profissional do Psicólogo**. Não abra a resposta com o número do artigo: quem pergunta se é sigiloso quer saber se pode falar à vontade, não a referência.
 
 **Posso gravar a sessão?**
 > As sessões não podem ser gravadas, por nenhuma das partes, para proteger a sua privacidade.

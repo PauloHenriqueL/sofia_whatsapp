@@ -185,12 +185,15 @@ async def processar_turno_bot(session, conversa) -> str | None:
         return None
 
     historico = await conversation.carregar_historico(session, conversa)
+    ferramentas, nota = _ferramentas_do_turno(conversa)
+    if nota:
+        historico = [*historico, {"role": "system", "content": nota}]
     # Origens do Hamilton: o modelo escolhe uma delas no cadastro em vez de
     # descrever a origem por escrito (ver services/captacao.py).
     captacoes = await captacao.listar()
     try:
         resp = await llm_client.get_llm_client().gerar_resposta(
-            historico, tools=tools.TOOLS, captacoes=captacoes
+            historico, tools=ferramentas, captacoes=captacoes
         )
     except llm_client.LLMError:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
@@ -225,8 +228,41 @@ async def processar_turno_bot(session, conversa) -> str | None:
     return resp.texto
 
 
+def _ferramentas_do_turno(conversa) -> tuple[list[dict], str | None]:
+    """As ferramentas deste turno e, se houver, uma nota de contexto pro modelo.
+
+    As do encaminhamento só aparecem quando há o que responder: com proposta de
+    horário aberta, a resposta escrita dela vira aceite ou recusa no Hamilton
+    (antes, o "não" escrito só escalava e o paciente sumia da fila)."""
+    ferramentas = list(tools.TOOLS)
+    notas = []
+    if encaminhamento.proposta_aberta(conversa) is not None:
+        ferramentas.append(tools.TOOL_RESPONDER_PROPOSTA)
+        notas.append(
+            "A equipe mandou a esta pessoa uma proposta de horário (a última mensagem "
+            "de proposta no histórico) e ela ainda não respondeu pelos botões. Se ela "
+            "aceitar ou recusar por escrito, chame `responder_proposta`. Recusa não é "
+            "motivo de escalada."
+        )
+    if encaminhamento.recusa_sem_motivo(conversa) is not None:
+        ferramentas.append(tools.TOOL_REGISTRAR_MOTIVO_RECUSA)
+        notas.append(
+            "Esta pessoa recusou a última proposta de horário sem dizer o porquê. Se ela "
+            "contar o que não serviu, chame `registrar_motivo_recusa`."
+        )
+    return ferramentas, ("\n".join(notas) or None)
+
+
 async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
     """Executa uma chamada de ferramenta e devolve o resultado estruturado."""
+    if tc.name == tools.RESPONDER_PROPOSTA:
+        return await encaminhamento.responder_proposta_por_texto(
+            session, conversa, bool(tc.arguments.get("aceitou")), tc.arguments.get("motivo") or ""
+        )
+    if tc.name == tools.REGISTRAR_MOTIVO_RECUSA:
+        return await encaminhamento.registrar_motivo_recusa_paciente(
+            session, conversa, tc.arguments.get("motivo") or ""
+        )
     if tc.name == tools.ESCALAR_PARA_THAINA:
         motivo = tc.arguments.get("motivo", "outro")
         if motivo not in tools.MOTIVOS_ESCALADA:

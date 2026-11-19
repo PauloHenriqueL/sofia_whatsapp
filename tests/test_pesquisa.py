@@ -950,6 +950,17 @@ class TestPesquisaDeEntrada:
         assert await pesquisa.motivo_para_pular_entrada(session, conversa) is None
 
     @pytest.mark.asyncio
+    async def test_urgencia_nao_recebe(self, session):
+        """Decisão de 18/11/2026: quem chega com urgência (sem risco de vida) é
+        cadastrado, mas não recebe questionário de notas — nem pela rede do cron,
+        que usa esta mesma função."""
+        conversa = await self._cadastrada(
+            session, dados={"motivo_busca": "preciso de ajuda urgente", "urgente": True}
+        )
+        await session.commit()
+        assert await pesquisa.motivo_para_pular_entrada(session, conversa) == "pessoa chegou com urgência"
+
+    @pytest.mark.asyncio
     async def test_acompanhante_nao_recebe(self, session):
         """Sem as 4 notas não sobra pesquisa — e ele não pode responder por ela."""
         conversa = await self._cadastrada(session, dados={"quem_fala": "acompanhante"})

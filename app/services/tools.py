@@ -9,6 +9,8 @@ ESCALAR_PARA_THAINA = "escalar_para_thaina"
 OFERECER_DESCONTO = "oferecer_desconto"
 REGISTRAR_RESPOSTA_PESQUISA = "registrar_resposta_pesquisa"
 REGISTRAR_FORMA_PAGAMENTO = "registrar_forma_pagamento"
+RESPONDER_PROPOSTA = "responder_proposta"
+REGISTRAR_MOTIVO_RECUSA = "registrar_motivo_recusa"
 
 # Campos que a tool da pesquisa aceita gravar, e o tipo de cada um. É allowlist:
 # nome fora daqui é descartado, porque o modelo escolhe o `campo` e um typo dele
@@ -150,6 +152,15 @@ TOOLS = [
                             "não ficou. Isso decide se a pesquisa pode perguntar à "
                             "pessoa como ELA se sente — um acompanhante não tem como "
                             "responder isso por ela."
+                        ),
+                    },
+                    "urgente": {
+                        "type": "boolean",
+                        "description": (
+                            "true quando a pessoa disse que é urgente ou contou um "
+                            "sofrimento agudo (luto recente, violência, 'não estou dando "
+                            "conta'), SEM risco de vida — risco de vida é crise, e crise "
+                            "não cadastra. Com true, ela não recebe a pesquisa de entrada."
                         ),
                     },
                     "observacoes": {
@@ -312,3 +323,58 @@ TOOLS_COBRANCA = [
         },
     },
 ]
+
+
+# Ferramentas do ENCAMINHAMENTO, para a resposta ESCRITA à proposta de horário
+# (18/11/2026). Não entram em TOOLS: só existem enquanto há uma proposta
+# esperando resposta (ou uma recusa esperando o porquê) — ver
+# `webhook._ferramentas_do_turno`. Fora disso, um "não" qualquer da pessoa
+# viraria recusa de uma proposta que nem existe.
+TOOL_RESPONDER_PROPOSTA = {
+    "type": "function",
+    "function": {
+        "name": RESPONDER_PROPOSTA,
+        "description": (
+            "Registrar a resposta da pessoa à proposta de horário que a equipe mandou "
+            "(terapeuta + dia e hora da primeira sessão). Chame quando ela disser com "
+            "clareza que ACEITA ('pode ser', 'fechado', 'combinado') ou que NÃO QUER "
+            "aquela proposta ('esse dia não dá', 'prefiro outro horário', 'não quero'). "
+            "Tem o mesmo efeito dos botões da proposta. NÃO chame para dúvida sobre a "
+            "proposta ('é online?', 'quem é?'): responda a dúvida e deixe ela decidir. "
+            "Recusa NUNCA é motivo para escalar pra Thainá: a equipe já é avisada por aqui."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "aceitou": {"type": "boolean"},
+                "motivo": {
+                    "type": "string",
+                    "description": (
+                        "Na recusa: o que não serviu, nas palavras dela, se ela já disse "
+                        "(ex.: 'quarta à noite não consigo'). Vazio se não disse."
+                    ),
+                },
+            },
+            "required": ["aceitou"],
+        },
+    },
+}
+
+TOOL_REGISTRAR_MOTIVO_RECUSA = {
+    "type": "function",
+    "function": {
+        "name": REGISTRAR_MOTIVO_RECUSA,
+        "description": (
+            "A pessoa recusou a proposta de horário e agora contou o que não serviu. "
+            "Registra o motivo para a equipe escolher a próxima proposta. Chame só "
+            "quando ela de fato explicar o porquê."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "motivo": {"type": "string", "description": "O motivo, nas palavras dela."},
+            },
+            "required": ["motivo"],
+        },
+    },
+}

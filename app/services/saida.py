@@ -221,6 +221,49 @@ def sem_repeticao(texto: str) -> str:
     return "\n\n".join(mantidos)
 
 
+# Raciocínio do modelo escrito na fala (18/11/2026, em produção, conversa 91): o
+# paciente recebeu "Como a pessoa aceitou, solicitar os três dados numa mensagem
+# só e perguntar origem [...]. Manter curto pela urgência, sem presumir crise." e,
+# na linha de baixo, a fala de verdade. O modelo de produção roda sem raciocínio
+# separado (`reasoning_effort=none`, exigido com function tools) e às vezes
+# planeja em voz alta. É nota interna sobre o paciente: não pode sair.
+#
+# Conservador como o resto: só a PRIMEIRA linha, só quando vem fala depois dela,
+# só se ela não fala com a pessoa (sem "você"/"te"/"seu") e fala DELA em
+# terceira pessoa ou empilha infinitivos de plano ("solicitar… perguntar…").
+_SEGUNDA_PESSOA = re.compile(
+    r"\b(você|voce|vc|vocês|te|teu|tua|seu|sua|seus|suas|contigo)\b", re.IGNORECASE
+)
+_TERCEIRA_PESSOA = re.compile(
+    r"\b(a pessoa|o paciente|a paciente|o usuário|a usuária|o usuario|a usuaria|o lead|"
+    r"a lead|o interlocutor|a interlocutora)\b",
+    re.IGNORECASE,
+)
+_INFINITIVO_DE_PLANO = re.compile(
+    r"(?:^|[,.;:]\s*|\b(?:e|depois|então|entao)\s+)"
+    r"(solicitar|perguntar|pedir|manter|seguir|responder|oferecer|confirmar|escalar|"
+    r"chamar|registrar|cadastrar|coletar|validar|acolher|explicar|reconhecer|evitar|"
+    r"retomar|emendar|convidar)\b",
+    re.IGNORECASE,
+)
+
+
+def _e_planejamento(linha: str) -> bool:
+    if not linha.strip() or _SEGUNDA_PESSOA.search(linha):
+        return False
+    return bool(_TERCEIRA_PESSOA.search(linha)) or len(_INFINITIVO_DE_PLANO.findall(linha)) >= 2
+
+
+def sem_planejamento(texto: str) -> str:
+    """Tira a linha de raciocínio que o modelo escreveu antes da fala."""
+    linhas = texto.strip().splitlines()
+    while len(linhas) > 1 and _e_planejamento(linhas[0]):
+        linhas = linhas[1:]
+        while linhas and not linhas[0].strip():
+            linhas = linhas[1:]
+    return "\n".join(linhas)
+
+
 def limpar(texto: str | None) -> str:
     """Devolve o texto pronto pra enviar; string vazia se nada sobrou.
 
@@ -285,6 +328,19 @@ def limpar(texto: str | None) -> str:
             len(sem_rep),
         )
         limpo = sem_rep
+
+    sem_plano = sem_planejamento(limpo) if limpo else limpo
+    if _normalizar(sem_plano) != _normalizar(limpo):
+        _bloqueios += 1
+        if _amostras is not None:
+            _amostras.append({"motivo": "planejamento", "antes": limpo, "depois": sem_plano})
+        # Sem conteúdo no log: a nota fala do paciente (LGPD).
+        logger.warning(
+            "Saída do modelo com raciocínio na fala; linha removida (antes=%d chars, depois=%d chars)",
+            len(limpo),
+            len(sem_plano),
+        )
+        limpo = sem_plano
     if not limpo:
         logger.error("Saída do modelo virou vazia após sanitização; nada foi enviado")
     return limpo

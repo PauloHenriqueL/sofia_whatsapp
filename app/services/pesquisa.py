@@ -399,6 +399,12 @@ async def motivo_para_pular_entrada(db: AsyncSession, conversa: Conversa) -> str
         return "conversa em modo humano"
     if conversa.arquivada_em is not None:
         return "conversa arquivada"
+    if (conversa.dados_coletados or {}).get("urgente"):
+        # Decisão dos gestores (18/11/2026): quem chega dizendo que é urgente,
+        # mesmo sem risco de vida, não recebe questionário de notas — nem agora,
+        # nem pela rede do cron. Perde-se a linha de base dessa pessoa, de
+        # propósito: pedir nota de 0 a 10 a quem pediu socorro soa indelicado.
+        return "pessoa chegou com urgência"
     if _quem_responde(conversa) == "acompanhante":
         # Sem o ORS não sobra pesquisa: o que restaria é só a nota do acolhimento,
         # e ela não justifica abrir um questionário pra quem acabou de responder

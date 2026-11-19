@@ -283,6 +283,117 @@ class TestPacienteRespondeAProposta:
         assert "Pode ser" in textos
 
 
+class LLMRoteiro:
+    """Modelo falso: devolve as respostas na ordem e guarda o que recebeu."""
+
+    def __init__(self, *respostas):
+        self.respostas = list(respostas)
+        self.chamadas: list[dict] = []
+
+    async def gerar_resposta(self, historico, tools=None, **kwargs):
+        self.chamadas.append({"historico": historico, "tools": tools})
+        return self.respostas.pop(0)
+
+
+def _tool(nome, **argumentos):
+    return llm_client.LLMResposta(
+        tool_calls=[llm_client.ToolCall(id="t1", name=nome, arguments=argumentos)])
+
+
+def _nomes_das_tools(chamada):
+    return [t["function"]["name"] for t in (chamada["tools"] or [])]
+
+
+async def _marcar_conversa(sofia, **marcas):
+    async with sofia.banco() as s:
+        conversa = (await s.execute(select(Conversa))).scalar_one()
+        conversa.dados_coletados = {**(conversa.dados_coletados or {}), **marcas}
+        await s.commit()
+
+
+async def _conversa(sofia):
+    async with sofia.banco() as s:
+        return (await s.execute(select(Conversa))).scalar_one()
+
+
+class TestRespostaEscritaAProposta:
+    """Teste em produção de 17/11/2026: o paciente recusou ESCREVENDO, a Sofia
+    só escalou e ele sumiu da fila "Pacientes esperando terapeuta"."""
+
+    @pytest.mark.asyncio
+    async def test_proposta_enviada_marca_a_conversa(self, sofia, hamilton, meta):
+        async with sofia.banco() as s:
+            assert await encaminhamento.propor_ao_paciente(s, _enc("aguardando_paciente"))
+        conversa = await _conversa(sofia)
+        assert encaminhamento.proposta_aberta(conversa) == 42
+
+    @pytest.mark.asyncio
+    async def test_recusa_escrita_registra_no_hamilton_sem_escalar(self, sofia, hamilton, meta):
+        await _marcar_conversa(sofia, proposta_aberta=42)
+        llm = LLMRoteiro(
+            _tool("responder_proposta", aceitou=False),
+            llm_client.LLMResposta(texto="Tudo bem! O que não funcionou nessa proposta?"),
+        )
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=llm):
+            await _texto(sofia, PACIENTE, "não, esse horário não dá pra mim", "wamid.p1")
+
+        assert "responder_proposta" in _nomes_das_tools(llm.chamadas[0])
+        assert hamilton.respostas == [{"de": "paciente", "aceitou": False, "motivo": ""}]
+        assert hamilton.status == "recusado_paciente"
+        conversa = await _conversa(sofia)
+        assert conversa.modo == "bot"
+        assert encaminhamento.proposta_aberta(conversa) is None
+        assert encaminhamento.recusa_sem_motivo(conversa) == 42
+        assert _templates(meta) == []  # o terapeuta não é envolvido
+        assert _textos_para(meta, PACIENTE) == ["Tudo bem! O que não funcionou nessa proposta?"]
+
+    @pytest.mark.asyncio
+    async def test_motivo_escrito_depois_vai_para_a_fila(self, sofia, hamilton, meta):
+        hamilton.status = "recusado_paciente"
+        await _marcar_conversa(sofia, recusa_sem_motivo=42)
+        llm = LLMRoteiro(
+            _tool("registrar_motivo_recusa", motivo="quarta à noite eu trabalho"),
+            llm_client.LLMResposta(texto="Obrigada! A nova proposta chega por aqui."),
+        )
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=llm):
+            await _texto(sofia, PACIENTE, "quarta à noite eu trabalho", "wamid.p1")
+
+        assert "registrar_motivo_recusa" in _nomes_das_tools(llm.chamadas[0])
+        assert hamilton.motivos == ["quarta à noite eu trabalho"]
+        assert encaminhamento.recusa_sem_motivo(await _conversa(sofia)) is None
+
+    @pytest.mark.asyncio
+    async def test_aceite_escrito_avisa_o_terapeuta(self, sofia, hamilton, meta):
+        await _marcar_conversa(sofia, proposta_aberta=42)
+        llm = LLMRoteiro(
+            _tool("responder_proposta", aceitou=True),
+            llm_client.LLMResposta(texto="Combinado! Assim que a confirmação chegar, te aviso."),
+        )
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=llm):
+            await _texto(sofia, PACIENTE, "pode ser, fechado", "wamid.p1")
+
+        assert hamilton.respostas == [{"de": "paciente", "aceitou": True, "motivo": ""}]
+        [aviso] = _templates(meta)
+        assert aviso["to"] == "+" + TACIA
+
+    @pytest.mark.asyncio
+    async def test_sem_proposta_aberta_a_ferramenta_nao_aparece(self, sofia, hamilton, meta):
+        llm = LLMRoteiro(llm_client.LLMResposta(texto="Oi! Sou a Sofia."))
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=llm):
+            await _texto(sofia, PACIENTE, "não", "wamid.p1")
+        nomes = _nomes_das_tools(llm.chamadas[0])
+        assert "responder_proposta" not in nomes
+        assert "registrar_motivo_recusa" not in nomes
+
+    @pytest.mark.asyncio
+    async def test_botao_prefiro_outro_abre_espaco_para_o_motivo(self, sofia, hamilton, meta):
+        await _marcar_conversa(sofia, proposta_aberta=42)
+        await _toque(sofia, PACIENTE, "Prefiro outro horário", "prop_nao:42", "wamid.p1")
+        conversa = await _conversa(sofia)
+        assert encaminhamento.proposta_aberta(conversa) is None
+        assert encaminhamento.recusa_sem_motivo(conversa) == 42
+
+
 class TestTerapeutaResponde:
     @pytest.mark.asyncio
     async def test_aceito_confirma_aos_dois(self, sofia, hamilton, meta):
@@ -291,7 +402,8 @@ class TestTerapeutaResponde:
         assert hamilton.respostas == [{"de": "terapeuta", "aceitou": True, "motivo": ""}]
         assert hamilton.status == "aceito"
         [para_ela] = _textos_para(meta, TACIA)
-        assert "Maria Clara Souza já está vinculado(a) a você" in para_ela
+        assert "O atendimento de Maria Clara Souza já está registrado com você" in para_ela
+        assert "em até 24 horas" in para_ela
         [para_paciente] = _textos_para(meta, PACIENTE)
         assert para_paciente == encaminhamento.TEXTO_PACIENTE_CONFIRMADO.format(
             terapeuta="Tácia Teste", quando="terça, 17/11, às 19h")

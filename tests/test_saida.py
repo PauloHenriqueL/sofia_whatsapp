@@ -205,3 +205,39 @@ class TestFalaRepetida:
         texto = "Certo!\n\nAnotei aqui.\n\nCerto!"
         assert saida.limpar(texto) == texto
         assert saida.bloqueios() == 0
+
+
+class TestRaciocinioNaFala:
+    """18/11/2026, produção (conversa 91): o paciente recebeu a anotação interna
+    do modelo sobre ele, em terceira pessoa, antes da fala de verdade."""
+
+    VAZOU = (
+        "Como a pessoa aceitou, solicitar os três dados numa mensagem só e perguntar "
+        "origem, já que não contou como conheceu. Manter curto pela urgência, sem presumir crise.\n"
+        "Me manda, por favor, seu nome completo, data de nascimento e os horários em que "
+        "consegue fazer terapia durante a semana. E como você chegou até a Allos?"
+    )
+
+    def test_caso_real_sai_so_a_fala(self):
+        assert saida.limpar(self.VAZOU) == (
+            "Me manda, por favor, seu nome completo, data de nascimento e os horários em que "
+            "consegue fazer terapia durante a semana. E como você chegou até a Allos?"
+        )
+        assert saida.bloqueios() == 1
+
+    def test_plano_em_infinitivos_sem_terceira_pessoa(self):
+        texto = "Acolher e depois perguntar os horários.\nQue bom que você escreveu. Quais horários você tem livres?"
+        assert saida.limpar(texto) == "Que bom que você escreveu. Quais horários você tem livres?"
+
+    @pytest.mark.parametrize("fala", [
+        "Oi! Aqui é a Sofia, da Allos.\nComo posso te ajudar?",
+        "Pra começar, preciso de alguns dados.\nMe manda seu nome completo?",
+        "Entendi. A pessoa que vai te atender é psicóloga.\nQuer seguir?",
+        "Anotei tudo.\n\nA Thainá vai ver qual terapeuta tem horário que combina.",
+        "A primeira sessão é gratuita.\nDepois dela a gente acerta a mensalidade.",
+        # Uma linha só nunca sai: sem fala depois, cortar deixaria a pessoa sem nada.
+        "Como a pessoa aceitou, pedir os dados.",
+    ])
+    def test_fala_legitima_fica(self, fala):
+        assert saida.limpar(fala) == fala
+        assert saida.bloqueios() == 0
