@@ -188,6 +188,24 @@ async def processar_turno_bot(session, conversa) -> str | None:
     ferramentas, nota = _ferramentas_do_turno(conversa)
     if nota:
         historico = [*historico, {"role": "system", "content": nota}]
+    # Sinal de crise nas últimas falas da pessoa: nenhuma escalada espera dado
+    # (nem a da tool, nem a da rede). A heurística é a do debounce; errar para o
+    # lado de escalar sem dados é o lado seguro.
+    ultimas = [m.get("content") for m in historico if m.get("role") == "user"][-3:]
+    conversa._sinal_de_crise = any(_contem_sinal_de_crise(t) for t in ultimas)
+    # A Sofia pediu os dados no turno anterior para passar à Thainá: este turno
+    # escala, pelo modelo ou pelo código (ver `escalation.cumprir_pendente`).
+    pendente = escalation.escalada_pendente(conversa)
+    if pendente is not None:
+        historico = [
+            *historico,
+            {
+                "role": "system",
+                "content": escalation.NOTA_ESCALADA_PENDENTE.format(
+                    motivo=pendente.get("motivo") or "outro"
+                ),
+            },
+        ]
     # Origens do Hamilton: o modelo escolhe uma delas no cadastro em vez de
     # descrever a origem por escrito (ver services/captacao.py).
     captacoes = await captacao.listar()
@@ -199,12 +217,20 @@ async def processar_turno_bot(session, conversa) -> str | None:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
         return FALLBACK_RESPOSTA
 
+    texto = await _texto_do_turno(session, conversa, historico, resp)
+    if pendente is not None:
+        texto = await escalation.cumprir_pendente(session, conversa, pendente, texto)
+    return texto
+
+
+async def _texto_do_turno(session, conversa, historico, resp) -> str | None:
+    """Aplica as ações do modelo e devolve a fala a enviar."""
     # Conversa normal, sem ações: devolve o texto gerado. Antes, confere se a
     # fala prometeu acionar a Thainá sem chamar a tool — se prometeu, a escalada
-    # é registrada aqui (ver `escalation.garantir_escalada_prometida`).
+    # é registrada aqui, ou fica pendente pedindo os dados (ver
+    # `escalation.rede_de_promessa`).
     if not resp.tool_calls:
-        await escalation.garantir_escalada_prometida(session, conversa, resp.texto)
-        return resp.texto
+        return await escalation.rede_de_promessa(session, conversa, resp.texto)
 
     # Executa cada ferramenta e coleta os resultados pro round-trip.
     resultados = []
@@ -214,18 +240,31 @@ async def processar_turno_bot(session, conversa) -> str | None:
 
     # Segundo turno: devolve os resultados ao modelo pra ele gerar a fala final.
     texto_final = await _finalizar_apos_tools(historico, resp, resultados)
-    escalou = any(tc.name == tools.ESCALAR_PARA_THAINA for tc in resp.tool_calls)
+    status = {
+        res.get("status")
+        for tc, res in resultados
+        if tc.name == tools.ESCALAR_PARA_THAINA and isinstance(res, dict)
+    }
+    escalou = "escalado" in status
+    # A escalada foi segurada para pedir os dados: a fala deste turno é o pedido
+    # ("passo pra ela assim que você mandar"), e a rede não pode tomá-la como
+    # promessa e escalar por cima.
+    pediu_dados = "faltam_dados" in status
     if texto_final:
         # Chamou outra tool (ex.: desconto) e, na fala final, prometeu a Thainá.
-        if not escalou:
-            await escalation.garantir_escalada_prometida(session, conversa, texto_final)
+        if not escalou and not pediu_dados:
+            return await escalation.rede_de_promessa(session, conversa, texto_final)
         return texto_final
 
     # Sem texto do modelo: usa um default seguro conforme a ação tomada.
     if escalou:
         return escalation.ESCALADA_FALLBACK
-    await escalation.garantir_escalada_prometida(session, conversa, resp.texto)
-    return resp.texto
+    if pediu_dados:
+        faltam = next(
+            res["faltam_campos"] for tc, res in resultados if res.get("status") == "faltam_dados"
+        )
+        return escalation.pedido_de_dados(faltam)
+    return await escalation.rede_de_promessa(session, conversa, resp.texto)
 
 
 def _ferramentas_do_turno(conversa) -> tuple[list[dict], str | None]:
@@ -268,6 +307,21 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
         if motivo not in tools.MOTIVOS_ESCALADA:
             motivo = "outro"
         contexto = tc.arguments.get("contexto")
+        # O que a pessoa passou vai pra ficha (a Thainá abre a conversa e vê).
+        escalation.guardar_dados_da_escalada(conversa, tc.arguments)
+        faltam = escalation.faltam_dados(
+            conversa, motivo, recusou=tc.arguments.get("recusou_passar_dados") is True
+        )
+        if faltam:
+            # Primeira tentativa sem os dados: segura e manda pedir (uma vez só).
+            escalation.marcar_pendente(conversa, motivo, contexto)
+            logger.info("Conversa %s: escalada segurada para pedir os dados", conversa.id)
+            return {
+                "status": "faltam_dados",
+                "faltam": escalation.rotulos(faltam),
+                "faltam_campos": faltam,
+                "instrucao": escalation.INSTRUCAO_PEDIR_DADOS,
+            }
         await escalation.registrar_escalada(session, conversa, motivo, contexto)
         alertada = await escalation.alertar_thaina(session, conversa, motivo)
         return {"status": "escalado", "thaina_alertada": alertada}

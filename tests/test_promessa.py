@@ -113,6 +113,15 @@ class _LLMFixo:
         return self._respostas.pop(0)
 
 
+# Ficha com os três dados que a escalada pede antes (ver test_escalada_dados.py):
+# aqui o assunto é a rede, não a trava.
+DADOS = {
+    "nome_completo": "Maria da Silva",
+    "data_nascimento": "1990-03-12",
+    "horarios_disponiveis": "terça à noite",
+}
+
+
 def _so_texto(texto):
     return llm_client.LLMResposta(texto=texto)
 
@@ -126,7 +135,7 @@ def _tool(nome, **argumentos):
 class TestAcolhimento:
     @pytest.mark.asyncio
     async def test_promessa_sem_tool_vira_escalada_com_alerta(self, db):
-        conversa = await _conversa(db)
+        conversa = await _conversa(db, dados_coletados=dict(DADOS))
         fake = _LLMFixo(_so_texto(PROMETEM[0]))
         with patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake), patch(
             "app.routers.webhook.captacao.listar", new_callable=AsyncMock, return_value=[]
@@ -158,7 +167,7 @@ class TestAcolhimento:
 
     @pytest.mark.asyncio
     async def test_quando_o_modelo_escala_certo_nao_duplica(self, db):
-        conversa = await _conversa(db)
+        conversa = await _conversa(db, dados_coletados=dict(DADOS))
         fake = _LLMFixo(
             _tool("escalar_para_thaina", motivo="pedido_humano"),
             _so_texto("Vou chamar a Thainá pra continuar daqui contigo."),

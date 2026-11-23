@@ -121,6 +121,195 @@ async def garantir_escalada_prometida(
     return True
 
 
+# --- Dados antes de escalar -------------------------------------------------
+#
+# A Thainá assume a conversa e, sem dado nenhum, tem que perguntar tudo de novo.
+# O prompt já pedia "pegue os dados antes de escalar" desde 17/11, e em 23/11 a
+# Sofia ouviu "quero falar com uma pessoa, não com um robô" e escalou na hora,
+# sem nem o nome. O modelo leu o pedido de humano como recusa. Prompt não
+# garante, então a regra vive aqui:
+#
+# - Na PRIMEIRA tentativa de escalar com dado faltando, a escalada não acontece.
+#   O código anota a escalada como pendente e o modelo pede o que falta.
+# - Na seguinte, ela acontece com o que houver, a pessoa tendo mandado os dados
+#   ou não. É o "uma tentativa só": quem recusa não fica preso.
+# - Crise e menor de 11 não esperam. Áudio, anexo e a trava do robô nem passam
+#   por aqui (escalam em código).
+CAMPOS_ANTES_DE_ESCALAR = {
+    "nome_completo": "seu nome completo",
+    "data_nascimento": "sua data de nascimento",
+    "horarios_disponiveis": "os horários em que você tem disponibilidade durante a semana",
+}
+# O que a tool de escalada aceita gravar na ficha (allowlist).
+CAMPOS_DA_ESCALADA = (*CAMPOS_ANTES_DE_ESCALAR, "telefone_contato")
+MOTIVOS_SEM_PEDIR_DADOS = frozenset({"crise", "menor_11"})
+CHAVE_PENDENTE = "escalada_pendente"
+# Pendente velha não vale: quem volta dias depois começa outra conversa.
+VALIDADE_PENDENTE = timedelta(hours=24)
+
+# O que vai pro modelo quando a escalada é segurada (resultado da tool).
+INSTRUCAO_PEDIR_DADOS = (
+    "Ainda NÃO passei a conversa pra Thainá. Peça agora, numa mensagem só, o que "
+    "falta (lista em `faltam`), dizendo que é pra Thainá chegar sabendo e não "
+    "precisar perguntar tudo de novo. Responda antes o que você souber da mensagem "
+    "dela. Não diga que já chamou ou que vai chamar a Thainá agora: diga que passa "
+    "a conversa pra ela assim que a pessoa mandar. Se ela mandar, recusar ou "
+    "insistir, chame `escalar_para_thaina` de novo no próximo turno, com os dados "
+    "que ela der."
+)
+# Nota de sistema no turno seguinte ao pedido.
+NOTA_ESCALADA_PENDENTE = (
+    "Você já pediu os dados desta pessoa para passar a conversa à Thainá (motivo "
+    "`{motivo}`). Agora chame `escalar_para_thaina` com esse motivo e com os dados "
+    "que ela mandou (nome_completo, data_nascimento no formato YYYY-MM-DD, "
+    "horarios_disponiveis), mesmo que ela não tenha mandado nada, e avise que "
+    "passou a conversa. Não peça os dados de novo."
+)
+AVISO_PASSEI = "Pronto, passei a conversa pra Thainá. Ela te responde por aqui mesmo, em pouco tempo."
+
+
+def _texto(valor) -> str:
+    return valor.strip() if isinstance(valor, str) else ""
+
+
+def guardar_dados_da_escalada(conversa: Conversa, argumentos: dict) -> None:
+    """Grava na ficha o que a pessoa passou e o modelo mandou na tool de escalada.
+
+    Só campos da allowlist e só valor não vazio: um campo ausente não apaga o que
+    já havia sido coletado. Reatribui o dict (o JSON não detecta mutação).
+    """
+    novos = {c: _texto(argumentos.get(c)) for c in CAMPOS_DA_ESCALADA}
+    novos = {c: v for c, v in novos.items() if v}
+    if novos:
+        conversa.dados_coletados = {**(conversa.dados_coletados or {}), **novos}
+
+
+def escalada_pendente(conversa: Conversa) -> dict | None:
+    """A escalada que ficou esperando os dados, se ainda vale."""
+    pendente = (conversa.dados_coletados or {}).get(CHAVE_PENDENTE)
+    if not isinstance(pendente, dict):
+        return None
+    try:
+        pedido_em = datetime.fromisoformat(pendente["pedido_em"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if pedido_em.tzinfo is None:
+        pedido_em = pedido_em.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - pedido_em > VALIDADE_PENDENTE:
+        return None
+    return pendente
+
+
+def marcar_pendente(conversa: Conversa, motivo: str, contexto: str | None) -> None:
+    conversa.dados_coletados = {
+        **(conversa.dados_coletados or {}),
+        CHAVE_PENDENTE: {
+            "motivo": motivo,
+            "contexto": contexto,
+            "pedido_em": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
+def limpar_pendente(conversa: Conversa) -> None:
+    dados = conversa.dados_coletados or {}
+    if CHAVE_PENDENTE in dados:
+        conversa.dados_coletados = {k: v for k, v in dados.items() if k != CHAVE_PENDENTE}
+
+
+def faltam_dados(conversa: Conversa, motivo: str, recusou: bool = False) -> list[str]:
+    """Os campos que a Sofia ainda precisa pedir antes de escalar (vazio = pode escalar).
+
+    Não pede: em crise ou menor de 11 (ou com sinal de crise nas últimas falas,
+    marcado no turno pelo webhook), se a pessoa já recusou passar os dados, se
+    já pediu uma vez (escalada pendente), se ela já está cadastrada no Hamilton
+    (a ficha existe) ou se a conversa é de terapeuta.
+    """
+    if (
+        motivo in MOTIVOS_SEM_PEDIR_DADOS
+        or getattr(conversa, "_sinal_de_crise", False)
+        or recusou
+        or conversa.paciente_hamilton_id
+        or conversa.eh_terapeuta
+        or escalada_pendente(conversa) is not None
+    ):
+        return []
+    dados = conversa.dados_coletados or {}
+    return [c for c in CAMPOS_ANTES_DE_ESCALAR if not _texto(dados.get(c))]
+
+
+def rotulos(faltam: list[str]) -> list[str]:
+    return [CAMPOS_ANTES_DE_ESCALAR[c] for c in faltam]
+
+
+def pedido_de_dados(faltam: list[str]) -> str:
+    """O pedido fixo, para quando a rede (não o modelo) segura a escalada."""
+    itens = rotulos(faltam)
+    lista = itens[0] if len(itens) == 1 else ", ".join(itens[:-1]) + " e " + itens[-1]
+    return (
+        "Pra Thainá, nossa coordenadora clínica, chegar sabendo e não precisar te "
+        f"perguntar tudo de novo, me manda {lista}? Assim que você mandar, eu passo "
+        "a conversa pra ela."
+    )
+
+
+async def cumprir_pendente(
+    session: AsyncSession, conversa: Conversa, pendente: dict, texto: str | None
+) -> str | None:
+    """Turno seguinte ao pedido: se o modelo não escalou, o código escala.
+
+    É o que torna o "uma tentativa só" uma garantia: mandando os dados ou não, a
+    pessoa chega na Thainá nesta resposta. Devolve o texto a enviar, com o aviso
+    de que a conversa passou quando a fala do modelo não diz isso.
+    """
+    if conversa.modo == "humano":
+        return texto
+    motivo = pendente.get("motivo") or "outro"
+    contexto = " ".join(
+        p
+        for p in (
+            _texto(pendente.get("contexto")),
+            "(A Sofia pediu os dados uma vez antes de passar; o que a pessoa mandou está na conversa.)",
+        )
+        if p
+    )
+    await registrar_escalada(session, conversa, motivo, contexto)
+    await alertar_thaina(session, conversa, motivo)
+    logger.info("Conversa %s: escalada pendente cumprida pelo código (motivo=%s)", conversa.id, motivo)
+    if not _texto(texto):
+        return ESCALADA_FALLBACK
+    if promessa_de_acionar(texto) is None:
+        return f"{texto.strip()}\n\n{AVISO_PASSEI}"
+    return texto
+
+
+async def rede_de_promessa(session: AsyncSession, conversa: Conversa, texto: str | None) -> str | None:
+    """A rede `garantir_escalada_prometida`, respeitando os dados antes de escalar.
+
+    A fala prometeu acionar a Thainá sem chamar a tool. Se faltar dado e ainda
+    não foi pedido, a promessa sai da fala, entra o pedido fixo e a escalada fica
+    pendente. Senão, escala como antes. Devolve o texto a enviar.
+    """
+    achado = promessa_de_acionar(texto)
+    if achado is None:
+        return texto
+    frase, quem = achado
+    motivo = "neuro_reuniao" if quem == "amanda" else "outro"
+    faltam = faltam_dados(conversa, motivo)
+    if not faltam:
+        await garantir_escalada_prometida(session, conversa, texto)
+        return texto
+    marcar_pendente(
+        conversa,
+        motivo,
+        f'A Sofia disse que ia acionar a equipe sem escalar: "{frase[:300]}"',
+    )
+    resto = texto.replace(frase, "").strip()
+    pedido = pedido_de_dados(faltam)
+    logger.info("Conversa %s: promessa de escalar segurada para pedir os dados", conversa.id)
+    return f"{resto}\n\n{pedido}" if resto else pedido
+
+
 # --- Trava contra conversa com outro robô ---------------------------------
 #
 # Em 30/10/2026 a Sofia trocou **174 mensagens num dia** com o menu automático
@@ -196,6 +385,8 @@ async def registrar_escalada(
     """Marca a conversa como humana/escalada e cria o registro de escalada."""
     conversa.modo = "humano"
     conversa.estado = "escalado"
+    # Escalou (pela tool, pela rede ou por áudio): não sobra nada esperando dado.
+    limpar_pendente(conversa)
     escalada = Escalada(conversa_id=conversa.id, motivo=motivo, contexto=contexto)
     session.add(escalada)
     await session.flush()

@@ -229,9 +229,17 @@ class _FakeLLM:
 class _FakeLLMComTool:
     """Primeiro turno pede escalada; segundo turno (round-trip) dá a fala final."""
 
-    def __init__(self, texto_final="Vou chamar a Thainá pra você. 🩵"):
+    def __init__(self, texto_final="Vou chamar a Thainá pra você. 🩵", argumentos=None):
         self.texto_final = texto_final
         self.chamadas = 0
+        # Com os dados completos a escalada não é segurada (ver
+        # tests/test_escalada_dados.py para o caso em que falta dado).
+        self.argumentos = argumentos or {
+            "motivo": "pedido_humano",
+            "nome_completo": "Maria da Silva",
+            "data_nascimento": "1990-03-12",
+            "horarios_disponiveis": "terça à noite",
+        }
 
     async def gerar_resposta(self, historico, tools=None, **kwargs):
         self.chamadas += 1
@@ -241,7 +249,7 @@ class _FakeLLMComTool:
                     llm_client.ToolCall(
                         id="call_1",
                         name="escalar_para_thaina",
-                        arguments={"motivo": "pedido_humano"},
+                        arguments=self.argumentos,
                     )
                 ],
             )

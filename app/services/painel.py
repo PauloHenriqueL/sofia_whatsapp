@@ -376,6 +376,9 @@ async def assumir(db: AsyncSession, conversa: Conversa) -> None:
     """
     from app.services import cobranca, pesquisa
 
+    # Alguém assumiu: a escalada que esperava os dados perde o sentido.
+    escalation.limpar_pendente(conversa)
+
     conversa.modo = "humano"
 
     if cobranca.em_cobranca(conversa):

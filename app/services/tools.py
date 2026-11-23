@@ -190,7 +190,13 @@ TOOLS = [
         "function": {
             "name": ESCALAR_PARA_THAINA,
             "description": (
-                "Escalar a conversa pra coordenadora humana (Thainá) em casos " "específicos"
+                "Escalar a conversa pra coordenadora humana (Thainá) em casos "
+                "específicos. Mande junto os dados que a pessoa já passou: eles vão "
+                "pra ficha que a Thainá vê ao abrir a conversa. Se faltar nome "
+                "completo, data de nascimento ou horários, a primeira chamada NÃO "
+                "escala: volta `faltam_dados`, e você pede o que falta numa mensagem "
+                "só. Na chamada seguinte ela escala com o que houver. Em crise, "
+                "escala na hora."
             ),
             "parameters": {
                 "type": "object",
@@ -200,6 +206,34 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "Resumo curto do que aconteceu pra Thainá saber o " "contexto"
+                        ),
+                    },
+                    "nome_completo": {
+                        "type": "string",
+                        "description": "Nome completo de quem vai ser atendido, se já foi dito.",
+                    },
+                    "data_nascimento": {
+                        "type": "string",
+                        "description": "Formato YYYY-MM-DD, se já foi dita.",
+                    },
+                    "horarios_disponiveis": {
+                        "type": "string",
+                        "description": "Horários livres na semana, se já foram ditos.",
+                    },
+                    "telefone_contato": {
+                        "type": "string",
+                        "description": (
+                            "Telefone de quem vai ser atendido, só se for diferente "
+                            "deste WhatsApp (ex.: a mãe escrevendo pelo filho). Com "
+                            "DDI (+351...) se for de fora do Brasil."
+                        ),
+                    },
+                    "recusou_passar_dados": {
+                        "type": "boolean",
+                        "description": (
+                            "true só quando a pessoa disse com todas as letras que não "
+                            "quer passar os dados. Pedir pra falar com uma pessoa NÃO é "
+                            "recusar."
                         ),
                     },
                 },
