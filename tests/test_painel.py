@@ -501,7 +501,9 @@ class TestAssumirParaDigitar:
         cid = await _seed_conversa(maker, modo="bot")
         html = (await client.get(f"/painel/conversas/{cid}/")).text
         assert "Assumir controle pra responder" in html
-        assert "<textarea" not in html
+        # O campo de RESPOSTA não existe (o card de mensagem programada tem o
+        # seu próprio textarea, que não escreve por cima da Sofia).
+        assert "Escreva a resposta para o paciente" not in html
 
     @pytest.mark.asyncio
     async def test_com_controle_mostra_campo(self, ambiente):
@@ -509,7 +511,7 @@ class TestAssumirParaDigitar:
         await _login(client)
         cid = await _seed_conversa(maker, modo="humano")
         html = (await client.get(f"/painel/conversas/{cid}/")).text
-        assert "<textarea" in html
+        assert "Escreva a resposta para o paciente" in html
         assert "Quer que o bot assuma daqui pra frente?" in html
 
     @pytest.mark.asyncio
