@@ -638,6 +638,7 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 .texto-form .aviso { margin-bottom:0; }
 .texto-area { width:100%; font-size:14px; line-height:1.6; resize:vertical; min-height:240px; }
 .texto-acoes { display:flex; gap:8px; flex-wrap:wrap; }
+.texto-origem { font-size:13px; margin:0; line-height:1.45; }
 @media (max-width:640px) {
   .texto-item > summary { padding:14px; }
   .texto-estado .badge { display:none; }

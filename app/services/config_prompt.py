@@ -160,9 +160,22 @@ async def carregar_do_banco(db: AsyncSession) -> None:
         _cache[r.chave] = r.valor
 
 
+def _comparavel(texto: str) -> str:
+    """O navegador devolve o <textarea> com \r\n; o arquivo tem \n."""
+    return (texto or "").replace("\r\n", "\n").strip()
+
+
 async def salvar(db: AsyncSession, chave: str, valor: str) -> None:
-    """Salva o texto editado (upsert) e atualiza o cache."""
+    """Salva o texto editado (upsert) e atualiza o cache.
+
+    Texto igual ao original não vira versão editada: vira reset. Sem isso, um
+    "Salvar" sem mudança nenhuma congelava o prompt numa cópia, e toda
+    atualização do arquivo dali em diante deixava de valer sem ninguém saber.
+    """
     if chave not in PROMPTS:
+        return
+    if _comparavel(valor) == _comparavel(padrao(chave)):
+        await resetar(db, chave)
         return
     existente = (
         await db.execute(select(Configuracao).where(Configuracao.chave == chave))

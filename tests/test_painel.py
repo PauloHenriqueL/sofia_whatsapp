@@ -228,6 +228,9 @@ class TestListaEDetalhe:
         resp = await client.get("/painel/prompts")
         assert resp.status_code == 200
         assert "Textos da Sofia" in resp.text
+        # O botão existe sempre (escondido, ninguém achava); sem edição, desativado.
+        assert resp.text.count("Voltar ao original") >= 10
+        assert "A Sofia está usando o <strong>texto original</strong>" in resp.text
 
     @pytest.mark.asyncio
     async def test_pagina_acompanhamento_renderiza(self, ambiente):

@@ -94,3 +94,13 @@ class TestConfigPrompt:
         await config_prompt.resetar(session, "prompt_base")
         assert config_prompt.customizado("prompt_base") is False
         assert config_prompt.texto("prompt_base") == config_prompt.padrao("prompt_base")
+
+    @pytest.mark.asyncio
+    async def test_salvar_igual_ao_original_nao_congela(self, session):
+        """"Salvar" sem mudança criava uma cópia "editada" que escondia toda
+        atualização futura do arquivo. Agora vira reset (inclusive com o \r\n
+        que o navegador manda no <textarea>)."""
+        await config_prompt.salvar(session, "prompt_base", "base custom")
+        original = config_prompt.padrao("prompt_base").replace("\n", "\r\n") + "\r\n"
+        await config_prompt.salvar(session, "prompt_base", original)
+        assert config_prompt.customizado("prompt_base") is False
