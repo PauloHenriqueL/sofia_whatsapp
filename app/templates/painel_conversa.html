@@ -3,7 +3,7 @@
 {% block corpo %}
 {% include "_topbar.html" %}
 <div class="container-app" style="max-width:1180px">
-  <a href="{{ '/painel/terapeutas' if conversa.eh_terapeuta else '/painel/conversas' }}" class="muted"><i class="bi bi-arrow-left"></i> Voltar {{ 'pros terapeutas' if conversa.eh_terapeuta else 'pras conversas' }}</a>
+  <a href="{{ '/painel/terapeutas' if voltar_terapeutas else '/painel/conversas' }}" class="muted"><i class="bi bi-arrow-left"></i> Voltar {{ 'pros terapeutas' if voltar_terapeutas else 'pras conversas' }}</a>
 
   <div class="page-head" style="margin-top:10px">
     <div>

@@ -578,23 +578,34 @@ class TestPainel:
         assert "Respostas automáticas" in linha_dele
 
     @pytest.mark.asyncio
-    async def test_abas_separam_pacientes_de_terapeutas(self, sofia):
+    async def test_conversas_mostra_todos_e_terapeutas_so_eles(self, sofia):
         await _nova(sofia, PACIENTE, dados_coletados={"nome_completo": "Paula Paciente"})
-        await _nova(
+        renato = await _nova(
             sofia, RENATO, dados_coletados={"nome_completo": "Renato Terapeuta"}, eh_terapeuta=True
         )
         await _login(sofia)
 
-        # Demanda G: terapeuta tem aba própria; Conversas é só de paciente.
-        so_pacientes = (await sofia.get("/painel/conversas")).text
+        # 23/11: os avisos a terapeuta aparecem também em Conversas (com a
+        # etiqueta); a aba Terapeutas continua sendo o recorte só deles.
+        todas = (await sofia.get("/painel/conversas")).text
         so_terapeutas = (await sofia.get("/painel/terapeutas")).text
         fragmento = (await sofia.get("/painel/fragment/conversas?lista=terapeutas")).text
+        fragmento_todas = (await sofia.get("/painel/fragment/conversas?lista=conversas")).text
 
-        assert "Paula Paciente" in so_pacientes and "Renato Terapeuta" not in so_pacientes
+        assert "Paula Paciente" in todas and "Renato Terapeuta" in todas
+        assert todas.split("Renato Terapeuta")[1].split("</tr>")[0].count("tag-terapeuta") == 1
         assert "Renato Terapeuta" in so_terapeutas and "Paula Paciente" not in so_terapeutas
-        # O polling da aba Terapeutas não pode trocar a lista pela de pacientes.
+        # O polling da aba Terapeutas não pode trocar a lista pela de todos.
         assert "Renato Terapeuta" in fragmento and "Paula Paciente" not in fragmento
+        assert "Renato Terapeuta" in fragmento_todas and "Paula Paciente" in fragmento_todas
         assert "lista=terapeutas" in so_terapeutas
+
+        # Aberta pela aba Terapeutas, volta pra ela; aberta por Conversas, pra Conversas.
+        assert f"/painel/conversas/{renato}/?de=terapeutas" in so_terapeutas
+        pela_aba = (await sofia.get(f"/painel/conversas/{renato}/?de=terapeutas")).text
+        pela_lista = (await sofia.get(f"/painel/conversas/{renato}/")).text
+        assert 'href="/painel/terapeutas"' in pela_aba.split("Voltar")[0][-200:]
+        assert 'href="/painel/conversas"' in pela_lista.split("Voltar")[0][-200:]
 
     @pytest.mark.asyncio
     async def test_botao_marca_a_mao_e_desmarca(self, sofia):

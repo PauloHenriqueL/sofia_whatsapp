@@ -135,16 +135,16 @@ templates.env.filters["nome_anexo"] = midia.nome_para_download
 
 # Cada lista do painel: rota, título e aba (Demanda G — terapeuta tem aba própria).
 LISTAS = {
-    "pacientes": {"url": "/painel/conversas", "titulo": "Conversas", "aba": "conversas"},
+    "conversas": {"url": "/painel/conversas", "titulo": "Conversas", "aba": "conversas"},
     "terapeutas": {"url": "/painel/terapeutas", "titulo": "Terapeutas", "aba": "terapeutas"},
 }
 
 
 def _contexto_lista(
     request: Request, conversas, filtro, busca, ordem, dir_, pagina=1, tem_proxima=False,
-    lista: str = "pacientes",
+    lista: str = "conversas",
 ) -> dict:
-    cfg = LISTAS.get(lista, LISTAS["pacientes"])
+    cfg = LISTAS.get(lista, LISTAS["conversas"])
     return {
         "lista": lista,
         "base_lista": cfg["url"],
@@ -165,7 +165,7 @@ def _contexto_lista(
 POR_PAGINA = 50
 
 
-async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int, lista="pacientes"):
+async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int, lista="conversas"):
     """Uma página da lista + se existe próxima.
 
     Antes o router chamava `listar_conversas` sem `limite` e ficava com o default
@@ -182,7 +182,7 @@ async def _pagina_de_conversas(db, filtro, busca, ordem, dir_, pagina: int, list
         descendente=(dir_ != "asc"),
         limite=POR_PAGINA + 1,
         offset=(pagina - 1) * POR_PAGINA,
-        lista=lista if lista in LISTAS else "pacientes",
+        lista=lista if lista in LISTAS else "conversas",
     )
     tem_proxima = len(conversas) > POR_PAGINA
     return conversas[:POR_PAGINA], tem_proxima
@@ -347,8 +347,9 @@ async def pagina_lista(
     pagina: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
-    """Conversas de paciente. As de terapeuta moram na aba Terapeutas."""
-    return await _pagina_lista(request, db, "pacientes", filtro, busca, ordem, dir, feito, pagina)
+    """Todas as conversas: paciente e terapeuta (com etiqueta). A aba Terapeutas
+    é o recorte só deles."""
+    return await _pagina_lista(request, db, "conversas", filtro, busca, ordem, dir, feito, pagina)
 
 
 @router.get("/terapeutas")
@@ -595,7 +596,7 @@ async def fragment_conversas(
     ordem: str = "atualizada_em",
     dir: str = "desc",
     pagina: int = 1,
-    lista: str = "pacientes",
+    lista: str = "conversas",
     db: AsyncSession = Depends(get_db),
 ):
     """O polling repassa a página (e a lista) junto do filtro/busca/ordem — sem
@@ -617,9 +618,11 @@ async def pagina_conversa(
     conversa_id: int,
     pagamento: str = "",
     contato: str = "",
+    de: str = "",
     db: AsyncSession = Depends(get_db),
 ):
-    """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect)."""
+    """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect).
+    `de=terapeutas`: aberta pela aba Terapeutas, o "voltar" leva pra lá."""
     from app.services import cobranca as cobranca_service
     from app.services import pagamentos as pagamentos_service
     from app.services import stripe_client
@@ -645,6 +648,7 @@ async def pagina_conversa(
             "mensagens": mensagens,
             "escaladas": await painel.listar_escaladas(db, conversa_id),
             "de_terapeuta": conversa.eh_terapeuta,
+            "voltar_terapeutas": de == "terapeutas",
             "hamilton_url": painel.url_hamilton_paciente(conversa.paciente_hamilton_id),
             "max_anexo": midia.TAMANHO_MAXIMO,
             "stripe_configurado": stripe_client.configurado(),

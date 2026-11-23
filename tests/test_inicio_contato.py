@@ -100,7 +100,8 @@ class TestNovoContato:
             data={"nome": "Renato", "numero": "31966665555", "tipo": "terapeuta", "consentimento": "1"},
         )
         assert "Renato" in (await sofia.get("/painel/terapeutas")).text
-        assert "Renato" not in (await sofia.get("/painel/conversas")).text
+        # Desde 23/11 Conversas mostra todo mundo, terapeuta incluído.
+        assert "Renato" in (await sofia.get("/painel/conversas")).text
 
     @pytest.mark.asyncio
     async def test_sem_consentimento_nao_cria_nem_envia(self, sofia, hamilton, meta):

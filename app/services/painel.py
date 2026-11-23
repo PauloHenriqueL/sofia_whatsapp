@@ -103,12 +103,13 @@ def _aplicar_filtro(q, filtro: str):
 
 # As duas listas do painel (Demanda G): pacientes em /painel/conversas e
 # terapeutas em /painel/terapeutas. `None` = as duas juntas (só a API JSON).
-LISTAS = ("pacientes", "terapeutas")
+# "conversas" mostra todo mundo: paciente e terapeuta, com etiqueta (decisão do
+# Paulo, 23/11 — os avisos a terapeuta têm de aparecer junto). "terapeutas" é o
+# recorte só deles. Até 23/11 a aba Conversas era só de paciente (Demanda G).
+LISTAS = ("conversas", "terapeutas")
 
 
 def _aplicar_lista(q, lista: str | None):
-    if lista == "pacientes":
-        return q.where(Conversa.eh_terapeuta.is_(False))
     if lista == "terapeutas":
         return q.where(Conversa.eh_terapeuta.is_(True))
     return q

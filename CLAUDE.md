@@ -561,8 +561,12 @@ ainda a tratava como lead.
   **`/painel/acompanhamento` não filtra, de propósito**: quem a Sofia cadastrou no
   Hamilton por engano continua aparecendo ali para alguém resolver.
 - **Desde a Demanda G (16/11/2026) tudo é gravado e o terapeuta tem aba própria**
-  (`/painel/terapeutas`; `/painel/conversas` passou a ser só de paciente e os
-  filtros "Só pacientes/terapeutas" saíram). O portão antigo, que desviava o
+  (`/painel/terapeutas`; os filtros "Só pacientes/terapeutas" saíram).
+  **Desde 23/11 `/painel/conversas` mostra todo mundo** (pedido do Paulo: os avisos
+  a terapeuta têm de aparecer junto), com a etiqueta "Terapeuta"; a aba Terapeutas
+  é o recorte só deles. A lista "conversas" não filtra (`painel._aplicar_lista`), e
+  quem abre pela aba Terapeutas leva `?de=terapeutas` para o "voltar" acertar.
+  O portão antigo, que desviava o
   terapeuta reconhecido **antes** de gravar, virou só a marca: a mensagem passa
   pela ingestão normal e quem responde é `webhook._responder_a_terapeuta`.
   Lembretes (`lembretes_terapeutas.rodar`) e o aviso de encaminhamento também são

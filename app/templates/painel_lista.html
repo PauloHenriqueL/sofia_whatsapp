@@ -8,7 +8,7 @@
       <h1>{{ titulo_lista }}</h1>
       <div class="subtitle">
         {% if lista == 'terapeutas' %}Lembretes, respostas e o que a equipe falou com cada terapeuta
-        {% else %}Atendimentos da Sofia no WhatsApp{% endif %}
+        {% else %}Pacientes e terapeutas no WhatsApp da Sofia{% endif %}
       </div>
     </div>
     <a class="btn btn-primary" href="/painel/contatos/novo?tipo={{ 'terapeuta' if lista == 'terapeutas' else 'paciente' }}">

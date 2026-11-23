@@ -52,7 +52,7 @@
   </thead>
   <tbody>
     {% for c in conversas %}
-    <tr tabindex="0" onclick="window.location='/painel/conversas/{{ c.id }}/'">
+    <tr tabindex="0" onclick="window.location='/painel/conversas/{{ c.id }}/{{ '?de=terapeutas' if lista == 'terapeutas' else '' }}'">
       <td class="c-paciente" title="{{ c.numero_whatsapp }}">
         {# O nome é quem a pessoa é; o número é só o contato. Sem nome ainda
            (conversa nova), o telefone ocupa o lugar dele. #}
