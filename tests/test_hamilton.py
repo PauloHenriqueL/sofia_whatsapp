@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services import hamilton_client
+from app.services import config_negocio, hamilton_client
 
 
 class TestNormalizarTelefone:
@@ -73,7 +73,11 @@ class TestMapearDados:
         # Paciente de parceria não recebe anotação de mensalidade nenhuma.
         assert "Mensalidade" not in payload.get("observacao", "")
 
-    def test_mensalidade_anotada_mesmo_sem_outros_dados(self):
+    def test_mensalidade_anotada_mesmo_sem_outros_dados(self, monkeypatch):
+        # O preço vem do /painel/config. Fixado aqui: antes o teste dependia de
+        # outro ter deixado 200 no cache, e falhava sozinho depois que a
+        # mensalidade passou a R$ 250 (17/11).
+        monkeypatch.setitem(config_negocio._cache, "preco_terapia_mensal", 250)
         # Sem motivo de neuro, a observação carrega ao menos a mensalidade.
         payload = hamilton_client.mapear_dados(
             {"nome_completo": "João", "telefone_contato": "31977776666"}
@@ -82,7 +86,7 @@ class TestMapearDados:
         assert payload["telefone"] == "31977776666"
         assert "Mensalidade" in payload["observacao"]
         # A mensalidade acordada vai sempre (quem sabe o valor é quem conversou).
-        assert payload["vlr_sessao"] == "200.00"
+        assert payload["vlr_sessao"] == "250.00"
         assert payload["tipo_pagamento"] == "manual"
         # Nenhum outro campo opcional foi enviado.
         assert set(payload) == {"nome", "telefone", "observacao", "vlr_sessao", "tipo_pagamento"}

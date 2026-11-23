@@ -636,8 +636,9 @@ ainda a tratava como lead.
   do Hamilton; só vira estrangeiro com `+`/`00` explícito), `telefone_do_whatsapp`
   (wa_id, que **sempre** tem DDI) e `para_wa_id` (Hamilton → número de envio).
 - A busca manda o telefone em `params=` — na URL crua o `+` chega como espaço.
-- **Fora do escopo:** "Novo contato" no painel (`inicio_contato.normalizar_numero_br`)
-  continua só para celular brasileiro.
+- **Só paciente é internacional** (decisão do Paulo, 23/11): não há terapeuta fora do
+  Brasil, e o "Novo contato" do painel (`inicio_contato.normalizar_numero_br`) fica
+  só para celular brasileiro, de propósito.
 
 ### Pesquisa de satisfação (`pesquisa.py`) — Demanda C
 Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals.py` do Hamilton:
