@@ -283,6 +283,13 @@ def _ferramentas_do_turno(conversa) -> tuple[list[dict], str | None]:
             "aceitar ou recusar por escrito, chame `responder_proposta`. Recusa não é "
             "motivo de escalada."
         )
+        opcoes = encaminhamento.opcoes_abertas(conversa)
+        if len(opcoes) >= 2:
+            notas.append(
+                "Foram DUAS opções, e ela escolhe uma: "
+                + "; ".join(f"opção {n}: {d}" for n, d in sorted(opcoes.items()))
+                + ". Ao chamar `responder_proposta`, diga em `opcao` qual."
+            )
     if encaminhamento.recusa_sem_motivo(conversa) is not None:
         ferramentas.append(tools.TOOL_REGISTRAR_MOTIVO_RECUSA)
         notas.append(
@@ -296,7 +303,8 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
     """Executa uma chamada de ferramenta e devolve o resultado estruturado."""
     if tc.name == tools.RESPONDER_PROPOSTA:
         return await encaminhamento.responder_proposta_por_texto(
-            session, conversa, bool(tc.arguments.get("aceitou")), tc.arguments.get("motivo") or ""
+            session, conversa, bool(tc.arguments.get("aceitou")), tc.arguments.get("motivo") or "",
+            opcao=tc.arguments.get("opcao"),
         )
     if tc.name == tools.REGISTRAR_MOTIVO_RECUSA:
         return await encaminhamento.registrar_motivo_recusa_paciente(

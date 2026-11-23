@@ -710,6 +710,15 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 .enc-data { display:flex; flex-direction:column; gap:4px; font-size:12.5px; font-weight:600; color:var(--text-secondary); }
 .enc-data input { width:auto; min-width:160px; }
 .enc-confirmar-botoes { display:flex; gap:8px; }
+.enc-datas { display:flex; flex-wrap:wrap; gap:10px; }
+.enc-datas .enc-data[hidden] { display:none; }
+.enc-opcao-num { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-right:6px;
+  border-radius:50%; background:var(--teal-600); color:#fff; font-size:11.5px; font-weight:700; vertical-align:1px; }
+.enc-opcao-num[hidden] { display:none; }
+.enc-confirmar-quem[hidden], .enc-alt-add[hidden], .enc-alt-dica[hidden] { display:none; }
+.enc-alt-add { margin:6px 0 2px; padding-left:0; }
+.enc-alt-dica { color:var(--teal-600); font-weight:600; }
+.enc-slot[data-opcao]::before { content:attr(data-opcao) " · "; opacity:.85; }
 .enc-data-erro { flex-basis:100%; color:var(--red-text); font-size:13px; font-weight:600; }
 @media (min-width:1000px) {
   .enc-grade { display:grid; grid-template-columns:360px minmax(0,1fr); align-items:start; gap:20px; }

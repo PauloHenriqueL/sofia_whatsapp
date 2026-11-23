@@ -381,6 +381,15 @@ TOOL_RESPONDER_PROPOSTA = {
             "type": "object",
             "properties": {
                 "aceitou": {"type": "boolean"},
+                "opcao": {
+                    "type": "integer",
+                    "enum": [1, 2],
+                    "description": (
+                        "Só quando a equipe mandou DUAS opções: o número da opção que ela "
+                        "escolheu (ou recusou). Se ela recusar as duas, não mande. Se não "
+                        "der para saber qual, pergunte antes de chamar."
+                    ),
+                },
                 "motivo": {
                     "type": "string",
                     "description": (

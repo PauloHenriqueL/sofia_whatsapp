@@ -155,7 +155,10 @@ def _debounce_rapido():
 
 @pytest.fixture
 def hamilton(monkeypatch):
-    falso = HamiltonFalso()
+    return _ligar_hamilton(monkeypatch, HamiltonFalso())
+
+
+def _ligar_hamilton(monkeypatch, falso):
     cliente = hamilton_client.HamiltonClient(
         base_url="http://hamilton", username="sofia-bot", password="x",
         client=httpx.AsyncClient(transport=httpx.MockTransport(falso)),
@@ -242,7 +245,7 @@ class TestPacienteRespondeAProposta:
         with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
             await _toque(sofia, PACIENTE, "Pode ser", "prop_sim:42", "wamid.p1")
         llm.assert_not_called()
-        assert hamilton.respostas == [{"de": "paciente", "aceitou": True, "motivo": ""}]
+        assert hamilton.respostas == [{"de": "paciente", "aceitou": True, "motivo": "", "opcao": 1}]
         [aviso] = _templates(meta)
         assert aviso["to"] == "+" + TACIA
         assert aviso["template"]["name"] == "encaminhamento_terapeuta"
@@ -264,7 +267,7 @@ class TestPacienteRespondeAProposta:
     @pytest.mark.asyncio
     async def test_prefiro_outro_nao_envolve_o_terapeuta(self, sofia, hamilton, meta):
         await _toque(sofia, PACIENTE, "Prefiro outro horário", "prop_nao:42", "wamid.p1")
-        assert hamilton.respostas == [{"de": "paciente", "aceitou": False, "motivo": ""}]
+        assert hamilton.respostas == [{"de": "paciente", "aceitou": False, "motivo": "", "opcao": 1}]
         assert _templates(meta) == []
         assert _textos_para(meta, PACIENTE) == [encaminhamento.TEXTO_PACIENTE_NAO]
 
@@ -312,8 +315,10 @@ async def _marcar_conversa(sofia, **marcas):
 
 
 async def _conversa(sofia):
+    """A conversa da paciente (o aviso ao terapeuta cria a dele também)."""
     async with sofia.banco() as s:
-        return (await s.execute(select(Conversa))).scalar_one()
+        return (await s.execute(
+            select(Conversa).where(Conversa.numero_whatsapp == PACIENTE))).scalar_one()
 
 
 class TestRespostaEscritaAProposta:
@@ -673,3 +678,169 @@ class TestTelaDaThaina:
         resp = await sofia.get("/painel/")
         assert resp.status_code == 200
         assert "Não consegui buscar os encaminhamentos no Hamilton agora." in resp.text
+
+
+# --- Duas propostas (23/11/2026) ---------------------------------------------
+
+ALTERNATIVA = {"template": "proposta_horario_paciente", "opcao": 2,
+               "variaveis": ["Maria", "Ulisses Teste", "quarta, 18/11, às 9h"],
+               "botoes": ["prop_sim2:42", "prop_nao2:42"]}
+
+
+class HamiltonDuasOpcoes(HamiltonFalso):
+    """O Hamilton com duas propostas abertas, seguindo `responder_paciente`."""
+
+    def __init__(self):
+        super().__init__()
+        self.abertas = [1, 2]
+
+    def enc(self):
+        e = _enc(self.status)
+        aguardando = self.status == "aguardando_paciente"
+        e["mensagens"] = {
+            **MENSAGENS,
+            "paciente": {**MENSAGENS["paciente"], "opcao": 1},
+            "paciente_alternativa": ALTERNATIVA if aguardando and len(self.abertas) == 2 else None,
+        }
+        e["opcoes_abertas"] = self.abertas if aguardando else []
+        return e
+
+    def __call__(self, request):
+        caminho = request.url.path
+        corpo = json.loads(request.content or b"{}")
+        if caminho == "/api/v1/encaminhamentos/42/reservar/":
+            self.reservas.append(corpo)
+            self.status, self.na_fila = "aguardando_paciente", False
+            return httpx.Response(200, json={"encaminhamento": self.enc()})
+        if caminho == "/api/v1/encaminhamentos/42/resposta/" and corpo.get("de") == "paciente":
+            self.respostas.append(corpo)
+            opcao = corpo.get("opcao")
+            if self.status != "aguardando_paciente" or (opcao is not None and opcao not in self.abertas):
+                return httpx.Response(409, json={"detail": "x", "codigo": "transicao"})
+            if corpo["aceitou"]:
+                if opcao is None and len(self.abertas) > 1:
+                    return httpx.Response(409, json={"detail": "x", "codigo": "opcao"})
+                self.status = "aguardando_terapeuta"
+            elif opcao is not None and len(self.abertas) > 1:
+                self.abertas = [o for o in self.abertas if o != opcao]
+            else:
+                self.status = "recusado_paciente"
+            return httpx.Response(200, json={"encaminhamento": self.enc()})
+        return super().__call__(request)
+
+
+@pytest.fixture
+def hamilton2(monkeypatch):
+    return _ligar_hamilton(monkeypatch, HamiltonDuasOpcoes())
+
+
+async def _propor_duas(sofia, hamilton2):
+    async with sofia.banco() as s:
+        assert await encaminhamento.propor_ao_paciente(s, hamilton2.enc())
+
+
+class TestDuasPropostas:
+    @pytest.mark.asyncio
+    async def test_saem_dois_templates_cada_um_com_os_seus_botoes(self, sofia, hamilton2, meta):
+        await _propor_duas(sofia, hamilton2)
+        um, dois = _templates(meta)
+        botoes = [[c["parameters"][0]["payload"] for c in t["template"]["components"][1:]]
+                  for t in (um, dois)]
+        assert botoes == [["prop_sim:42", "prop_nao:42"], ["prop_sim2:42", "prop_nao2:42"]]
+        conversa = await _conversa(sofia)
+        assert encaminhamento.proposta_aberta(conversa) == 42
+        assert encaminhamento.opcoes_abertas(conversa) == {
+            "1": "Tácia Teste, terça, 17/11, às 19h", "2": "Ulisses Teste, quarta, 18/11, às 9h"}
+        async with sofia.banco() as s:
+            textos = [m.texto for m in (await s.execute(select(Mensagem))).scalars()]
+        assert textos[0].startswith("[Opção 1 de 2]") and textos[1].startswith("[Opção 2 de 2]")
+        # A pessoa nunca escreveu: fora da janela, só os templates.
+        assert _textos_para(meta, PACIENTE) == []
+
+    @pytest.mark.asyncio
+    async def test_dentro_da_janela_vai_uma_linha_explicando(self, sofia, hamilton2, meta):
+        async with sofia.banco() as s:
+            conversa = (await s.execute(select(Conversa))).scalar_one()
+            s.add(Mensagem(conversa_id=conversa.id, direcao="recebida", origem="paciente",
+                           tipo="texto", texto="oi"))
+            await s.commit()
+        await _propor_duas(sofia, hamilton2)
+        assert _textos_para(meta, PACIENTE) == [encaminhamento.TEXTO_DUAS_OPCOES]
+
+    @pytest.mark.asyncio
+    async def test_escolher_a_segunda_e_depois_tocar_na_primeira(self, sofia, hamilton2, meta):
+        await _propor_duas(sofia, hamilton2)
+        await _toque(sofia, PACIENTE, "Pode ser", "prop_sim2:42", "wamid.p1")
+        assert hamilton2.respostas[-1] == {"de": "paciente", "aceitou": True, "motivo": "", "opcao": 2}
+        assert _templates(meta)[-1]["template"]["name"] == "encaminhamento_terapeuta"
+        assert encaminhamento.proposta_aberta(await _conversa(sofia)) is None
+
+        await _toque(sofia, PACIENTE, "Pode ser", "prop_sim:42", "wamid.p2")
+        assert _textos_para(meta, PACIENTE)[-1] == encaminhamento.TEXTO_JA_ESCOLHEU
+
+    @pytest.mark.asyncio
+    async def test_prefiro_outro_numa_deixa_a_outra_valendo(self, sofia, hamilton2, meta):
+        await _propor_duas(sofia, hamilton2)
+        await _toque(sofia, PACIENTE, "Prefiro outro horário", "prop_nao:42", "wamid.p1")
+        assert _textos_para(meta, PACIENTE)[-1] == encaminhamento.TEXTO_OPCAO_DESCARTADA
+        conversa = await _conversa(sofia)
+        assert encaminhamento.proposta_aberta(conversa) == 42
+        assert list(encaminhamento.opcoes_abertas(conversa)) == ["2"]
+        assert encaminhamento.recusa_sem_motivo(conversa) is None
+
+        await _toque(sofia, PACIENTE, "Pode ser", "prop_sim:42", "wamid.p2")
+        assert _textos_para(meta, PACIENTE)[-1] == encaminhamento.TEXTO_OPCAO_FECHADA
+
+        await _toque(sofia, PACIENTE, "Pode ser", "prop_sim2:42", "wamid.p3")
+        assert hamilton2.status == "aguardando_terapeuta"
+        assert _textos_para(meta, PACIENTE)[-1] == encaminhamento.TEXTO_PACIENTE_SIM
+
+    @pytest.mark.asyncio
+    async def test_recusar_as_duas_volta_para_a_equipe(self, sofia, hamilton2, meta):
+        await _propor_duas(sofia, hamilton2)
+        await _toque(sofia, PACIENTE, "Prefiro outro horário", "prop_nao2:42", "wamid.p1")
+        await _toque(sofia, PACIENTE, "Prefiro outro horário", "prop_nao:42", "wamid.p2")
+        assert hamilton2.status == "recusado_paciente"
+        assert _textos_para(meta, PACIENTE)[-1] == encaminhamento.TEXTO_PACIENTE_NAO
+        conversa = await _conversa(sofia)
+        assert encaminhamento.proposta_aberta(conversa) is None
+        assert encaminhamento.recusa_sem_motivo(conversa) == 42
+
+    @pytest.mark.asyncio
+    async def test_aceite_escrito_sem_dizer_qual_pergunta(self, sofia, hamilton2, meta):
+        await _propor_duas(sofia, hamilton2)
+        llm = LLMRoteiro(
+            _tool("responder_proposta", aceitou=True),
+            llm_client.LLMResposta(texto="Qual das duas você prefere?"),
+            _tool("responder_proposta", aceitou=True, opcao=2),
+            llm_client.LLMResposta(texto="Combinado!"),
+        )
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=llm):
+            await _texto(sofia, PACIENTE, "pode ser", "wamid.p1")
+            assert [r for r in hamilton2.respostas] == []  # nem foi ao Hamilton
+            nota = " ".join(m["content"] for m in llm.chamadas[0]["historico"] if m["role"] == "system")
+            assert "opção 2: Ulisses Teste, quarta, 18/11, às 9h" in nota
+            await _texto(sofia, PACIENTE, "a da quarta", "wamid.p2")
+        assert hamilton2.respostas == [{"de": "paciente", "aceitou": True, "motivo": "", "opcao": 2}]
+        assert hamilton2.status == "aguardando_terapeuta"
+
+    @pytest.mark.asyncio
+    async def test_tela_manda_a_segunda_opcao(self, sofia, hamilton2, meta):
+        await _logar(sofia, sofia.banco)
+        resp = await sofia.post("/painel/encaminhamentos/42/reservar", data={
+            "terapeuta_id": "7", "dia_semana": "1", "hora_inicio": "19:00",
+            "dat_primeira_sessao": "2026-11-17", "alt_terapeuta_id": "8", "alt_dia_semana": "2",
+            "alt_hora_inicio": "09:00", "alt_dat_primeira_sessao": "2026-11-18"})
+        assert resp.status_code == 303
+        assert hamilton2.reservas == [{
+            "terapeuta_id": 7, "dia_semana": 1, "hora_inicio": "19:00",
+            "dat_primeira_sessao": "2026-11-17",
+            "alternativa": {"terapeuta_id": 8, "dia_semana": 2, "hora_inicio": "09:00",
+                            "dat_primeira_sessao": "2026-11-18"}}]
+        assert len(_templates(meta)) == 2
+
+    @pytest.mark.asyncio
+    async def test_pagina_tem_o_botao_da_segunda_opcao(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        html = (await sofia.get("/painel/encaminhamentos/42")).text
+        assert 'id="enc-alt-adicionar"' in html and 'name="alt_terapeuta_id"' in html

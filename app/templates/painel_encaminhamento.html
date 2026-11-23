@@ -106,7 +106,7 @@
         <h2>Terapeutas com vaga</h2>
         <span id="enc-carregando" class="htmx-indicator muted"><i class="bi bi-hourglass-split"></i> buscando…</span>
       </div>
-      <div class="enc-dica" style="margin:0 0 10px">Os horários verdes batem exatamente com o pedido. Toque num horário para escolher.</div>
+      <div class="enc-dica" style="margin:0 0 10px">Os horários verdes batem exatamente com o pedido. Toque num horário para escolher. Dá para mandar até duas opções.</div>
       <div id="enc-candidatos">{% include "_candidatos_fragment.html" %}</div>
     </div>
   </div>
@@ -117,18 +117,32 @@
     <input type="hidden" name="terapeuta_id">
     <input type="hidden" name="dia_semana">
     <input type="hidden" name="hora_inicio">
+    <input type="hidden" name="alt_terapeuta_id">
+    <input type="hidden" name="alt_dia_semana">
+    <input type="hidden" name="alt_hora_inicio">
     <div class="enc-confirmar-texto">
-      <div class="enc-confirmar-quem"><b id="enc-escolha-nome"></b> · <span id="enc-escolha-slot"></span></div>
-      <div class="enc-dica">O horário fica reservado e a Sofia pergunta ao paciente se serve. O vínculo no Hamilton só é gravado quando o terapeuta aceitar.</div>
+      <div class="enc-confirmar-quem"><span class="enc-opcao-num" id="enc-num-1" hidden>1</span><b id="enc-escolha-nome"></b> · <span id="enc-escolha-slot"></span></div>
+      <div class="enc-confirmar-quem" id="enc-alt" hidden>
+        <span class="enc-opcao-num">2</span><b id="enc-alt-nome"></b> · <span id="enc-alt-slot"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="enc-alt-tirar" aria-label="Tirar a 2ª opção"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm enc-alt-add" id="enc-alt-adicionar"><i class="bi bi-plus-lg"></i> 2ª opção de horário</button>
+      <div class="enc-dica enc-alt-dica" id="enc-alt-dica" hidden>Toque no horário da 2ª opção, na lista acima.</div>
+      <div class="enc-dica">O horário fica reservado e a Sofia pergunta ao paciente se serve. Com duas opções, as duas ficam reservadas e ele escolhe uma. O vínculo no Hamilton só é gravado quando o terapeuta aceitar.</div>
     </div>
-    <label class="enc-data">1ª sessão
-      <input class="input" type="date" name="dat_primeira_sessao" required>
-    </label>
+    <div class="enc-datas">
+      <label class="enc-data"><span id="enc-data-rotulo">1ª sessão</span>
+        <input class="input" type="date" name="dat_primeira_sessao" required>
+      </label>
+      <label class="enc-data" id="enc-alt-data" hidden>1ª sessão (opção 2)
+        <input class="input" type="date" name="alt_dat_primeira_sessao">
+      </label>
+    </div>
     <div class="enc-confirmar-botoes">
       <button type="button" class="btn btn-ghost" id="enc-cancelar">Cancelar</button>
       <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Enviar proposta</button>
     </div>
-    <div class="enc-data-erro" id="enc-data-erro" hidden>Essa data não cai no dia do horário escolhido.</div>
+    <div class="enc-data-erro" id="enc-data-erro" hidden>A data da 1ª sessão não cai no dia do horário escolhido.</div>
   </form>
 </div>
 {% endblock %}
@@ -138,33 +152,82 @@
 (function () {
   var form = document.getElementById('enc-confirmar');
   var data = form.querySelector('[name=dat_primeira_sessao]');
+  var dataAlt = form.querySelector('[name=alt_dat_primeira_sessao]');
   var erroData = document.getElementById('enc-data-erro');
-  var diaEscolhido = null;
+  // Até duas opções: a 2ª é opcional e o paciente escolhe uma delas.
+  var op1 = null, op2 = null, escolhendoAlt = false;
+  var el = function (id) { return document.getElementById(id); };
+
+  function chave(o) { return o ? o.terapeuta + '|' + o.dia + '|' + o.hora : ''; }
+  function desenhar() {
+    document.querySelectorAll('.enc-slot').forEach(function (b) {
+      var k = chave(b.dataset);
+      var marcado = k === chave(op1) || k === chave(op2);
+      b.setAttribute('aria-pressed', marcado ? 'true' : 'false');
+      if (k === chave(op2)) { b.dataset.opcao = '2'; } else if (k === chave(op1) && op2) { b.dataset.opcao = '1'; } else { delete b.dataset.opcao; }
+    });
+    form.hidden = !op1;
+    if (!op1) { return; }
+    form.terapeuta_id.value = op1.terapeuta;
+    form.dia_semana.value = op1.dia;
+    form.hora_inicio.value = op1.hora;
+    el('enc-escolha-nome').textContent = op1.nome;
+    el('enc-escolha-slot').textContent = op1.rotulo;
+    form.alt_terapeuta_id.value = op2 ? op2.terapeuta : '';
+    form.alt_dia_semana.value = op2 ? op2.dia : '';
+    form.alt_hora_inicio.value = op2 ? op2.hora : '';
+    el('enc-num-1').hidden = !op2;
+    el('enc-alt').hidden = !op2;
+    el('enc-alt-data').hidden = !op2;
+    dataAlt.required = !!op2;
+    el('enc-data-rotulo').textContent = op2 ? '1ª sessão (opção 1)' : '1ª sessão';
+    if (op2) {
+      el('enc-alt-nome').textContent = op2.nome;
+      el('enc-alt-slot').textContent = op2.rotulo;
+    }
+    el('enc-alt-adicionar').hidden = !!op2 || escolhendoAlt;
+    el('enc-alt-dica').hidden = !escolhendoAlt;
+  }
+  function copiar(ds) {
+    return { terapeuta: ds.terapeuta, nome: ds.nome, dia: ds.dia, hora: ds.hora,
+             rotulo: ds.rotulo, proxima: ds.proxima };
+  }
 
   // Delegação: a lista é trocada pelo HTMX a cada busca.
   document.addEventListener('click', function (ev) {
     var slot = ev.target.closest('.enc-slot');
     if (slot) {
-      document.querySelectorAll('.enc-slot[aria-pressed=true]').forEach(function (b) {
-        b.setAttribute('aria-pressed', 'false');
-      });
-      slot.setAttribute('aria-pressed', 'true');
-      form.terapeuta_id.value = slot.dataset.terapeuta;
-      form.dia_semana.value = slot.dataset.dia;
-      form.hora_inicio.value = slot.dataset.hora;
-      diaEscolhido = parseInt(slot.dataset.dia, 10);
-      data.value = slot.dataset.proxima;
-      document.getElementById('enc-escolha-nome').textContent = slot.dataset.nome;
-      document.getElementById('enc-escolha-slot').textContent = slot.dataset.rotulo;
+      var escolhido = copiar(slot.dataset);
+      if (escolhendoAlt && op1) {
+        if (chave(escolhido) === chave(op1)) { return; }
+        op2 = escolhido;
+        dataAlt.value = escolhido.proxima;
+        escolhendoAlt = false;
+      } else if (op2 && chave(escolhido) === chave(op2)) {
+        return;
+      } else {
+        op1 = escolhido;
+        data.value = escolhido.proxima;
+      }
       erroData.hidden = true;
-      form.hidden = false;
+      desenhar();
+      return;
+    }
+    if (ev.target.closest('#enc-alt-adicionar')) {
+      escolhendoAlt = true;
+      desenhar();
+      return;
+    }
+    if (ev.target.closest('#enc-alt-tirar')) {
+      op2 = null;
+      dataAlt.value = '';
+      desenhar();
       return;
     }
     if (ev.target.closest('#enc-cancelar')) {
-      form.hidden = true;
-      document.querySelectorAll('.enc-slot[aria-pressed=true]').forEach(function (b) {
-        b.setAttribute('aria-pressed', 'false');
-      });
+      op1 = op2 = null;
+      escolhendoAlt = false;
+      desenhar();
       return;
     }
     if (ev.target.closest('.enc-tirar')) {
@@ -190,10 +253,16 @@
     return (d.getDay() + 6) % 7; // 0 = segunda, como no Hamilton
   }
   form.addEventListener('submit', function (ev) {
-    if (!data.value || diaDaSemana(data.value) !== diaEscolhido) {
+    var ruim = null;
+    if (!data.value || diaDaSemana(data.value) !== parseInt(op1.dia, 10)) {
+      ruim = data;
+    } else if (op2 && (!dataAlt.value || diaDaSemana(dataAlt.value) !== parseInt(op2.dia, 10))) {
+      ruim = dataAlt;
+    }
+    if (ruim) {
       ev.preventDefault();
       erroData.hidden = false;
-      data.focus();
+      ruim.focus();
     }
   });
 })();

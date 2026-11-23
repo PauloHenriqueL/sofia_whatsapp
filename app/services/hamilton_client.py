@@ -577,22 +577,29 @@ class HamiltonClient:
 
     async def reservar_encaminhamento(
         self, enc_id: int, terapeuta_id: int, dia_semana: int, hora_inicio: str,
-        dat_primeira_sessao: str | None = None,
+        dat_primeira_sessao: str | None = None, alternativa: dict | None = None,
     ) -> tuple[int, dict]:
-        """200 reservado; 400 dado inválido; 409 horário tomado ou já escolhido."""
+        """200 reservado; 400 dado inválido; 404 terapeuta não achado; 409
+        horário tomado ou já escolhido. `alternativa` é a 2ª opção
+        ({terapeuta_id, dia_semana, hora_inicio, dat_primeira_sessao})."""
+        corpo = {"terapeuta_id": terapeuta_id, "dia_semana": dia_semana,
+                 "hora_inicio": hora_inicio, "dat_primeira_sessao": dat_primeira_sessao}
+        if alternativa:
+            corpo["alternativa"] = alternativa
         return await self._encaminhamento(
-            "POST", f"{enc_id}/reservar/", aceitos=(200, 400, 409),
-            json={"terapeuta_id": terapeuta_id, "dia_semana": dia_semana,
-                  "hora_inicio": hora_inicio, "dat_primeira_sessao": dat_primeira_sessao})
+            "POST", f"{enc_id}/reservar/", aceitos=(200, 400, 404, 409), json=corpo)
 
     async def responder_encaminhamento(
-        self, enc_id: int, de: str, aceitou: bool, motivo: str = "",
+        self, enc_id: int, de: str, aceitou: bool, motivo: str = "", opcao: int | None = None,
     ) -> tuple[int, dict]:
-        """`de` é 'paciente' ou 'terapeuta'. 409 = toque repetido, ou o horário
-        foi ocupado entre a escolha e o aceite."""
+        """`de` é 'paciente' ou 'terapeuta'. 409 = toque repetido, o horário
+        foi ocupado entre a escolha e o aceite, ou (`codigo='opcao'`) aceite sem
+        dizer qual de duas propostas. `opcao` (1 ou 2) só para o paciente."""
+        corpo = {"de": de, "aceitou": aceitou, "motivo": motivo}
+        if opcao is not None:
+            corpo["opcao"] = opcao
         return await self._encaminhamento(
-            "POST", f"{enc_id}/resposta/", aceitos=(200, 404, 409),
-            json={"de": de, "aceitou": aceitou, "motivo": motivo})
+            "POST", f"{enc_id}/resposta/", aceitos=(200, 404, 409), json=corpo)
 
     async def motivo_encaminhamento(self, enc_id: int, motivo: str) -> tuple[int, dict]:
         """O porquê de uma recusa, escrito depois do toque."""

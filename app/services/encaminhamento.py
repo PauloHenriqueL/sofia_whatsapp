@@ -22,6 +22,14 @@ variáveis dos templates também vêm prontas de lá. A trava geral
 
 Os códigos dos botões são "<código>:<id do encaminhamento>". Os do paciente
 começam com `prop_`, os do terapeuta com `enc_`.
+
+**Duas propostas (23/11/2026).** A Thainá pode escolher um 2º horário: o
+Hamilton reserva os dois no mesmo encaminhamento e devolve a 2ª em
+`mensagens.paciente_alternativa`. Saem dois templates iguais, cada um com os
+seus botões — os da 2ª são `prop_sim2`/`prop_nao2`. "Pode ser" numa solta a
+outra; "Prefiro outro" numa deixa a outra de pé (só a última recusa devolve o
+caso à equipe). As que ainda esperam resposta ficam em `CHAVE_OPCOES`, que é o
+que deixa a resposta ESCRITA perguntar "qual das duas?" quando precisa.
 """
 
 import json
@@ -59,6 +67,23 @@ TEXTO_PACIENTE_NAO = (
 )
 TEXTO_PROPOSTA_VENCIDA = (
     "Essa proposta não está mais valendo. Nossa equipe vai te mandar uma nova em breve."
+)
+# Duas propostas (23/11/2026): a equipe pode mandar duas opções e o paciente
+# escolhe uma. Cada uma é um template com os próprios botões.
+TEXTO_DUAS_OPCOES = (
+    "Te mandei duas opções de horário. É só tocar em \"Pode ser\" na que preferir."
+)
+TEXTO_OPCAO_DESCARTADA = (
+    "Tudo bem, essa fica de fora. A outra opção continua reservada pra você: "
+    "se ela servir, é só tocar em \"Pode ser\" nela."
+)
+TEXTO_OPCAO_FECHADA = (
+    "Essa opção não está mais valendo, mas a outra continua reservada pra você: "
+    "se ela servir, é só tocar em \"Pode ser\" nela."
+)
+TEXTO_QUAL_OPCAO = "Qual das duas opções você prefere?"
+TEXTO_JA_ESCOLHEU = (
+    "Você já escolheu a outra opção, e é ela que vale. Se quiser trocar, me fala por aqui."
 )
 # Com prazo: sem ele o paciente fica esperando no escuro (decisão dos gestores,
 # 18/11/2026). Quem chama é dito pelo primeiro nome: "quem vai te atender" lia
@@ -105,6 +130,13 @@ TEXTO_ENCAMINHAMENTO_FECHADO = (
 # `registrar_motivo_recusa` (ver `ferramentas_da_conversa`).
 CHAVE_PROPOSTA = "proposta_aberta"
 CHAVE_RECUSA_SEM_MOTIVO = "recusa_sem_motivo"
+# Com duas propostas: {"1": "Tácia Teste, terça, 17/11, às 19h", "2": ...}, só
+# as que ainda esperam resposta. Diz ao modelo quais são e evita perguntar
+# "qual delas?" quando só sobrou uma.
+CHAVE_OPCOES = "proposta_opcoes"
+# A opção que o paciente escolheu: o toque no "Pode ser" da OUTRA, depois,
+# recebe "você já escolheu", não "a proposta venceu".
+CHAVE_ESCOLHIDA = "proposta_escolhida"
 
 # O terapeuta que tocou em "Não aceito" tem um tempo para escrever o motivo. Na
 # memória de propósito: o motivo é opcional, e perdê-lo num restart custa só o
@@ -144,12 +176,18 @@ def _ja_visto(wamid: str | None) -> bool:
     return False
 
 
-def texto_da_proposta(variaveis: list[str]) -> str:
+def opcao_do_botao(codigo: str) -> int:
+    """'prop_sim2' / 'prop_nao2' → 2; os botões de sempre → 1."""
+    return 2 if codigo.endswith("2") else 1
+
+
+def texto_da_proposta(variaveis: list[str], opcao: int | None = None) -> str:
     """O texto do template `proposta_horario_paciente`, para o histórico do
-    painel mostrar o que o paciente recebeu."""
+    painel mostrar o que o paciente recebeu. Com duas, `opcao` numera."""
     nome, terapeuta, quando = (list(variaveis) + ["", "", ""])[:3]
+    rotulo = f"[Opção {opcao} de 2]\n" if opcao else ""
     return (
-        f"Olá, {nome}! Encontramos um horário para a sua terapia na Allos:\n\n"
+        f"{rotulo}Olá, {nome}! Encontramos um horário para a sua terapia na Allos:\n\n"
         f"Terapeuta: {terapeuta}\nPrimeira sessão: {quando}\n\n"
         "Esse horário funciona para você?"
     )
@@ -327,10 +365,15 @@ async def registrar_pedidos(db: AsyncSession, agora: datetime | None = None) -> 
 
 async def propor_ao_paciente(db: AsyncSession, enc: dict) -> bool:
     """Depois da reserva: manda a proposta de horário ao paciente (template,
-    porque a escolha costuma vir fora da janela de 24h). Devolve se saiu."""
-    mensagem = (enc.get("mensagens") or {}).get("paciente")
+    porque a escolha costuma vir fora da janela de 24h). Devolve se saiu.
+
+    Com duas opções saem dois templates, cada um com os próprios botões. Se a
+    2ª não sair, a 1ª vale sozinha e a equipe é avisada."""
+    mensagens = enc.get("mensagens") or {}
+    principal = mensagens.get("paciente")
+    alternativa = mensagens.get("paciente_alternativa")
     paciente = enc.get("paciente") or {}
-    if not mensagem:
+    if not principal:
         return False
     conversa = await conversa_do_paciente(db, paciente)
     numero = conversa.numero_whatsapp if conversa else None
@@ -340,22 +383,69 @@ async def propor_ao_paciente(db: AsyncSession, enc: dict) -> bool:
     if not numero:
         logger.error("Encaminhamento %s: paciente sem telefone; proposta não enviada", enc.get("id"))
         return False
-    try:
-        resposta = await whatsapp_client.enviar_template(
-            numero, mensagem["template"], mensagem["variaveis"], botoes=mensagem["botoes"])
-    except whatsapp_client.WhatsAppError as exc:
-        logger.error("Proposta do encaminhamento %s não saiu: %s", enc.get("id"), exc)
-        return False
+    envios = [principal] + ([alternativa] if alternativa else [])
+    duas = len(envios) == 2
+    saiu = []
+    for mensagem in envios:
+        try:
+            resposta = await whatsapp_client.enviar_template(
+                numero, mensagem["template"], mensagem["variaveis"], botoes=mensagem["botoes"])
+        except whatsapp_client.WhatsAppError as exc:
+            logger.error("Proposta do encaminhamento %s não saiu: %s", enc.get("id"), exc)
+            if mensagem is principal:
+                return False
+            if conversa is not None:
+                await _alertar_conversa(
+                    db, conversa, "encaminhamento: a 2ª opção de horário NÃO saiu, avisar à mão")
+            continue
+        saiu.append(mensagem)
+        if conversa is not None:
+            opcao = mensagem.get("opcao") or (1 if mensagem is principal else 2)
+            await conversation.registrar_mensagem_enviada(
+                db, conversa, texto_da_proposta(mensagem["variaveis"], opcao if duas else None),
+                origem="bot", tipo="template",
+                whatsapp_message_id=((resposta or {}).get("messages") or [{}])[0].get("id"))
     if conversa is not None:
-        wamid = ((resposta or {}).get("messages") or [{}])[0].get("id")
-        await conversation.registrar_mensagem_enviada(
-            db, conversa, texto_da_proposta(mensagem["variaveis"]),
-            origem="bot", tipo="template", whatsapp_message_id=wamid)
         if enc.get("id"):
             _marcar(conversa, CHAVE_PROPOSTA, int(enc["id"]))
             _marcar(conversa, CHAVE_RECUSA_SEM_MOTIVO, None)
+            _marcar(conversa, CHAVE_ESCOLHIDA, None)
+            _marcar(conversa, CHAVE_OPCOES, _descricao_das_opcoes(saiu) if len(saiu) == 2 else None)
+        if len(saiu) == 2:
+            await _avisar_duas_opcoes(db, conversa)
         await db.commit()
     return True
+
+
+def _descricao_das_opcoes(mensagens: list[dict]) -> dict[str, str]:
+    saida = {}
+    for indice, m in enumerate(mensagens, start=1):
+        variaveis = list(m.get("variaveis") or []) + ["", "", ""]
+        saida[str(m.get("opcao") or indice)] = f"{variaveis[1]}, {variaveis[2]}"
+    return saida
+
+
+async def _avisar_duas_opcoes(db: AsyncSession, conversa: Conversa) -> None:
+    """Dentro da janela de 24h, uma linha dizendo que são duas e que é para
+    escolher uma. Fora dela só template sai, e os dois já se explicam."""
+    from app.services import inicio_contato
+
+    if not inicio_contato.janela_aberta(await inicio_contato.janela_ate(db, conversa)):
+        return
+    try:
+        resposta = await whatsapp_client.enviar_texto(conversa.numero_whatsapp, TEXTO_DUAS_OPCOES)
+    except whatsapp_client.WhatsAppError as exc:
+        logger.warning("Aviso de duas opções não saiu: %s", exc)
+        return
+    await conversation.registrar_mensagem_enviada(
+        db, conversa, TEXTO_DUAS_OPCOES,
+        whatsapp_message_id=whatsapp_client.id_da_resposta(resposta))
+
+
+def opcoes_abertas(conversa: Conversa) -> dict[str, str]:
+    """As duas propostas que ainda esperam resposta (vazio se é uma só)."""
+    valor = (conversa.dados_coletados or {}).get(CHAVE_OPCOES)
+    return dict(valor) if isinstance(valor, dict) else {}
 
 
 # --- 3. Resposta do paciente -------------------------------------------------
@@ -412,12 +502,13 @@ def recusa_sem_motivo(conversa: Conversa) -> int | None:
 async def tratar_botao_paciente(db: AsyncSession, conversa: Conversa, codigo: str, enc_id: int) -> str:
     """Toque do paciente na proposta. Devolve o texto a responder a ele (a
     janela de 24h foi aberta pelo toque, então vai como texto livre)."""
-    _, texto = await _registrar_resposta_paciente(db, conversa, enc_id, codigo == "prop_sim")
+    _, texto = await _registrar_resposta_paciente(
+        db, conversa, enc_id, codigo.startswith("prop_sim"), opcao=opcao_do_botao(codigo))
     return texto
 
 
 async def responder_proposta_por_texto(
-    db: AsyncSession, conversa: Conversa, aceitou: bool, motivo: str = ""
+    db: AsyncSession, conversa: Conversa, aceitou: bool, motivo: str = "", opcao=None
 ) -> dict:
     """A resposta ESCRITA à proposta, pela ferramenta `responder_proposta`.
 
@@ -427,8 +518,16 @@ async def responder_proposta_por_texto(
     if enc_id is None:
         return {"status": "sem_proposta_aberta",
                 "orientacao": "Não há proposta de horário esperando resposta. Siga a conversa normalmente."}
+    abertas = opcoes_abertas(conversa)
+    # Com uma proposta só (ou uma só sobrando), o número não importa.
+    if len(abertas) < 2 or opcao not in (1, 2) or isinstance(opcao, bool):
+        opcao = None
+    if aceitou and opcao is None and len(abertas) >= 2:
+        return {"status": "escolher_opcao", "opcoes": abertas,
+                "orientacao": "Há duas opções e não ficou claro qual ela quer. Pergunte qual "
+                              "das duas, dizendo terapeuta e horário de cada."}
     situacao, texto = await _registrar_resposta_paciente(
-        db, conversa, enc_id, aceitou, (motivo or "").strip())
+        db, conversa, enc_id, aceitou, (motivo or "").strip(), opcao=opcao)
     orientacao = {
         "recusa_registrada": (
             "A recusa foi registrada e a equipe já foi avisada para procurar outro horário. "
@@ -441,9 +540,18 @@ async def responder_proposta_por_texto(
             "chegar, a pessoa recebe uma mensagem por aqui."
         ),
         "proposta_vencida": "Essa proposta não vale mais. Diga que a equipe vai mandar uma nova em breve.",
+        "opcao_descartada": (
+            "Só essa opção saiu; a outra continua reservada. Pergunte se a outra serve. "
+            "NÃO escale."),
+        "opcao_fechada": "Essa opção já tinha saído; a outra continua valendo. Pergunte se ela serve.",
+        "escolher_opcao": "Pergunte qual das duas opções ela prefere, dizendo terapeuta e horário de cada.",
+        "ja_escolheu": "Ela já tinha escolhido a outra opção, e é essa que vale. Diga isso numa frase.",
         "erro": "Não deu para registrar agora. Diga que recebeu e que a equipe confirma por aqui.",
     }[situacao]
-    return {"status": situacao, "texto_de_referencia": texto, "orientacao": orientacao}
+    resultado = {"status": situacao, "texto_de_referencia": texto, "orientacao": orientacao}
+    if situacao in ("escolher_opcao", "opcao_descartada", "opcao_fechada"):
+        resultado["opcoes"] = opcoes_abertas(conversa)
+    return resultado
 
 
 async def registrar_motivo_recusa_paciente(db: AsyncSession, conversa: Conversa, motivo: str) -> dict:
@@ -464,22 +572,45 @@ async def registrar_motivo_recusa_paciente(db: AsyncSession, conversa: Conversa,
 
 
 async def _registrar_resposta_paciente(
-    db: AsyncSession, conversa: Conversa, enc_id: int, aceitou: bool, motivo: str = ""
+    db: AsyncSession, conversa: Conversa, enc_id: int, aceitou: bool, motivo: str = "",
+    opcao: int | None = None,
 ) -> tuple[str, str]:
     """Botão ou texto, o mesmo caminho: registra no Hamilton e devolve
-    `(situação, texto para o paciente)`."""
+    `(situação, texto para o paciente)`. `opcao` é o número da proposta (1 ou
+    2) quando a equipe mandou duas."""
     cliente = hamilton_client.get_hamilton_client()
     try:
-        status, corpo = await cliente.responder_encaminhamento(enc_id, "paciente", aceitou, motivo)
+        status, corpo = await cliente.responder_encaminhamento(
+            enc_id, "paciente", aceitou, motivo, opcao=opcao)
     except hamilton_client.HamiltonError as exc:
         logger.error("Resposta do paciente ao encaminhamento %s não registrada: %s", enc_id, exc)
         await _alertar_conversa(db, conversa, "encaminhamento: resposta do paciente não registrada, conferir")
         return "erro", "Recebi! Nossa equipe vai confirmar e te responde por aqui."
+    aberta = proposta_aberta(conversa) == enc_id
+    if status == 409 and corpo.get("codigo") == "opcao":
+        return "escolher_opcao", TEXTO_QUAL_OPCAO
+    restantes = opcoes_abertas(conversa)
+    if status == 409 and aberta and restantes and str(opcao) not in restantes:
+        # A outra opção continua esperando: esta é que já tinha saído.
+        return "opcao_fechada", TEXTO_OPCAO_FECHADA
+    enc = corpo.get("encaminhamento") or {}
+    if status == 200 and not aceitou and enc.get("status") == "aguardando_paciente":
+        # Recusou uma das duas; a outra segue reservada esperando resposta.
+        restantes.pop(str(opcao), None)
+        _marcar(conversa, CHAVE_OPCOES, restantes or None)
+        return "opcao_descartada", TEXTO_OPCAO_DESCARTADA
     # Respondida (ou vencida/já respondida): a proposta não espera mais nada.
-    if proposta_aberta(conversa) == enc_id:
+    if aberta:
         _marcar(conversa, CHAVE_PROPOSTA, None)
+        _marcar(conversa, CHAVE_OPCOES, None)
     if status != 200:
+        escolhida = (conversa.dados_coletados or {}).get(CHAVE_ESCOLHIDA) or {}
+        if (opcao is not None and escolhida.get("enc") == enc_id
+                and escolhida.get("opcao") not in (None, opcao)):
+            return "ja_escolheu", TEXTO_JA_ESCOLHEU
         return "proposta_vencida", TEXTO_PROPOSTA_VENCIDA
+    if aceitou and opcao is not None:
+        _marcar(conversa, CHAVE_ESCOLHIDA, {"enc": enc_id, "opcao": opcao})
 
     enc = corpo.get("encaminhamento") or {}
     if not aceitou:

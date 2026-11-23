@@ -300,13 +300,31 @@ async def reservar_encaminhamento(
     dia_semana: int = Form(...),
     hora_inicio: str = Form(...),
     dat_primeira_sessao: str = Form(""),
+    alt_terapeuta_id: str = Form(""),
+    alt_dia_semana: str = Form(""),
+    alt_hora_inicio: str = Form(""),
+    alt_dat_primeira_sessao: str = Form(""),
 ):
     """A Thainá escolheu: o Hamilton segura o horário e a Sofia manda a
-    proposta ao paciente. O vínculo só é gravado no "Aceito" do terapeuta."""
+    proposta ao paciente. O vínculo só é gravado no "Aceito" do terapeuta.
+
+    Os campos `alt_*` são uma 2ª opção (opcional): o paciente recebe as duas
+    propostas e escolhe uma."""
+    alternativa = None
+    if alt_terapeuta_id.strip():
+        if not (alt_terapeuta_id.isdigit() and alt_dia_semana.isdigit() and alt_hora_inicio):
+            return RedirectResponse(f"/painel/encaminhamentos/{enc_id}?erro=dados", status_code=303)
+        alternativa = {
+            "terapeuta_id": int(alt_terapeuta_id),
+            "dia_semana": int(alt_dia_semana),
+            "hora_inicio": alt_hora_inicio,
+            "dat_primeira_sessao": alt_dat_primeira_sessao or None,
+        }
     cliente = hamilton_client.get_hamilton_client()
     try:
         status, corpo = await cliente.reservar_encaminhamento(
-            enc_id, terapeuta_id, dia_semana, hora_inicio, dat_primeira_sessao or None)
+            enc_id, terapeuta_id, dia_semana, hora_inicio, dat_primeira_sessao or None,
+            alternativa=alternativa)
     except hamilton_client.HamiltonError as exc:
         logger.error("Reserva do encaminhamento %s falhou: %s", enc_id, exc)
         return RedirectResponse("/painel/?aviso=hamilton", status_code=303)
