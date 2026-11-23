@@ -405,8 +405,11 @@ class TestTerapeutaResponde:
         assert "O atendimento de Maria Clara Souza já está registrado com você" in para_ela
         assert "em até 24 horas" in para_ela
         [para_paciente] = _textos_para(meta, PACIENTE)
-        assert para_paciente == encaminhamento.TEXTO_PACIENTE_CONFIRMADO.format(
-            terapeuta="Tácia Teste", quando="terça, 17/11, às 19h")
+        assert para_paciente == (
+            "Tudo certo! Tácia Teste confirmou o seu atendimento, e a primeira sessão é "
+            "terça, 17/11, às 19h. Antes disso, Tácia vai te chamar aqui no WhatsApp em até "
+            "24 horas para se apresentar e confirmar a sessão."
+        )
 
     @pytest.mark.asyncio
     async def test_toque_repetido_nao_responde_duas_vezes(self, sofia, hamilton, meta):

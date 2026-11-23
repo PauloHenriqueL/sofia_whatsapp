@@ -60,14 +60,24 @@ TEXTO_PACIENTE_NAO = (
 TEXTO_PROPOSTA_VENCIDA = (
     "Essa proposta não está mais valendo. Nossa equipe vai te mandar uma nova em breve."
 )
-# Sem marcar gênero ("quem vai te atender", não "o/a terapeuta") e com prazo:
-# sem ele o paciente fica esperando no escuro (decisão dos gestores, 18/11/2026).
+# Com prazo: sem ele o paciente fica esperando no escuro (decisão dos gestores,
+# 18/11/2026). Quem chama é dito pelo primeiro nome: "quem vai te atender" lia
+# como uma segunda pessoa (23/11), e "ele/ela" marcaria um gênero que o Hamilton
+# não informa.
 PRAZO_CONTATO_TERAPEUTA = "24 horas"
 TEXTO_PACIENTE_CONFIRMADO = (
     "Tudo certo! {terapeuta} confirmou o seu atendimento, e a primeira sessão é {quando}. "
-    "Antes disso, quem vai te atender vai te chamar aqui no WhatsApp em até "
-    f"{PRAZO_CONTATO_TERAPEUTA} para se apresentar e confirmar a primeira sessão."
+    "Antes disso, {primeiro_nome} vai te chamar aqui no WhatsApp em até "
+    f"{PRAZO_CONTATO_TERAPEUTA} para se apresentar e confirmar a sessão."
 )
+
+
+def texto_paciente_confirmado(terapeuta: str, quando: str) -> str:
+    nome = (terapeuta or "").strip()
+    primeiro = nome.split()[0] if nome else "quem vai te atender"
+    return TEXTO_PACIENTE_CONFIRMADO.format(
+        terapeuta=nome or "Quem vai te atender", quando=quando, primeiro_nome=primeiro
+    )
 # O paciente ouviu que vai ser chamado em até 24h: o terapeuta precisa saber disso.
 TEXTO_TERAPEUTA_ACEITO = (
     "Obrigado! O atendimento de {paciente} já está registrado com você no Hamilton, "
@@ -503,7 +513,7 @@ async def _avisar_paciente_confirmado(enc: dict) -> None:
     variaveis = ((enc.get("mensagens") or {}).get("paciente") or {}).get("variaveis") or []
     if len(variaveis) < 3:
         return
-    texto = TEXTO_PACIENTE_CONFIRMADO.format(terapeuta=variaveis[1], quando=variaveis[2])
+    texto = texto_paciente_confirmado(variaveis[1], variaveis[2])
     async with async_session() as db:
         conversa = await conversa_do_paciente(db, enc.get("paciente") or {})
         if conversa is None:
