@@ -89,20 +89,43 @@ TEXTO_JA_ESCOLHEU = (
 # 18/11/2026). Quem chama é dito pelo primeiro nome: "quem vai te atender" lia
 # como uma segunda pessoa (23/11), e "ele/ela" marcaria um gênero que o Hamilton
 # não informa.
+#
+# Depois do match a conversa com a Sofia fica parada até a 1ª sessão, e a
+# pessoa não sabia o que vinha (23/11): agora a mesma mensagem conta que a Sofia
+# volta depois da sessão (a pesquisa da 1ª sessão: como foi e se quer seguir com
+# o mesmo terapeuta) e que a mensalidade é acertada ali (a cobrança da Demanda D
+# só começa com a 1ª consulta realizada). Parceria não paga: sem essa frase.
 PRAZO_CONTATO_TERAPEUTA = "24 horas"
 TEXTO_PACIENTE_CONFIRMADO = (
     "Tudo certo! {terapeuta} confirmou o seu atendimento, e a primeira sessão é {quando}. "
     "Antes disso, {primeiro_nome} vai te chamar aqui no WhatsApp em até "
     f"{PRAZO_CONTATO_TERAPEUTA} para se apresentar e confirmar a sessão."
 )
+TEXTO_DEPOIS_DA_SESSAO = (
+    "Depois dessa primeira sessão, eu volto a falar com você por aqui pra saber como "
+    "foi e se você quer continuar com {primeiro_nome}."
+)
+TEXTO_MENSALIDADE_DEPOIS = (
+    " É nesse momento também que a gente acerta a mensalidade: nada é cobrado antes "
+    "da primeira sessão."
+)
+TEXTO_AGRADECIMENTO = (
+    "Obrigada por escolher a Allos! Se surgir qualquer dúvida até lá, é só me chamar aqui."
+)
 
 
-def texto_paciente_confirmado(terapeuta: str, quando: str) -> str:
+def texto_paciente_confirmado(terapeuta: str, quando: str, parceria: bool = False) -> str:
     nome = (terapeuta or "").strip()
     primeiro = nome.split()[0] if nome else "quem vai te atender"
-    return TEXTO_PACIENTE_CONFIRMADO.format(
-        terapeuta=nome or "Quem vai te atender", quando=quando, primeiro_nome=primeiro
-    )
+    depois = TEXTO_DEPOIS_DA_SESSAO.format(
+        primeiro_nome=primeiro if nome else "o mesmo terapeuta")
+    if not parceria:
+        depois += TEXTO_MENSALIDADE_DEPOIS
+    confirmado = TEXTO_PACIENTE_CONFIRMADO.format(
+        terapeuta=nome or "Quem vai te atender", quando=quando, primeiro_nome=primeiro)
+    return "\n\n".join([confirmado, depois, TEXTO_AGRADECIMENTO])
+
+
 # O paciente ouviu que vai ser chamado em até 24h: o terapeuta precisa saber disso.
 TEXTO_TERAPEUTA_ACEITO = (
     "Obrigado! O atendimento de {paciente} já está registrado com você no Hamilton, "
@@ -637,6 +660,14 @@ async def _registrar_resposta_paciente(
 
 # --- 4. Resposta do terapeuta ------------------------------------------------
 
+def _e_parceria(enc: dict, conversa: Conversa) -> bool:
+    """Paciente de parceria não paga mensalidade. Vale o que o Hamilton diz no
+    aviso ao terapeuta (valor 0,00) ou a marca do cadastro pela Sofia."""
+    variaveis = ((enc.get("mensagens") or {}).get("terapeuta") or {}).get("variaveis") or []
+    valor = str(variaveis[5]) if len(variaveis) > 5 else ""
+    return valor == "0,00" or bool((conversa.dados_coletados or {}).get("is_parceria"))
+
+
 async def _avisar_paciente_confirmado(enc: dict) -> None:
     """Conta ao paciente que deu certo. Texto livre: costuma estar dentro da
     janela aberta pelo toque dele em "Pode ser"; se não estiver, a Meta recusa
@@ -644,11 +675,11 @@ async def _avisar_paciente_confirmado(enc: dict) -> None:
     variaveis = ((enc.get("mensagens") or {}).get("paciente") or {}).get("variaveis") or []
     if len(variaveis) < 3:
         return
-    texto = texto_paciente_confirmado(variaveis[1], variaveis[2])
     async with async_session() as db:
         conversa = await conversa_do_paciente(db, enc.get("paciente") or {})
         if conversa is None:
             return
+        texto = texto_paciente_confirmado(variaveis[1], variaveis[2], _e_parceria(enc, conversa))
         try:
             resposta = await whatsapp_client.enviar_texto(conversa.numero_whatsapp, texto)
         except whatsapp_client.WhatsAppError as exc:

@@ -413,8 +413,25 @@ class TestTerapeutaResponde:
         assert para_paciente == (
             "Tudo certo! Tácia Teste confirmou o seu atendimento, e a primeira sessão é "
             "terça, 17/11, às 19h. Antes disso, Tácia vai te chamar aqui no WhatsApp em até "
-            "24 horas para se apresentar e confirmar a sessão."
+            "24 horas para se apresentar e confirmar a sessão.\n\n"
+            "Depois dessa primeira sessão, eu volto a falar com você por aqui pra saber como "
+            "foi e se você quer continuar com Tácia. É nesse momento também que a gente "
+            "acerta a mensalidade: nada é cobrado antes da primeira sessão.\n\n"
+            "Obrigada por escolher a Allos! Se surgir qualquer dúvida até lá, é só me chamar aqui."
         )
+
+    @pytest.mark.asyncio
+    async def test_aceito_de_parceria_nao_fala_de_mensalidade(self, sofia, hamilton, meta):
+        hamilton.status = "aguardando_terapeuta"
+        original = MENSAGENS["terapeuta"]["variaveis"][5]
+        MENSAGENS["terapeuta"]["variaveis"][5] = "0,00"
+        try:
+            await _toque(sofia, TACIA, "Aceito", "enc_aceito:42", "wamid.t1")
+        finally:
+            MENSAGENS["terapeuta"]["variaveis"][5] = original
+        [para_paciente] = _textos_para(meta, PACIENTE)
+        assert "continuar com Tácia" in para_paciente
+        assert "mensalidade" not in para_paciente
 
     @pytest.mark.asyncio
     async def test_toque_repetido_nao_responde_duas_vezes(self, sofia, hamilton, meta):
