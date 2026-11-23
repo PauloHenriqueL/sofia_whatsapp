@@ -316,6 +316,49 @@
   </div>
   {% endif %}
 
+  {# ── Mensagem programada: a Sofia manda numa data (services/programadas.py) ── #}
+  <div class="card datas-card" id="programar" style="margin:0 0 14px; padding:16px 18px">
+    <h2 style="font-size:16px; margin:0 0 4px"><i class="bi bi-alarm"></i> Mensagem programada</h2>
+    <div class="muted" style="font-size:12.5px; margin-bottom:10px">Pra quem só pode começar mais pra frente (férias, salário): a Sofia manda no dia e hora que você marcar, e segue a conversa quando a pessoa responder.</div>
+    {% if programada_aviso %}
+      <div class="aviso {{ 'aviso--erro' if programada_aviso.erro }}" style="margin-bottom:10px">
+        <i class="bi {{ 'bi-exclamation-triangle' if programada_aviso.erro else 'bi-check-circle' }}"></i>
+        {{ programada_aviso.texto }}
+      </div>
+    {% endif %}
+    {% for p in programadas %}
+      <div class="prog-item">
+        <div class="prog-topo">
+          <b>{{ p.quando }}</b>
+          <span class="badge {{ p.classe }}">{{ p.situacao }}</span>
+        </div>
+        <div class="prog-texto">{{ p.texto }}</div>
+        <div class="prog-rodape muted">
+          por {{ p.por }}{% if p.erro %} · último erro: {{ p.erro }}{% endif %}
+          {% if p.pendente %}
+          <form method="post" action="/painel/conversas/{{ conversa.id }}/programadas/{{ p.id }}/cancelar" style="display:inline">
+            <button class="btn btn-ghost btn-sm" type="submit">Cancelar</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    <form method="post" action="/painel/conversas/{{ conversa.id }}/programar" class="prog-form">
+      <div class="prog-quando">
+        <label class="prog-campo">Dia
+          <input class="input" type="date" name="dia" min="{{ hoje_brasilia }}" required>
+        </label>
+        <label class="prog-campo">Hora
+          <input class="input" type="time" name="hora" value="10:00" step="1800" required>
+        </label>
+      </div>
+      <textarea class="input" name="texto" rows="3" maxlength="1000" required
+                placeholder="Ex.: Oi, {{ ((conversa.dados_coletados or {}).get('nome_completo') or 'tudo bem').split()[0] }}! Como combinamos, passando pra gente deixar tudo pronto pra você começar a terapia. Ainda faz sentido pra você?"></textarea>
+      <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-alarm"></i> Programar</button>
+    </form>
+    <div class="muted" style="font-size:12px; margin-top:8px">Se a pessoa não tiver escrito nas 24h antes, o WhatsApp só deixa mandar o convite padrão da Allos. A Sofia retoma com este assunto quando ela responder.</div>
+  </div>
+
   {# ── Pagamento (Stripe): vínculo por referência + status ao vivo ─────── #}
   {% if stripe_configurado %}
   <div class="card datas-card" style="margin:0 0 14px; padding:16px 18px">

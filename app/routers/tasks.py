@@ -23,6 +23,7 @@ from app.services import (
     lembretes_terapeutas,
     pagamentos,
     pesquisa,
+    programadas,
     seguimento,
     stripe_client,
 )
@@ -131,4 +132,7 @@ async def disparar_lembretes_terapeutas(request: Request, db: AsyncSession = Dep
     # Mesma razão do encaminhamento para vir pendurada aqui. Confere aos poucos
     # quais conversas antigas são de terapeuta (ver services/contato.py).
     resultado["contatos"] = await contato.conferir(db)
+    # Mensagens que a equipe (ou a Sofia) programou para uma data. Aqui pelo
+    # mesmo motivo: é o cron de 30 em 30 minutos que existe de verdade.
+    resultado["programadas"] = await programadas.rodar(db)
     return resultado

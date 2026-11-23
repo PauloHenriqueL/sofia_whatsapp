@@ -57,7 +57,7 @@ que fazer com o painel de pagamentos do site.
   `POST /tasks/cobrancas` e **`POST /tasks/stripe`** (diário; encerra o parcelado
   do neuro na última parcela — sem ele a assinatura cobra pra sempre, e isso já
   aconteceu com 18 pacientes). **Sem cron, nada sai.**
-- `alembic upgrade head` (head atual: **`c7e1f5a20b48`**).
+- `alembic upgrade head` (head atual: **`b5d3f8e2a6c1`**).
 
 ### 2. Modelo da tabela de avaliação + planilha de qualidade
 📄 [`docs/demandas/02-modelo-de-avaliacao.md`](docs/demandas/02-modelo-de-avaliacao.md)
@@ -607,6 +607,26 @@ ainda a tratava como lead.
   conversa) adota a outra forma.
 - Só para quem deu o número para a Allos. Prospecção fria ficou fora de escopo: o
   número é o mesmo da Sofia, e denúncia de spam derruba o limite de envio de tudo.
+
+### Mensagem programada (`programadas.py`, tabela `mensagem_programada`) — 23/11/2026
+- Pedido da Thainá: quem diz "só posso começar dia 20" (férias, salário) sumia,
+  porque ninguém lembrava de voltar. Agora a equipe programa na conversa (card
+  "Mensagem programada": dia, hora de Brasília, texto) e a Sofia também, pela
+  ferramenta `programar_retomada`, quando combina "te chamo dia 20".
+- Dispara no cron `/tasks/lembretes-terapeutas` (30 em 30 min), não num novo.
+- **Janela de 24h:** aberta → sai o texto; fechada → sai o template de início
+  de contato (`template_inicio_contato`) e o texto vira **nota** que a Sofia
+  recebe no turno em que a pessoa responder (`nota_de_retomada`, uma vez só,
+  vale 3 dias). O histórico só guarda o convite: texto entre colchetes ali
+  viraria eco do modelo.
+- **Não assume a conversa** (diferente de "Iniciar contato"): quem responde é a
+  Sofia, ou quem já estava atendendo em modo humano.
+- Falha de envio tenta 3 vezes e alerta a equipe na última. A programada pela
+  Sofia é cancelada no disparo se a pessoa já foi cadastrada; a da equipe sai sempre.
+- O prompt ganhou "Quando a pessoa trava" (Fase 2): perguntar o que impede,
+  resolver o motivo (dinheiro → 1ª sessão gratuita; data → cadastro agora com a
+  data nas observações), e só então combinar a retomada. "Pensar um pouco" não é
+  mais oferecido como opção.
 
 ### Aviso único pós-escalada (`escalation.AVISO_EM_ATENDIMENTO`) — Demanda B
 - Escalar deixa a conversa em modo humano e a Sofia **ficava totalmente muda**: quem escrevia
@@ -1277,6 +1297,7 @@ sofia/
 │   │   ├── pesquisa.py       # Pesquisa de satisfação (polling, condução, extração)
 │   │   ├── cobranca.py       # Cobrança da mensalidade pós-1ª sessão (Demanda D)
 │   │   ├── links.py          # Encurtador dos links de pagamento (allos.org.br/p/...)
+│   │   ├── programadas.py    # Mensagem programada: a Sofia manda numa data marcada
 │   │   ├── pagamentos.py     # Regra do Stripe (links, assinaturas, status unificado)
 │   │   ├── stripe_client.py  # Wrapper REST do Stripe (httpx puro, form-encoded)
 │   │   └── painel.py         # Queries/ações do painel da Thainá

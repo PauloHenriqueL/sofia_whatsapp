@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.config import settings
-from app.models import Conversa, Escalada, Mensagem, Midia
+from app.models import Conversa, Escalada, Mensagem, MensagemProgramada, Midia
 from app.services import conversation, escalation, whatsapp_client
 
 logger = logging.getLogger(__name__)
@@ -448,6 +448,9 @@ async def excluir_conversa(db: AsyncSession, conversa: Conversa) -> None:
     msgs = select(Mensagem.id).where(Mensagem.conversa_id == conversa.id)
     await db.execute(delete(Midia).where(Midia.mensagem_id.in_(msgs)))
     await db.execute(delete(Mensagem).where(Mensagem.conversa_id == conversa.id))
+    await db.execute(
+        delete(MensagemProgramada).where(MensagemProgramada.conversa_id == conversa.id)
+    )
     await db.execute(delete(Escalada).where(Escalada.conversa_id == conversa.id))
     await db.execute(delete(Conversa).where(Conversa.id == conversa.id))
     await db.commit()

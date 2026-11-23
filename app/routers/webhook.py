@@ -28,6 +28,7 @@ from app.services import (
     llm_client,
     midia,
     pesquisa,
+    programadas,
     saida,
     serializacao,
     status_entrega,
@@ -208,6 +209,11 @@ async def processar_turno_bot(session, conversa) -> str | None:
         ]
     # Origens do Hamilton: o modelo escolhe uma delas no cadastro em vez de
     # descrever a origem por escrito (ver services/captacao.py).
+    # A pessoa respondeu ao convite de uma mensagem programada que saiu como
+    # template (janela fechada): o modelo recebe o assunto que ela tinha.
+    retomada = await programadas.nota_de_retomada(session, conversa)
+    if retomada:
+        historico = [*historico, {"role": "system", "content": retomada}]
     captacoes = await captacao.listar()
     try:
         resp = await llm_client.get_llm_client().gerar_resposta(
@@ -306,6 +312,8 @@ async def _executar_tool(session, conversa, tc: llm_client.ToolCall) -> dict:
             session, conversa, bool(tc.arguments.get("aceitou")), tc.arguments.get("motivo") or "",
             opcao=tc.arguments.get("opcao"),
         )
+    if tc.name == tools.PROGRAMAR_RETOMADA:
+        return await programadas.programar_pela_sofia(session, conversa, tc.arguments or {})
     if tc.name == tools.REGISTRAR_MOTIVO_RECUSA:
         return await encaminhamento.registrar_motivo_recusa_paciente(
             session, conversa, tc.arguments.get("motivo") or ""

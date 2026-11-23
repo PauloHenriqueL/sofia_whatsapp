@@ -753,3 +753,14 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
   border:1px solid var(--border, #d9e2e0); font-weight:500; color:var(--text-secondary); cursor:pointer;
 }
 .contato-form .tipo-escolha input:checked + span { color:var(--teal-600); font-weight:600; }
+
+/* Mensagem programada (card da conversa) */
+.prog-item { border:1px solid var(--border-default); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+.prog-topo { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13.5px; }
+.prog-texto { font-size:13.5px; margin:6px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.prog-rodape { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; }
+.prog-form { display:flex; flex-direction:column; gap:8px; }
+.prog-quando { display:flex; gap:8px; }
+.prog-campo { display:flex; flex-direction:column; gap:4px; flex:1; font-size:12.5px; font-weight:600; color:var(--text-secondary); }
+.prog-campo .input { width:100%; }
+.prog-form .btn { align-self:flex-start; }

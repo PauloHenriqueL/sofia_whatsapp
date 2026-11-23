@@ -7,6 +7,7 @@ turno (router webhook) e nos serviços (escalation; Hamilton entra no Passo 6).
 CADASTRAR_PACIENTE = "cadastrar_paciente"
 ESCALAR_PARA_THAINA = "escalar_para_thaina"
 OFERECER_DESCONTO = "oferecer_desconto"
+PROGRAMAR_RETOMADA = "programar_retomada"
 REGISTRAR_RESPOSTA_PESQUISA = "registrar_resposta_pesquisa"
 REGISTRAR_FORMA_PAGAMENTO = "registrar_forma_pagamento"
 RESPONDER_PROPOSTA = "responder_proposta"
@@ -267,6 +268,37 @@ TOOLS = [
                     },
                 },
                 "required": ["motivo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": PROGRAMAR_RETOMADA,
+            "description": (
+                "Programar você mesma uma mensagem para a pessoa numa data futura. Use quando "
+                "ela disser que só consegue começar a partir de um dia (férias, salário, "
+                "viagem) E não quiser deixar o cadastro pronto agora, e ela topar que você "
+                "chame nesse dia. Pergunte antes: 'posso te chamar no dia 20?'. Não use pra "
+                "quem já está cadastrado nem pra adiar o que dá pra fazer hoje."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "description": "O dia combinado, AAAA-MM-DD (depois de hoje).",
+                    },
+                    "mensagem": {
+                        "type": "string",
+                        "description": (
+                            "O que você vai dizer nesse dia, curto e pelo nome dela, "
+                            "retomando o combinado. Ex.: 'Oi, Ana! Como combinamos, passando "
+                            "pra gente deixar tudo pronto pra você começar a terapia.'"
+                        ),
+                    },
+                },
+                "required": ["data", "mensagem"],
             },
         },
     },

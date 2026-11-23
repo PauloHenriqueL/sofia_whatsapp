@@ -21,7 +21,7 @@ from app.services import (
 )
 from app.services import encaminhamento as encaminhamento_service
 from app.services import hoje as hoje_service
-from app.services import inicio_contato, metricas, midia, painel, usuarios, whatsapp_client
+from app.services import inicio_contato, metricas, midia, painel, programadas, usuarios, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -637,10 +637,12 @@ async def pagina_conversa(
     pagamento: str = "",
     contato: str = "",
     de: str = "",
+    programada: str = "",
     db: AsyncSession = Depends(get_db),
 ):
     """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect).
-    `de=terapeutas`: aberta pela aba Terapeutas, o "voltar" leva pra lá."""
+    `de=terapeutas`: aberta pela aba Terapeutas, o "voltar" leva pra lá.
+    `programada=`: resultado de programar/cancelar mensagem (código, nunca texto)."""
     from app.services import cobranca as cobranca_service
     from app.services import pagamentos as pagamentos_service
     from app.services import stripe_client
@@ -682,8 +684,91 @@ async def pagina_conversa(
             "janela_aberta": inicio_contato.janela_aberta(janela_ate),
             "template_inicio": inicio_contato.template_configurado(),
             "contato_aviso": AVISOS_CONTATO.get(contato_msg),
+            "programadas": [
+                _programada_na_tela(p) for p in await programadas.da_conversa(db, conversa)
+            ],
+            "programada_aviso": _aviso_programada(programada),
+            "hoje_brasilia": programadas.em_brasilia(programadas.agora_utc()).date().isoformat(),
         },
     )
+
+
+def _programada_na_tela(p) -> dict:
+    quando = programadas.em_brasilia(p.enviar_em)
+    if p.cancelada_em is not None:
+        situacao, classe = "Cancelada", ""
+    elif p.enviada_em is not None:
+        situacao = "Enviada" if p.enviada_como == "texto" else "Enviada como convite"
+        classe = "badge-cadastrado"
+    elif p.tentativas and p.tentativas >= programadas.TENTATIVAS_MAXIMAS:
+        situacao, classe = "Não saiu", "badge-escalado"
+    else:
+        situacao, classe = "Programada", "badge-humano"
+    return {
+        "id": p.id,
+        "quando": f"{quando:%d/%m/%Y} às {quando:%H:%M}",
+        "texto": p.texto,
+        "por": "a Sofia" if p.criada_por == programadas.SOFIA else p.criada_por,
+        "situacao": situacao,
+        "classe": classe,
+        "pendente": p.enviada_em is None and p.cancelada_em is None,
+        "erro": p.erro if p.enviada_em is None else None,
+    }
+
+
+def _aviso_programada(codigo: str) -> dict | None:
+    if codigo == "ok":
+        return {"erro": False, "texto": "Mensagem programada. A Sofia manda no dia e hora marcados."}
+    if codigo == "cancelada":
+        return {"erro": False, "texto": "Mensagem programada cancelada."}
+    if codigo in programadas.ERROS:
+        return {"erro": True, "texto": programadas.ERROS[codigo]}
+    return None
+
+
+@router.post("/conversas/{conversa_id}/programar")
+async def programar_mensagem(
+    conversa_id: int,
+    request: Request,
+    dia: str = Form(""),
+    hora: str = Form(""),
+    texto: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """A equipe programa uma mensagem para a Sofia mandar numa data
+    (services/programadas.py). Data e hora são de Brasília."""
+    from datetime import date as _date
+    from datetime import time as _time
+
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    destino = f"/painel/conversas/{conversa_id}/?programada="
+    try:
+        quando = programadas.de_brasilia(
+            _date.fromisoformat(dia), _time.fromisoformat(hora) if hora else None)
+    except ValueError:
+        return RedirectResponse(destino + "data#programar", status_code=303)
+    try:
+        await programadas.programar(
+            db, conversa, texto, quando, request.session.get("usuario") or "equipe")
+    except programadas.ProgramacaoInvalida as exc:
+        return RedirectResponse(destino + exc.codigo + "#programar", status_code=303)
+    await db.commit()
+    return RedirectResponse(destino + "ok#programar", status_code=303)
+
+
+@router.post("/conversas/{conversa_id}/programadas/{programada_id}/cancelar")
+async def cancelar_programada(
+    conversa_id: int, programada_id: int, db: AsyncSession = Depends(get_db)
+):
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    if await programadas.cancelar(db, conversa, programada_id):
+        await db.commit()
+    return RedirectResponse(
+        f"/painel/conversas/{conversa_id}/?programada=cancelada#programar", status_code=303)
 
 
 # O que a tela da conversa diz depois de iniciar contato (`?contato=`).

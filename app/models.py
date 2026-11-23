@@ -337,3 +337,44 @@ class Usuario(Base):
     # Revoga o acesso ao painel sem apagar o histórico de quem criou o quê.
     ativo: Mapped[bool] = mapped_column(default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MensagemProgramada(Base):
+    """Uma mensagem que a Sofia manda sozinha numa data marcada.
+
+    Pedido da Thainá (23/11/2026): o paciente diz "só consigo começar dia 20"
+    (férias, salário) e a conversa morre ali, porque ninguém lembra de voltar
+    nele no dia 20. Agora a equipe programa na conversa — ou a própria Sofia,
+    pela ferramenta `programar_retomada`, quando combina com a pessoa — e o cron
+    (`/tasks/lembretes-terapeutas`, a cada 30 min) dispara.
+
+    **Janela de 24h da Meta.** No dia marcado quase nunca há janela aberta, e
+    fora dela só sai template. Então: janela aberta → sai o `texto`; fechada →
+    sai o template de início de contato (`template_inicio_contato`), e o `texto`
+    vira a nota que a Sofia recebe quando a pessoa responder (`retomada_*`), pra
+    ela retomar dali. Quem responde é a Sofia; a conversa não muda de modo.
+    """
+
+    __tablename__ = "mensagem_programada"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversa_id: Mapped[int] = mapped_column(
+        ForeignKey("conversa.id", ondelete="CASCADE"), index=True
+    )
+    texto: Mapped[str] = mapped_column(Text)
+    enviar_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Quem programou: username do painel, ou "sofia" quando foi a ferramenta.
+    criada_por: Mapped[str] = mapped_column(String(50))
+    criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    enviada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "texto" (janela aberta) ou "template" (janela fechada).
+    enviada_como: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    cancelada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Última falha de envio (o cron tenta de novo na rodada seguinte).
+    erro: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Saiu como template: quando a pessoa responder, a Sofia recebe o `texto`
+    # como contexto uma vez só. Preenchido quando isso acontece.
+    retomada_usada_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
