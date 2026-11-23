@@ -1,5 +1,9 @@
 """Testes do cliente Hamilton (funções puras de normalização/mapeamento)."""
 
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from app.services import hamilton_client
 
 
@@ -93,3 +97,60 @@ class TestMapearDados:
         )
         assert "Mensalidade" not in payload.get("observacao", "")
         assert "Motivo: neuroavaliação, suspeita de TDAH" in payload["observacao"]
+
+
+class TestTelefoneInternacional:
+    """Brasileiro sem DDI, estrangeiro com + e DDI (o formato do Hamilton)."""
+
+    @pytest.mark.parametrize(
+        "digitado,esperado",
+        [
+            ("+351 912 345 678", "+351912345678"),
+            ("00351912345678", "+351912345678"),
+            ("+55 (31) 99999-8888", "31999998888"),
+            # Sem "+", não vira estrangeiro: um BR com dígito a mais seria Holanda.
+            ("319999988881", "319999988881"),
+        ],
+    )
+    def test_normalizar_digitado(self, digitado, esperado):
+        assert hamilton_client.normalizar_telefone(digitado) == esperado
+
+    @pytest.mark.parametrize(
+        "wa_id,esperado",
+        [
+            ("5531999998888", "31999998888"),
+            ("553199998888", "3199998888"),
+            ("351912345678", "+351912345678"),
+            ("14155551234", "+14155551234"),  # EUA: o WhatsApp sempre manda DDI
+        ],
+    )
+    def test_numero_do_whatsapp(self, wa_id, esperado):
+        assert hamilton_client.telefone_do_whatsapp(wa_id) == esperado
+
+    @pytest.mark.parametrize(
+        "telefone,esperado",
+        [
+            ("31999998888", "5531999998888"),
+            ("+351912345678", "351912345678"),
+            ("351912345678", None),
+            ("", None),
+        ],
+    )
+    def test_para_wa_id(self, telefone, esperado):
+        assert hamilton_client.para_wa_id(telefone) == esperado
+
+    def test_valido(self):
+        assert hamilton_client.telefone_valido("31999998888")
+        assert hamilton_client.telefone_valido("+351912345678")
+        assert not hamilton_client.telefone_valido("+5531999998888")
+        assert not hamilton_client.telefone_valido("351912345678")
+
+    @pytest.mark.asyncio
+    async def test_busca_codifica_o_mais(self):
+        cliente = hamilton_client.HamiltonClient.__new__(hamilton_client.HamiltonClient)
+        resposta = MagicMock(status_code=200)
+        resposta.json.return_value = []
+        cliente._request = AsyncMock(return_value=resposta)
+        await cliente.buscar_paciente_por_telefone("+351 912 345 678")
+        _, kwargs = cliente._request.await_args
+        assert kwargs["params"] == {"telefone": "+351912345678"}

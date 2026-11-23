@@ -1440,7 +1440,7 @@ async def _conversa_do_paciente(db: AsyncSession, avaliacao: dict) -> Conversa |
     if not telefone:
         return None
     for conversa in (await db.execute(select(Conversa))).scalars().all():
-        if hamilton_client.normalizar_telefone(conversa.numero_whatsapp) == telefone:
+        if hamilton_client.telefone_do_whatsapp(conversa.numero_whatsapp) == telefone:
             return conversa
     return None
 

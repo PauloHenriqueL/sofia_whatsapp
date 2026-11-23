@@ -611,6 +611,34 @@ ainda a tratava como lead.
   (em modo humano ela não pode retomar o fluxo nem escrever por cima da Thainá). Repetir a
   cada mensagem seria pior que o silêncio. `aviso_escalada_em` é zerado ao devolver ao bot.
 
+### Dados antes de escalar (`escalation.faltam_dados`) — 23/11/2026
+- Em 23/11 a pessoa escreveu "quero falar com uma pessoa, não com um robô" e a Sofia
+  escalou na hora, sem pedir nem o nome. O prompt já mandava pedir os dados; o modelo
+  leu o pedido de humano como recusa. **A regra saiu do prompt e foi para o código.**
+- A 1ª chamada de `escalar_para_thaina` com nome completo, nascimento ou horários
+  faltando **não escala**: devolve `faltam_dados`, o modelo pede, e a escalada fica
+  pendente em `dados_coletados["escalada_pendente"]` (vale 24h). No turno seguinte
+  ela **sempre** sai: pelo modelo (avisado por nota de sistema) ou, se ele esquecer,
+  por `cumprir_pendente`. "Uma tentativa só" é garantia de código.
+- A rede `garantir_escalada_prometida` passa por `rede_de_promessa`: promessa sem
+  tool e sem dados vira o pedido fixo (a frase da promessa sai da fala).
+- **Não esperam:** crise, menor de 11, `recusou_passar_dados=true`, paciente já
+  cadastrado, conversa de terapeuta e **sinal de crise nas 3 últimas falas** (a
+  heurística do debounce: errar para o lado de escalar sem dados é o seguro).
+- Os campos que vêm na tool vão para a ficha (`guardar_dados_da_escalada`,
+  allowlist). Assumir pelo painel limpa a pendente.
+
+### Telefone de fora do Brasil (`hamilton_client.normalizar_telefone`) — 23/11/2026
+- No Hamilton, o brasileiro continua **sem DDI** (`31988553344`) e o estrangeiro é
+  guardado **com `+` e DDI** (`+351912345678`). O `+` é o que separa: sem ele um
+  celular dos EUA (11 dígitos) seria igual a um brasileiro.
+- Três funções, porque a origem do número decide: `normalizar_telefone` (digitado ou
+  do Hamilton; só vira estrangeiro com `+`/`00` explícito), `telefone_do_whatsapp`
+  (wa_id, que **sempre** tem DDI) e `para_wa_id` (Hamilton → número de envio).
+- A busca manda o telefone em `params=` — na URL crua o `+` chega como espaço.
+- **Fora do escopo:** "Novo contato" no painel (`inicio_contato.normalizar_numero_br`)
+  continua só para celular brasileiro.
+
 ### Pesquisa de satisfação (`pesquisa.py`) — Demanda C
 Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals.py` do Hamilton:
 - **A Sofia puxa, o Hamilton não empurra.** Os signals do Hamilton **já criavam** a `Avaliacao`

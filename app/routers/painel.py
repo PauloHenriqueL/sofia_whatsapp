@@ -102,8 +102,17 @@ def _fmt_data_unix(ts):
 
 
 def _fmt_telefone(numero) -> str:
-    """5531988887777 -> (31) 98888-7777. O que não parecer celular BR sai como veio."""
-    digitos = "".join(c for c in str(numero or "") if c.isdigit())
+    """5531988887777 -> (31) 98888-7777; de fora do Brasil, + e DDI.
+
+    Recebe o número da conversa (DDI sem "+": "351912345678") ou o do Hamilton
+    ("+351912345678"). O que não parecer telefone sai como veio.
+    """
+    bruto = str(numero or "").strip()
+    digitos = "".join(c for c in bruto if c.isdigit())
+    if bruto.startswith("+") and not digitos.startswith("55"):
+        return f"+{digitos}"
+    if not digitos.startswith("55") and 12 <= len(digitos) <= 15:
+        return f"+{digitos}"
     if digitos.startswith("55") and len(digitos) in (12, 13):
         digitos = digitos[2:]
     if len(digitos) == 11:

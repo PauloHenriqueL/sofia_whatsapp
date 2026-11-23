@@ -145,10 +145,6 @@ def texto_da_proposta(variaveis: list[str]) -> str:
     )
 
 
-def _so_digitos(numero: str | None) -> str:
-    return re.sub(r"\D", "", numero or "")
-
-
 async def conversa_do_paciente(db: AsyncSession, paciente: dict) -> Conversa | None:
     """A conversa do paciente: pela ficha do Hamilton e, se não achar, pelo
     telefone (o Hamilton guarda sem DDI; o WhatsApp manda com 55)."""
@@ -163,7 +159,7 @@ async def conversa_do_paciente(db: AsyncSession, paciente: dict) -> Conversa | N
     if not telefone:
         return None
     for conversa in (await db.execute(select(Conversa))).scalars().all():
-        if hamilton_client.normalizar_telefone(conversa.numero_whatsapp) == telefone:
+        if hamilton_client.telefone_do_whatsapp(conversa.numero_whatsapp) == telefone:
             return conversa
     return None
 
@@ -329,8 +325,8 @@ async def propor_ao_paciente(db: AsyncSession, enc: dict) -> bool:
     conversa = await conversa_do_paciente(db, paciente)
     numero = conversa.numero_whatsapp if conversa else None
     if not numero:
-        digitos = _so_digitos(paciente.get("telefone"))
-        numero = f"55{digitos}" if len(digitos) in (10, 11) else None
+        # Brasileiro ganha o 55; estrangeiro (+DDI) perde o "+".
+        numero = hamilton_client.para_wa_id(paciente.get("telefone"))
     if not numero:
         logger.error("Encaminhamento %s: paciente sem telefone; proposta não enviada", enc.get("id"))
         return False

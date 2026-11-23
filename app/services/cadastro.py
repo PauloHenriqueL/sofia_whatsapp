@@ -5,7 +5,6 @@ quando a IA não coletou um número de verdade) e faz busca-antes-de-criar.
 """
 
 import logging
-import re
 import unicodedata
 from datetime import datetime, timezone
 
@@ -49,11 +48,19 @@ def _match_por_nome(existentes: list[dict], nome: str | None) -> dict | None:
 
 def _garantir_telefone(conversa: Conversa, dados: dict) -> dict:
     """Se o telefone de contato coletado for inválido/placeholder, usa o número
-    do WhatsApp de onde o paciente está falando (sempre temos esse)."""
+    do WhatsApp de onde o paciente está falando (sempre temos esse).
+
+    Válido = brasileiro (10/11 dígitos) ou estrangeiro com + e DDI. O número do
+    WhatsApp vai já na forma do Hamilton: ele tem DDI, e só aqui dá pra saber
+    que "351912345678" é de Portugal (digitado, seria um número inválido)."""
     dados = dict(dados or {})
     tel = hamilton_client.normalizar_telefone(dados.get("telefone_contato"))
-    if not re.fullmatch(r"\d{10,11}", tel or ""):
-        dados["telefone_contato"] = conversa.numero_whatsapp
+    if not hamilton_client.telefone_valido(tel):
+        wa_id = conversa.numero_whatsapp
+        # Brasileiro vai cru, como sempre foi (o cliente tira o 55 no envio);
+        # estrangeiro ganha o "+", sem o qual o Hamilton não o reconhece.
+        brasileiro = hamilton_client.telefone_valido(hamilton_client.normalizar_telefone(wa_id))
+        dados["telefone_contato"] = wa_id if brasileiro else hamilton_client.telefone_do_whatsapp(wa_id)
     return dados
 
 

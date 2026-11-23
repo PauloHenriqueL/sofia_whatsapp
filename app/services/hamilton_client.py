@@ -28,12 +28,68 @@ class HamiltonError(Exception):
     """Falha ao falar com a API do Hamilton."""
 
 
+# Formato do telefone no Hamilton (desde 11/2026, ver principais/telefones.py lá):
+# brasileiro sem DDI ("31988553344"), de fora do Brasil com + e DDI
+# ("+351912345678"). É o "+" que separa: sem ele, um celular dos EUA (11 dígitos)
+# seria indistinguível de um brasileiro.
+TELEFONE_BR = re.compile(r"\d{10,11}")
+TELEFONE_INTERNACIONAL = re.compile(r"\+(?!55)[1-9]\d{7,14}")
+
+
 def normalizar_telefone(numero: str | None) -> str:
-    """Mantém só dígitos e remove o DDI 55 quando presente (5531... -> 31...)."""
-    digits = re.sub(r"\D", "", numero or "")
-    if len(digits) > 11 and digits.startswith("55"):
+    """Telefone DIGITADO (ou vindo do Hamilton) na forma do Hamilton.
+
+    "5531..." / "+55 31 ..." / "(31) 9..." -> "31..."; "+351 912..." / "00351..."
+    -> "+351912...". Só vira estrangeiro com "+" ou "00" explícito: um número
+    brasileiro com um dígito a mais não pode virar, em silêncio, um telefone da
+    Holanda. O que não se encaixa sai como dígitos, e quem chama decide.
+
+    Número do WhatsApp (que sempre tem DDI, sem "+") usa `telefone_do_whatsapp`.
+    """
+    bruto = (numero or "").strip()
+    digits = re.sub(r"\D", "", bruto)
+    if not digits:
+        return ""
+    com_ddi = bruto.startswith("+") or bruto.startswith("00")
+    if bruto.startswith("00"):
         digits = digits[2:]
-    return digits
+    if digits.startswith("55") and len(digits) in (12, 13):
+        return digits[2:]
+    return f"+{digits}" if com_ddi else digits
+
+
+def telefone_do_whatsapp(wa_id: str | None) -> str:
+    """O número de uma conversa (wa_id: DDI + número, sem "+") na forma do Hamilton.
+
+    "5531988553344" -> "31988553344"; "351912345678" -> "+351912345678". Aqui
+    não há ambiguidade: o WhatsApp sempre manda o DDI.
+    """
+    digits = re.sub(r"\D", "", wa_id or "")
+    if not digits:
+        return ""
+    if digits.startswith("55") and len(digits) in (12, 13):
+        return digits[2:]
+    return f"+{digits}"
+
+
+def telefone_valido(telefone: str | None) -> bool:
+    """Está numa das duas formas que o Hamilton aceita?"""
+    t = telefone or ""
+    return bool(TELEFONE_BR.fullmatch(t) or TELEFONE_INTERNACIONAL.fullmatch(t))
+
+
+def para_wa_id(telefone: str | None) -> str | None:
+    """Telefone do Hamilton -> número de envio do WhatsApp (DDI, sem "+").
+
+    "31988553344" -> "5531988553344"; "+351912345678" -> "351912345678".
+    Inválido -> None.
+    """
+    t = normalizar_telefone(telefone)
+    if TELEFONE_BR.fullmatch(t):
+        return f"55{t}"
+    if TELEFONE_INTERNACIONAL.fullmatch(t):
+        return t[1:]
+    return None
 
 
 def _itens_intake(dados: dict[str, Any]) -> list[str]:
@@ -207,7 +263,9 @@ class HamiltonClient:
         tel = normalizar_telefone(telefone)
         if not tel:
             return []
-        resp = await self._request("GET", f"/api/v1/pacientes/buscar/?telefone={tel}")
+        # `params` codifica o "+" do número estrangeiro (%2B); na URL crua ele
+        # chegaria ao Hamilton como espaço.
+        resp = await self._request("GET", "/api/v1/pacientes/buscar/", params={"telefone": tel})
         if resp.status_code != 200:
             raise HamiltonError(f"Busca de paciente falhou ({resp.status_code})")
         data = resp.json()

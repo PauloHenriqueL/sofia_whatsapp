@@ -566,6 +566,16 @@ class TestProposta:
             assert await encaminhamento.propor_ao_paciente(s, enc)
         assert _templates(meta)[0]["to"] == "5531977776666"
 
+    @pytest.mark.asyncio
+    async def test_ficha_de_paciente_de_fora_do_brasil(self, sofia, hamilton, meta):
+        """O Hamilton guarda "+351..."; o WhatsApp quer DDI sem "+". Antes virava
+        "55+351..." descartado e a proposta não saía."""
+        enc = _enc("aguardando_paciente")
+        enc["paciente"] = {"id": 998, "nome": "Ana", "telefone": "+351912345678"}
+        async with sofia.banco() as s:
+            assert await encaminhamento.propor_ao_paciente(s, enc)
+        assert _templates(meta)[0]["to"] == "351912345678"
+
 
 async def _logar(cliente, maker):
     from app.services import usuarios

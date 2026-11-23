@@ -159,3 +159,18 @@ class TestCadastrarPaciente:
             res = await cadastro.cadastrar_paciente(session, c)
         assert res["status"] == "cadastro_pendente"
         assert c.estado == "cadastro_pendente"
+
+
+class TestTelefoneEstrangeiro:
+    """Paciente de fora do Brasil: antes o Hamilton recusava e virava cadastro_pendente."""
+
+    def test_fallback_do_whatsapp_estrangeiro_ganha_mais(self):
+        c = Conversa(numero_whatsapp="351912345678")
+        dados = cadastro._garantir_telefone(c, {})
+        assert dados["telefone_contato"] == "+351912345678"
+
+    def test_estrangeiro_digitado_com_mais_e_mantido(self):
+        c = Conversa(numero_whatsapp="553199998888")
+        dados = cadastro._garantir_telefone(c, {"telefone_contato": "+351 912 345 678"})
+        assert dados["telefone_contato"] == "+351 912 345 678"
+        assert hamilton_client.normalizar_telefone(dados["telefone_contato"]) == "+351912345678"
