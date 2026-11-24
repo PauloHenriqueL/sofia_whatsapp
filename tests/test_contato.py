@@ -282,11 +282,30 @@ async def _botao_de(cliente, numero, payload, wamid):
 
 
 class TestModoTeste:
-    """17/11/2026: a equipe testando o fluxo de paciente pelo próprio celular."""
+    """17/11/2026: a equipe testando o fluxo de paciente pelo próprio celular.
+
+    Desde 24/11 vale só para os números da lista (`numeros_modo_teste`).
+    """
 
     @pytest.fixture(autouse=True)
     def _modo_teste(self):
-        config_negocio._cache["terapeutas_como_pacientes"] = True
+        # A Tácia, escrita como alguém digita no painel e sem o nono dígito.
+        config_negocio._cache["numeros_modo_teste"] = "(31) 8855-3344, (31) 90000-0000"
+        yield
+        config_negocio._cache["numeros_modo_teste"] = ""
+
+    @pytest.mark.asyncio
+    async def test_terapeuta_fora_da_lista_continua_terapeuta(self, sofia, hamilton, meta):
+        """Caso da Amanda (23/11): com o modo teste ligado para a equipe, o
+        terapeuta de verdade que responde a um lembrete não pode virar lead."""
+        cid = await _nova(sofia, RENATO, eh_terapeuta=True, contato_conferido_por=contato.HAMILTON)
+
+        with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
+            await _mensagem_de(sofia, RENATO, "Não tem paciente sem registro de pagamento", "wamid.r1")
+
+        llm.assert_not_called()
+        assert _textos(meta) == [lembretes_terapeutas.RESPOSTA_TERAPEUTA]
+        assert (await _ler(sofia, cid)).eh_terapeuta is True
 
     @pytest.mark.asyncio
     async def test_terapeuta_novo_e_atendido_como_paciente(self, sofia, hamilton, meta):
@@ -313,7 +332,7 @@ class TestModoTeste:
     @pytest.mark.asyncio
     async def test_desligado_o_hamilton_remarca_na_proxima_mensagem(self, sofia, hamilton, meta):
         cid = await _nova(sofia, TACIA, eh_terapeuta=False, contato_conferido_por=contato.HAMILTON)
-        config_negocio._cache["terapeutas_como_pacientes"] = False
+        config_negocio._cache["numeros_modo_teste"] = ""
 
         with patch("app.routers.webhook.llm_client.get_llm_client") as llm:
             await _mensagem_de(sofia, TACIA, "oi", "wamid.t1")
@@ -345,6 +364,26 @@ class TestModoTeste:
         llm.assert_not_called()
         tratar.assert_awaited_once()
         assert tratar.await_args.args[2:] == ("wamid.b1", "enc_aceito", 42)
+
+
+class TestListaDoModoTeste:
+    @pytest.mark.parametrize(
+        "lista,numero,esperado",
+        [
+            ("", TACIA, False),
+            ("(31) 98855-3344", TACIA, True),
+            ("31 8855 3344", TACIA, True),  # sem o nono dígito
+            ("5531988553344; 5531977771111", RENATO, True),
+            ("(31) 98855-3344", RENATO, False),
+            ("abc, 123", TACIA, False),  # lixo não liga nada
+        ],
+    )
+    def test_casa_o_numero_em_qualquer_forma(self, lista, numero, esperado):
+        config_negocio._cache["numeros_modo_teste"] = lista
+        try:
+            assert contato.em_modo_teste(numero) is esperado
+        finally:
+            config_negocio._cache["numeros_modo_teste"] = ""
 
 
 class TestConferencia:

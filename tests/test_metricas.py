@@ -216,3 +216,50 @@ class TestEscaladasEmAberto:
         m = await metricas.calcular_metricas(session)
         motivos = {e["motivo"] for e in m["escaladas_por_motivo"]}
         assert motivos == {"preco"}
+
+
+class TestFunil:
+    @pytest.mark.asyncio
+    async def test_conversao_por_periodo_conta_cadastro_dentro_do_grupo(self, session):
+        await _conversa(session, numero="561", paciente_hamilton_id=1)  # hoje, cadastrado
+        await _conversa(session, numero="562")  # hoje, sem cadastro
+        await _conversa(
+            session, numero="563", paciente_hamilton_id=3, criada_em=AGORA - timedelta(days=20)
+        )
+        await _conversa(session, numero="564", criada_em=AGORA - timedelta(days=90))
+        await _conversa(session, numero="565", eh_terapeuta=True)  # não é lead
+
+        m = await metricas.calcular_metricas(session, AGORA)
+
+        linhas = {c["rotulo"]: (c["leads"], c["cadastrados"], c["taxa"]) for c in m["conversao"]}
+        assert linhas == {
+            "Últimos 7 dias": (2, 1, 50),
+            "Últimos 30 dias": (3, 2, 67),
+            "Desde o início": (4, 2, 50),
+        }
+
+
+class TestFraseDoFunil:
+    @pytest.mark.parametrize(
+        "leads,cad,esperado",
+        [
+            (0, 0, "Nenhuma pessoa nova falou com a Sofia na semana."),
+            (1, 0, "A única pessoa nova na semana ainda não foi cadastrada no Hamilton."),
+            (1, 1, "A única pessoa nova na semana já está cadastrada no Hamilton."),
+            (4, 0, "Das 4 pessoas novas na semana, nenhuma foi cadastrada no Hamilton ainda."),
+            (4, 4, "Das 4 pessoas novas na semana, todas já estão cadastradas no Hamilton."),
+            (
+                4,
+                1,
+                "Das 4 pessoas novas na semana, 1 já está cadastrada no Hamilton e 3 ainda não.",
+            ),
+            (
+                5,
+                2,
+                "Das 5 pessoas novas na semana, 2 já estão cadastradas no Hamilton e 3 ainda não.",
+            ),
+        ],
+    )
+    def test_frase(self, leads, cad, esperado):
+        f = {"leads": leads, "cadastrados": cad, "sem_cadastro": leads - cad}
+        assert metricas.frase_do_funil(f, "na semana") == esperado

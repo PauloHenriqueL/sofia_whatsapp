@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa, Escalada, Mensagem
-from app.services import hamilton_client, saida, tools
+from app.services import hamilton_client, revisao, saida, tools
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,50 @@ def _mediana(valores: list[int]) -> int | None:
     if len(ordenados) % 2:
         return ordenados[meio]
     return round((ordenados[meio - 1] + ordenados[meio]) / 2)
+
+
+async def funil(db: AsyncSession, desde: datetime | None = None) -> dict:
+    """Lead → cadastro, contando sempre o MESMO grupo de pessoas.
+
+    **Lead é todo contato que não é terapeuta** (decisão do Paulo, 24/11/2026):
+    escreveu sozinho ou foi chamado pela equipe, arquivado ou não. `desde` corta
+    pela chegada (`criada_em`), e o cadastro é contado **dentro desse grupo**.
+
+    A tela Hoje fazia diferente: "pessoas novas" era quem chegou na janela e
+    "cadastradas" era quem foi cadastrado na janela, mesmo tendo chegado um mês
+    antes. Lado a lado, os dois números pareciam uma taxa e não eram.
+    """
+    filtro = [_PACIENTE]
+    if desde is not None:
+        filtro.append(Conversa.criada_em >= desde)
+    leads = await _scalar(db, select(func.count(Conversa.id)).where(*filtro))
+    cadastrados = await _scalar(
+        db,
+        select(func.count(Conversa.id)).where(*filtro, Conversa.paciente_hamilton_id.isnot(None)),
+    )
+    return {
+        "leads": leads,
+        "cadastrados": cadastrados,
+        "sem_cadastro": leads - cadastrados,
+        "taxa": round(cadastrados / leads * 100) if leads else 0,
+    }
+
+
+def frase_do_funil(f: dict, periodo: str) -> str:
+    """O funil dito numa frase, pra quem não quer interpretar três números."""
+    leads, cad, resto = f["leads"], f["cadastrados"], f["sem_cadastro"]
+    if leads == 0:
+        return f"Nenhuma pessoa nova falou com a Sofia {periodo}."
+    if leads == 1:
+        situacao = "já está cadastrada" if cad else "ainda não foi cadastrada"
+        return f"A única pessoa nova {periodo} {situacao} no Hamilton."
+    inicio = f"Das {leads} pessoas novas {periodo},"
+    if cad == 0:
+        return f"{inicio} nenhuma foi cadastrada no Hamilton ainda."
+    if resto == 0:
+        return f"{inicio} todas já estão cadastradas no Hamilton."
+    ja = "1 já está cadastrada" if cad == 1 else f"{cad} já estão cadastradas"
+    return f"{inicio} {ja} no Hamilton e {resto} ainda não."
 
 
 async def _tempo_ate_primeira_sessao(db: AsyncSession, hamilton=None) -> dict | None:
@@ -252,8 +296,16 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
         for i in range(7)
     ]
 
+    # Conversão por período, cada uma no seu grupo (ver `funil`). O "desde o
+    # início" sozinho quase não se mexe e não diz se a Sofia melhorou ou piorou.
+    conversao = []
+    for rotulo, dias in (("Últimos 7 dias", 7), ("Últimos 30 dias", 30), ("Desde o início", None)):
+        f = await funil(db, agora - timedelta(days=dias) if dias else None)
+        conversao.append({"rotulo": rotulo, **f})
+
     return {
         "total": total,
+        "conversao": conversao,
         "leads_hoje": leads_hoje,
         "cadastrados": cadastrados,
         "taxa_conversao": taxa_conversao,
@@ -268,6 +320,8 @@ async def calcular_metricas(db: AsyncSession, agora: datetime | None = None, ham
         # Rede de proteção da saída (P0): se subir, o modelo/prompt regrediu.
         # Em memória: zera a cada restart do processo. O registro permanente é o log.
         "saidas_bloqueadas": saida.bloqueios(),
+        # Revisão antes do envio (services/revisao.py). Também em memória.
+        "falas_corrigidas": revisao.total_corrigidas(),
         # Pesquisa e cobrança (Demandas C e D).
         "pesquisas_em_curso": pesquisas_em_curso,
         "alertas_abertos": alertas_abertos,

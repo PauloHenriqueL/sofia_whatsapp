@@ -39,14 +39,43 @@
   </div>
   {% endif %}
 
-  <div class="tiras">
+  {# Os números de lead e cadastro são do MESMO grupo (quem chegou na janela) e
+     ficam juntos, ligados por seta, com a frase por extenso embaixo: separados,
+     a Thainá tinha que adivinhar se um era parte do outro. #}
+  {% set f = numeros.funil %}
+  <div class="numeros-hoje">
     <div class="tira tira--destaque">
       <div class="n">{{ numeros.pendentes }}</div>
-      <div class="l">esperando você <span class="muted">· agora</span></div>
+      <div class="l">{{ 'conversa esperando' if numeros.pendentes == 1 else 'conversas esperando' }} você agora</div>
     </div>
-    <div class="tira"><div class="n">{{ numeros.novas }}</div><div class="l">pessoas novas nos {{ janela_dias }} dias</div></div>
-    <div class="tira"><div class="n">{{ numeros.cadastradas }}</div><div class="l">cadastradas no Hamilton</div></div>
-    <div class="tira"><div class="n">{{ numeros.pesquisas }}</div><div class="l">pesquisas em andamento</div></div>
+    <section class="funil" aria-labelledby="funil-titulo">
+      <h2 class="funil-titulo" id="funil-titulo">Quem chegou nos últimos {{ janela_dias }} dias</h2>
+      <div class="funil-passos">
+        <div class="funil-passo">
+          <div class="n">{{ f.leads }}</div>
+          <div class="l">{{ 'pessoa nova' if f.leads == 1 else 'pessoas novas' }}</div>
+        </div>
+        <i class="bi bi-arrow-right funil-seta" aria-hidden="true"></i>
+        <div class="funil-passo">
+          <div class="n">{{ f.cadastrados }}</div>
+          <div class="l">{{ 'cadastrada' if f.cadastrados == 1 else 'cadastradas' }} no Hamilton</div>
+        </div>
+        <i class="bi bi-arrow-right funil-seta" aria-hidden="true"></i>
+        <div class="funil-passo funil-passo--taxa">
+          <div class="n">{{ f.taxa }}%</div>
+          <div class="l">viraram cadastro</div>
+        </div>
+      </div>
+      <div class="funil-barra" role="img"
+           aria-label="{{ f.cadastrados }} de {{ f.leads }} pessoas novas cadastradas">
+        <span style="width:{{ f.taxa }}%"></span>
+      </div>
+      <p class="funil-frase">
+        {{ numeros.frase_funil }}
+        <span class="muted">Terapeutas não entram na conta.</span>
+        <a href="/painel/metricas">Ver outros períodos</a>
+      </p>
+    </section>
   </div>
 
   {# Estado das automações à vista: ligar a cobrança muda o que a Sofia diz pro

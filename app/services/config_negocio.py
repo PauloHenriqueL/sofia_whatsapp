@@ -153,19 +153,32 @@ CAMPOS: dict[str, Campo] = {
         "Os tiques azuis e o indicador de digitação, como uma pessoa faria.",
         "automacoes",
     ),
-    # Modo teste (17/11/2026): a equipe testando o fluxo inteiro em produção pelo
-    # próprio celular. Sem isto o Hamilton reconhece o terapeuta pelo telefone e
-    # a Sofia só devolve "este número só envia lembretes". Desligada por padrão:
-    # ligada, terapeuta vira lead (triagem, cadastro, follow-up). Os toques nos
-    # botões de encaminhamento e de lembrete continuam valendo como terapeuta.
-    # Ao desligar, a conversa volta a ser de terapeuta na próxima mensagem dele.
-    "terapeutas_como_pacientes": Campo(
-        "Modo teste: terapeuta conversa como paciente",
-        False,
+    # Revisão da fala antes de sair (24/11/2026, ideia do Parlant). Nasce LIGADA:
+    # é rede de proteção, como o `saida.limpar`, e falha aberta — revisor fora não
+    # cala a Sofia. Desligar só economiza uma chamada ao modelo por resposta.
+    "revisar_respostas": Campo(
+        "Conferir a resposta antes de enviar",
+        True,
         "bool",
-        "Ligada, a Sofia atende terapeutas como se fossem pacientes novos, pra equipe "
-        "testar o fluxo inteiro. <em>Desligue ao fim do teste — quem foi marcado à mão "
-        "como terapeuta continua sendo terapeuta.</em>",
+        "Antes de mandar, a Sofia confere se não está dizendo que fez algo que não fez "
+        "(\u201cficou registrado\u201d), chamando a pessoa pelo nome errado ou se "
+        "repetindo, e corrige. <em>Custa uma chamada a mais ao modelo por resposta.</em>",
+        "automacoes",
+    ),
+    # Modo teste (17/11/2026, refeito em 24/11): a equipe testando o fluxo de
+    # paciente em produção pelo próprio celular. Era um interruptor que valia para
+    # TODO terapeuta: ligado, o terapeuta de verdade que respondia a um lembrete
+    # perdia a marca e virava lead — triagem, follow-up "ainda tem interesse?" e a
+    # Sofia dizendo "ficou registrado" sobre pagamento que ela não registra (caso
+    # da Amanda, 23/11). Agora só vale para os números listados aqui.
+    "numeros_modo_teste": Campo(
+        "Modo teste: celulares da equipe atendidos como paciente",
+        "",
+        "texto",
+        "Celulares de terapeutas da equipe que vão testar o fluxo de paciente, separados "
+        "por vírgula, ex.: (31) 98888-7777, (31) 97777-6666. Só esses números perdem a "
+        "marca de terapeuta. <em>Em branco, o modo teste fica desligado. Ao tirar um "
+        "número da lista, ele volta a ser terapeuta na próxima mensagem.</em>",
         "automacoes",
     ),
     "preco_terapia_mensal": Campo(

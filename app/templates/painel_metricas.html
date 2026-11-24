@@ -12,19 +12,32 @@
     </div>
   </div>
 
+  {# Lead → cadastro por período. Cada linha conta o cadastro DENTRO do grupo
+     que chegou no período (metricas.funil), senão a taxa mistura gente de meses
+     diferentes. "Desde o início" sozinho quase não se mexe. #}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-topo">
+      <h2><i class="bi bi-funnel"></i> Quantas viram cadastro</h2>
+      <div class="nota">Pessoa nova é todo contato que não é terapeuta. Em cada período, contamos
+        quem chegou nele e, dessas pessoas, quantas já estão cadastradas no Hamilton.</div>
+    </div>
+    <div class="card-corpo">
+      {% for c in m.conversao %}
+      <div class="conversao-linha">
+        <span class="conversao-periodo">{{ c.rotulo }}</span>
+        <span class="conversao-conta">
+          {{ c.leads }} {{ 'pessoa' if c.leads == 1 else 'pessoas' }}
+          <i class="bi bi-arrow-right" aria-hidden="true"></i>
+          {{ c.cadastrados }} {{ 'cadastrada' if c.cadastrados == 1 else 'cadastradas' }}
+        </span>
+        <span class="bar-track" role="img" aria-label="{{ c.taxa }}% viraram cadastro"><span class="bar-fill" style="width:{{ c.taxa }}%"></span></span>
+        <span class="conversao-taxa">{{ c.taxa }}%</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <div class="kpi-grid">
-    <div class="kpi">
-      <div class="num">{{ m.total }}</div>
-      <div class="lbl">Leads no total <span class="muted">(+{{ m.leads_hoje }} hoje)</span></div>
-    </div>
-    <div class="kpi">
-      <div class="num">{{ m.cadastrados }}</div>
-      <div class="lbl">Cadastrados no Hamilton</div>
-    </div>
-    <div class="kpi">
-      <div class="num">{{ m.taxa_conversao }}%</div>
-      <div class="lbl">Conversão (lead → cadastro)</div>
-    </div>
     <div class="kpi">
       <div class="num">{{ m.autonomia }}%</div>
       <div class="lbl">Resolvido sem precisar de pessoa</div>
@@ -39,6 +52,14 @@
       <div class="lbl">Mensagens bloqueadas antes de sair
         <span class="muted">(a Sofia tentou mandar dado interno; avise o Paulo.
         Este número zera quando o sistema reinicia)</span></div>
+    </div>
+    {% endif %}
+    {% if m.falas_corrigidas %}
+    <div class="kpi">
+      <div class="num">{{ m.falas_corrigidas }}</div>
+      <div class="lbl">Respostas corrigidas antes de sair
+        <span class="muted">(a Sofia ia dizer que fez algo que não fez, errar o nome ou se
+        repetir. Zera quando o sistema reinicia)</span></div>
     </div>
     {% endif %}
     {# Cobrança que não saiu é falha silenciosa: a Sofia não conseguiu falar e

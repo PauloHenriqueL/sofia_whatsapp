@@ -434,6 +434,47 @@ details[open] > .resolvidos-cabecalho::before { transform:rotate(90deg); }
 .tira--destaque { background:linear-gradient(180deg,#EAF5F4,var(--bg-card)); border-color:var(--teal-100); }
 .tira--destaque .n { color:var(--teal-600); }
 
+/* Tela Hoje: pendências + funil de quem chegou. O funil é um bloco só (lead →
+   cadastro → taxa), porque os três números são do mesmo grupo de pessoas. */
+.numeros-hoje { display:grid; grid-template-columns:minmax(170px,230px) 1fr; gap:12px; margin-bottom:16px; }
+.funil { background:var(--bg-card); border:1px solid var(--border-default); border-radius:10px;
+  padding:13px 18px 14px; box-shadow:var(--shadow-card); }
+.funil-titulo { font-family:var(--font-body); font-size:12.5px; font-weight:600; color:var(--text-secondary);
+  margin:0 0 6px; }
+.funil-passos { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.funil-passo .n { font-family:var(--font-display); font-size:23px; font-weight:700; line-height:1.15;
+  font-variant-numeric:tabular-nums; }
+.funil-passo .l { color:var(--text-secondary); font-size:12.5px; margin-top:1px; }
+.funil-passo--taxa .n { color:var(--teal-600); }
+.funil-seta { color:var(--text-tertiary); font-size:16px; }
+.funil-barra { height:6px; background:var(--bg-hover); border-radius:999px; overflow:hidden; margin:11px 0 9px; }
+.funil-barra span { display:block; height:100%; background:var(--teal-500); border-radius:999px; }
+.funil-frase { margin:0; font-size:13px; line-height:1.5; color:var(--text-primary); max-width:72ch; }
+.funil-frase .muted, .funil-frase a { white-space:nowrap; }
+@media (max-width:640px) {
+  .numeros-hoje { grid-template-columns:1fr; }
+  /* No celular a seta sobrava no fim da linha e a taxa caía sozinha embaixo:
+     três colunas iguais, sem seta (a barra e a frase já dizem a relação). */
+  .funil-passos { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .funil-seta { display:none; }
+}
+
+/* Resultados: conversão por período, uma linha por janela. */
+.conversao-linha { display:grid; grid-template-columns:130px minmax(150px,auto) 1fr 44px; align-items:center;
+  gap:12px; padding:8px 0; font-size:13.5px; border-top:1px solid var(--border-subtle); }
+.conversao-linha:first-child { border-top:0; }
+.conversao-periodo { color:var(--text-secondary); }
+.conversao-conta { font-variant-numeric:tabular-nums; }
+.conversao-taxa { text-align:right; font-weight:700; font-family:var(--font-display); color:var(--teal-600);
+  font-variant-numeric:tabular-nums; }
+.conversao-linha .bar-track { height:10px; background:var(--bg-input); border-radius:999px; overflow:hidden; }
+.conversao-linha .bar-fill { display:block; height:100%; background:var(--teal-500); border-radius:999px; }
+@media (max-width:640px) {
+  .conversao-linha { grid-template-columns:1fr auto; row-gap:4px; }
+  .conversao-linha .bar-track { grid-column:1 / -1; grid-row:3; }
+  .conversao-conta { grid-column:1 / -1; grid-row:2; }
+}
+
 /* Estado das automações à vista, sem virar atrito. */
 .automacoes { display:flex; align-items:center; gap:9px; flex-wrap:wrap; padding:12px 16px;
   background:var(--bg-input); border:1px dashed var(--border-strong); border-radius:10px;

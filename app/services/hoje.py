@@ -34,7 +34,7 @@ from app.services import acompanhamento, cadastro_abandonado
 from app.services import cobranca as cobranca_mod
 from app.services import config_negocio, contato
 from app.services import contrato as contrato_mod
-from app.services import hamilton_client, tools
+from app.services import hamilton_client, metricas, tools
 
 logger = logging.getLogger(__name__)
 
@@ -453,20 +453,8 @@ async def montar_hoje(
         pendencias = await listar_pendencias(db)
     de_olho, erro = await _de_olho(db, agora, hamilton)
 
-    novas = int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(Conversa)
-                .where(
-                    Conversa.criada_em >= desde,
-                    Conversa.arquivada_em.is_(None),
-                    Conversa.eh_terapeuta.is_(False),
-                )
-            )
-        ).scalar()
-        or 0
-    )
+    # Lead e cadastro do MESMO grupo (quem chegou na janela). Ver `metricas.funil`.
+    funil = await metricas.funil(db, desde)
     return {
         "pendencias": pendencias,
         "de_olho": de_olho,
@@ -475,9 +463,8 @@ async def montar_hoje(
         "janela_dias": JANELA_RESUMO_DIAS,
         "numeros": {
             "pendentes": len(pendencias),
-            "novas": novas,
-            "cadastradas": await _contar(db, Conversa.cadastrado_em, desde),
-            "pesquisas": await _contar(db, Conversa.pesquisa_iniciada_em, desde),
+            "funil": funil,
+            "frase_funil": metricas.frase_do_funil(funil, f"dos últimos {JANELA_RESUMO_DIAS} dias"),
         },
         "automacoes": [
             {

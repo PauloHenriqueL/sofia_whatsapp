@@ -225,18 +225,37 @@ class TestHamiltonForaNaoDerruba:
 
 class TestNumerosDaJanela:
     @pytest.mark.asyncio
-    async def test_conta_so_o_que_esta_dentro_dos_7_dias(self, ambiente):
+    async def test_lead_e_cadastro_sao_do_mesmo_grupo(self, ambiente):
+        """Quem chegou há 30 dias e foi cadastrado ontem não entra em nenhum dos
+        dois números: antes ele inflava "cadastradas" sem estar em "novas"."""
         _, maker = ambiente
         agora = datetime.now(timezone.utc)
         async with maker() as s:
-            s.add(Conversa(numero_whatsapp="5531900000041", cadastrado_em=agora))
+            s.add(Conversa(numero_whatsapp="5531900000041", paciente_hamilton_id=1))
+            s.add(Conversa(numero_whatsapp="5531900000042"))
+            s.add(Conversa(numero_whatsapp="5531900000043", arquivada_em=agora))
+            s.add(Conversa(numero_whatsapp="5531900000044", eh_terapeuta=True))
             s.add(
-                Conversa(numero_whatsapp="5531900000042", cadastrado_em=agora - timedelta(days=30))
+                Conversa(
+                    numero_whatsapp="5531900000045",
+                    paciente_hamilton_id=2,
+                    criada_em=agora - timedelta(days=30),
+                    cadastrado_em=agora - timedelta(days=1),
+                )
             )
             await s.commit()
         async with maker() as s:
             dados = await hoje.montar_hoje(s, hamilton=_hamilton_vazio())
-        assert dados["numeros"]["cadastradas"] == 1
+        # Lead = todo contato que não é terapeuta, arquivado ou não.
+        assert dados["numeros"]["funil"] == {
+            "leads": 3,
+            "cadastrados": 1,
+            "sem_cadastro": 2,
+            "taxa": 33,
+        }
+        assert dados["numeros"]["frase_funil"] == (
+            "Das 3 pessoas novas dos últimos 7 dias, 1 já está cadastrada no Hamilton e 2 ainda não."
+        )
 
 
 class TestPagina:

@@ -54,6 +54,7 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-httpserver==1.0.8  # Mock de requisições HTTP para testes
 pytest-cov==4.1.0  # Cobertura de testes
+pytest-conversational==1.1.0  # Conversas simuladas em vários turnos (tests/test_conversas.py)
 
 # ============================================================================
 # Linting & Formatting (opcional, mas recomendado)

@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # operacional é um botão sem significado pra quem opera.
     openai_reasoning_effort: str = "none"
     openai_reasoning_effort_extracao: str = "low"
+    # Modelo do revisor da fala (services/revisao.py). Vazio = o mesmo da conversa.
+    # Existe para baratear: conferir três regras não precisa do modelo principal.
+    openai_model_revisao: str | None = None
 
     @field_validator("openai_temperature", mode="before")
     @classmethod

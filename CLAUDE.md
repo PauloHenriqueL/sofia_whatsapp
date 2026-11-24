@@ -146,6 +146,7 @@ pytest tests/ -v                                  # suite inteira
 pytest tests/test_webhook.py -v                   # um arquivo
 pytest tests/test_seguimento.py::TestRodarSeguimentos::test_envia_marca_e_nao_reenvia   # um teste
 pytest -k "seguimento and envia"                  # por nome
+pytest tests/test_conversas.py -v                 # conversas simuladas (casos reais de produção)
 pytest --cov --cov-report=term-missing            # cobertura (config no pyproject)
 
 # Lint / format (config em pyproject.toml: line-length 100, profile black)
@@ -585,6 +586,45 @@ ainda a tratava como lead.
 - O portão de terapeuta vem **depois** do botão da proposta de horário: proposta
   enviada pela equipe a um número marcado não pode ficar sem resposta.
 - Varredura nova que fale com paciente precisa do filtro. Não há trava central.
+- 🔴 **Modo teste é por número, não geral (24/11/2026).** Era o interruptor
+  `terapeutas_como_pacientes`: ligado, **todo** terapeuta que respondia a um
+  lembrete perdia a marca e virava lead. Em 23/11 a Amanda (conversa 106)
+  respondeu ao resumo da semana e a Sofia a atendeu por 22 falas, disse "ficou
+  registrado" sobre pagamentos que ela não registra e no dia seguinte mandou o
+  follow-up de lead. Outros terapeutas foram desmarcados do mesmo jeito.
+  Agora é `numeros_modo_teste` (`/painel/config`, texto): só os celulares
+  listados (`contato.em_modo_teste`, aceita com e sem o nono dígito) são
+  atendidos como paciente. Em branco = desligado.
+
+### Revisão da fala antes do envio (`revisao.py`) — 24/11/2026
+Ideia tirada do Parlant (que **não** foi adotado: ver a análise na conversa de
+24/11 — mudaria o motor do turno, a persistência e o custo). O prompt já proibia
+"ficou registrado" sem ferramenta e nome errado; o modelo não leu.
+- **Duas camadas**, em `webhook.processar_turno_bot`, depois de montar a fala:
+  `corrigir_nome` (código: tira vocativo com nome que não é o da pessoa, quando
+  ele é conhecido) e uma chamada curta ao modelo com `prompt/revisao.txt`, que
+  confere três regras — ação que não aconteceu, nome errado, repetição — e
+  devolve a fala corrigida com a menor mudança possível.
+- O revisor recebe **o que as ferramentas fizeram neste turno**
+  (`conversa._resultados_do_turno`). Sem isso não teria como saber se
+  "cadastrei você" é verdade.
+- **Falha aberta, sempre.** Revisor fora, lento (12s) ou com JSON ilegível: sai a
+  fala original. Cliente próprio (`get_revisor`), **sem retry** — o paciente está
+  esperando. Reescrita muito maior que a fala é descartada (revisor inventando).
+- `revisar_respostas` em `/painel/config` (nasce ligada). `OPENAI_MODEL_REVISAO`
+  troca o modelo do revisor (vazio = o da conversa).
+- Contador em memória (`revisao.correcoes()`), card em `/painel/metricas` quando
+  > 0. O log diz só o que foi corrigido, nunca o texto (LGPD).
+- ⚠️ **Cobre só o turno de acolhimento.** Pesquisa e cobrança têm fluxo próprio e
+  ainda não passam por aqui.
+
+### Conversas simuladas (`tests/test_conversas.py`, pytest-conversational)
+Cada cenário fala com a Sofia **pelo webhook**, mensagem por mensagem, e confere
+o que sairia no WhatsApp. Modelo e revisor são roteirizados: testa o caminho da
+fala (portão de terapeuta, modo teste, revisão), não a qualidade do modelo — isso
+é a skill `testar-conversa`. **Caso novo de produção vira cenário aqui.** O pacote
+tem 2 estrelas e um mantenedor; é pequeno e foi lido antes de entrar. Se for
+abandonado, o adaptador `no_whatsapp` funciona sem ele.
 
 ### Iniciar conversa pelo painel (`inicio_contato.py`) — Demanda G
 - **Fora da janela de 24h só sai template.** A conversa mostra até quando a janela
@@ -1044,6 +1084,14 @@ Três bugs de verdade e uma tela nova. O que volta a quebrar se alguém mexer se
   - **Só "de olho" fala com o Hamilton.** Ele fora → a fila e os números seguem.
   - O contador da aba vem da dependência `_pendencias_na_topbar`, que roda em
     **toda** página do painel — a graça é ser visto de outra tela.
+  - **Lead → cadastro é um número só, `metricas.funil` (24/11/2026).** Lead é
+    **todo contato que não é terapeuta** (decisão do Paulo), arquivado ou não, e o
+    cadastro é contado **dentro do grupo que chegou no período**. Antes a Hoje
+    punha "pessoas novas" (chegou na janela) ao lado de "cadastradas" (cadastrado
+    na janela, mesmo tendo chegado um mês antes), e os dois pareciam uma taxa sem
+    ser. A Hoje mostra os 7 dias com a frase por extenso; Resultados mostra 7, 30
+    e desde o início. ⚠️ Terapeuta sem marca entra como lead — foi o que inflou a
+    Hoje para 18 quando o modo teste desmarcou os terapeutas.
 - **`config_negocio.CAMPOS` virou `NamedTuple` `Campo`** com `ajuda`, `grupo`,
   `prefixo`/`sufixo`. Os três primeiros itens continuam acessíveis por índice.
   A tela de configurações era uma lista plana de 15 campos com o rótulo fazendo

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+from types import SimpleNamespace
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -29,6 +30,7 @@ from app.services import (
     midia,
     pesquisa,
     programadas,
+    revisao,
     saida,
     serializacao,
     status_entrega,
@@ -223,10 +225,22 @@ async def processar_turno_bot(session, conversa) -> str | None:
         logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
         return FALLBACK_RESPOSTA
 
+    conversa._resultados_do_turno = None
+    modo_antes = conversa.modo
     texto = await _texto_do_turno(session, conversa, historico, resp)
     if pendente is not None:
         texto = await escalation.cumprir_pendente(session, conversa, pendente, texto)
-    return texto
+    # Confere a fala contra as regras críticas antes de sair (ver services/revisao.py):
+    # "ficou registrado" sem ferramenta, nome errado, repetição. Falha aberta.
+    acoes = list(getattr(conversa, "_resultados_do_turno", None) or [])
+    if modo_antes != "humano" and conversa.modo == "humano":
+        # Escalada feita pelo CÓDIGO (`cumprir_pendente`, `rede_de_promessa`): não
+        # passa por tool, e sem isto o revisor tomaria o "passei a conversa pra
+        # Thainá" como ação que não aconteceu e apagaria o aviso.
+        acoes.append(
+            (SimpleNamespace(name=tools.ESCALAR_PARA_THAINA), {"status": "escalado"})
+        )
+    return await revisao.revisar(conversa, historico, texto, acoes)
 
 
 async def _texto_do_turno(session, conversa, historico, resp) -> str | None:
@@ -243,6 +257,8 @@ async def _texto_do_turno(session, conversa, historico, resp) -> str | None:
     for tc in resp.tool_calls:
         resultado = await _executar_tool(session, conversa, tc)
         resultados.append((tc, resultado))
+    # A revisão precisa saber o que de fato foi feito neste turno.
+    conversa._resultados_do_turno = resultados
 
     # Segundo turno: devolve os resultados ao modelo pra ele gerar a fala final.
     texto_final = await _finalizar_apos_tools(historico, resp, resultados)
@@ -542,9 +558,11 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
     # `_tratar_como_terapeuta` marca a conversa que já existia e só devolve
     # False para quem foi marcado à mão como paciente.
     #
-    # Modo teste (`terapeutas_como_pacientes`): a equipe testando o fluxo de
-    # paciente pelo próprio celular. Nem pergunta ao Hamilton.
-    modo_teste = bool(config_negocio.valor("terapeutas_como_pacientes"))
+    # Modo teste (`numeros_modo_teste`): a equipe testando o fluxo de paciente
+    # pelo próprio celular. Nem pergunta ao Hamilton. Vale SÓ para os números da
+    # lista: como interruptor geral, desmarcava todo terapeuta que respondia a um
+    # lembrete e a Sofia o tratava como lead (caso da Amanda, 23/11/2026).
+    modo_teste = contato.em_modo_teste(numero)
     terapeuta_reconhecido = (
         not modo_teste
         and await lembretes_terapeutas.eh_terapeuta(numero)

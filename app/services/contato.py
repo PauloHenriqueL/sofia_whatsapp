@@ -31,10 +31,39 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversa
-from app.services import hamilton_client
+from app.services import config_negocio, hamilton_client
 from app.utils import mascarar_telefone
 
 logger = logging.getLogger(__name__)
+
+
+def _formas_do_celular(texto: str) -> set[str]:
+    """`55DD9XXXXXXXX` e `55DDXXXXXXXX`: o WhatsApp às vezes manda sem o nono dígito."""
+    digitos = re.sub(r"\D", "", texto or "")
+    if len(digitos) in (10, 11):
+        digitos = "55" + digitos
+    if len(digitos) not in (12, 13) or not digitos.startswith("55"):
+        return set()
+    if len(digitos) == 13 and digitos[4] == "9":
+        return {digitos, digitos[:4] + digitos[5:]}
+    if len(digitos) == 12:
+        return {digitos, digitos[:4] + "9" + digitos[4:]}
+    return {digitos}
+
+
+def em_modo_teste(numero: str) -> bool:
+    """O número está na lista de teste do painel (`numeros_modo_teste`)?
+
+    Só esses terapeutas são atendidos como paciente. Antes era um interruptor
+    para todos, e terapeuta de verdade que respondia a lembrete virava lead.
+    """
+    lista = str(config_negocio.valor("numeros_modo_teste") or "")
+    if not lista.strip():
+        return False
+    de_teste: set[str] = set()
+    for item in re.split(r"[,;\n]+", lista):
+        de_teste |= _formas_do_celular(item)
+    return bool(_formas_do_celular(numero) & de_teste)
 
 HAMILTON = "hamilton"
 MANUAL = "manual"
