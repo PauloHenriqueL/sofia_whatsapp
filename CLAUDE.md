@@ -893,6 +893,23 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
   adiciona); o TLS é ligado via `connect_args={"ssl": True}`. SQLite vira `sqlite+aiosqlite`.
 - Tipo JSON portável: `JSON().with_variant(JSONB(), "postgresql")`.
 
+### Modelo de produção (`OPENAI_MODEL`, painel do Render) — 24/11/2026
+- **Vale o que está no painel do Render**, não o `render.yaml` (só num sync do
+  blueprint) nem o `render.env` local (cópia velha). Para saber o que roda de
+  verdade, procure "Modelo" nos logs do serviço.
+- Até 24/11 era o **`gpt-6-luna`** (o mais barato da OpenAI), e ele **dobrava a
+  resposta**: escrevia a fala, uma pergunta, a mesma fala com outras palavras e
+  outra pergunta (conversa 153). Medido no 1º turno com o prompt de produção:
+  luna 12/80 dobradas; `gpt-6.1-terra` 0/30; `gpt-5.6-terra` 0/56; `gpt-5.4` 0/20.
+  Trocado para **`gpt-6.1-terra`** ($1/$5 por milhão; ~US$ 0,02 por resposta,
+  quase tudo é o prompt de ~21 mil tokens).
+- Causa de fundo: na Chat Completions, modelo novo com ferramentas só aceita
+  `reasoning_effort=none`. Sem espaço escondido para pensar, ele às vezes pensa no
+  texto visível (plano em voz alta, rascunho + versão final). A Responses API
+  aceita raciocínio com ferramentas — é a correção estrutural, ainda não feita.
+- Script da medição: repetir o 1º turno N vezes e contar "Aqui é a Sofia" > 1.
+  Rode antes de trocar de modelo de novo.
+
 ### Sanitização da saída do bot (`saida.py`) — rede de proteção, não cosmético
 - O modelo tem 2 canais: `tool_calls` e `content`. Ele **erra o canal**: em beta fechado
   (dados fictícios) pôs o JSON do `cadastrar_paciente` no `content` e o texto foi pro
@@ -1525,7 +1542,7 @@ ALERT_TEMPLATE_NAME=alerta_thaina  # Nome do template
 
 # OpenAI
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini       # produção: gpt-5.6-terra (precisa do SDK openai 2.x)
+OPENAI_MODEL=gpt-4o-mini       # produção: gpt-6.1-terra desde 24/11/2026 (precisa do SDK openai 2.x)
 OPENAI_TEMPERATURE=0.7         # vazio/none = não envia (usa padrão do modelo)
 OPENAI_REASONING_EFFORT=none   # none|low|medium|high|xhigh|max — a CONVERSA roda em none
 OPENAI_REASONING_EFFORT_EXTRACAO=low  # a extração da pesquisa pensa mais (ninguém espera)

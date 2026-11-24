@@ -40,8 +40,11 @@ services:
       # OpenAI
       - key: OPENAI_API_KEY
         sync: false
+      # Vale o valor do painel do Render (este só entra num sync do blueprint).
+      # 24/11/2026: gpt-6.1-terra. O gpt-6-luna dobrava a resposta (rascunho +
+      # versão final na mesma fala) em ~15% dos turnos; ver CLAUDE.md.
       - key: OPENAI_MODEL
-        value: gpt-5.4
+        value: gpt-6.1-terra
       # Modelo de transcrição de áudio (a Sofia "ouve" áudio via Whisper).
       - key: OPENAI_AUDIO_MODEL
         value: whisper-1
