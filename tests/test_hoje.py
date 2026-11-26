@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.models import Conversa, Escalada
+from app.models import Conversa, Escalada, Mensagem
 from app.services import config_negocio, hamilton_client, hoje, usuarios
 
 
@@ -256,6 +256,52 @@ class TestNumerosDaJanela:
         assert dados["numeros"]["frase_funil"] == (
             "Das 3 pessoas novas dos últimos 7 dias, 1 já está cadastrada no Hamilton e 2 ainda não."
         )
+
+
+class TestSemResposta:
+    """26/11: a Thainá assumiu sem escalada, o paciente respondeu às 18h12 e a
+    Hoje dizia "0 esperando você"."""
+
+    async def _humana(self, maker, numero, falas):
+        async with maker() as s:
+            c = Conversa(numero_whatsapp=numero, modo="humano", estado="novo")
+            s.add(c)
+            await s.flush()
+            for origem in falas:
+                s.add(
+                    Mensagem(
+                        conversa_id=c.id,
+                        direcao="recebida" if origem == "paciente" else "enviada",
+                        origem=origem,
+                        texto="...",
+                    )
+                )
+            await s.commit()
+            return c.id
+
+    @pytest.mark.asyncio
+    async def test_paciente_falou_por_ultimo_entra_na_fila(self, ambiente):
+        _, maker = ambiente
+        cid = await self._humana(maker, "5531900000071", ["paciente", "thaina", "paciente"])
+        async with maker() as s:
+            fila = await hoje.listar_pendencias(s)
+        assert [(i["conversa_id"], i["tipo"]) for i in fila] == [(cid, "sem_resposta")]
+
+    @pytest.mark.asyncio
+    async def test_aviso_automatico_nao_conta_como_resposta(self, ambiente):
+        _, maker = ambiente
+        cid = await self._humana(maker, "5531900000072", ["thaina", "paciente", "bot"])
+        async with maker() as s:
+            fila = await hoje.listar_pendencias(s)
+        assert [i["conversa_id"] for i in fila] == [cid]
+
+    @pytest.mark.asyncio
+    async def test_equipe_respondeu_ou_bot_atendendo_nao_entra(self, ambiente):
+        _, maker = ambiente
+        await self._humana(maker, "5531900000073", ["paciente", "thaina"])
+        await _conversa(maker, "5531900000074")
+        async with maker() as s:
+            assert await hoje.listar_pendencias(s) == []
 
 
 class TestPagina:

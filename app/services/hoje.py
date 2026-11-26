@@ -29,7 +29,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversa, Escalada
+from app.models import Conversa, Escalada, Mensagem
 from app.services import acompanhamento, cadastro_abandonado
 from app.services import cobranca as cobranca_mod
 from app.services import config_negocio, contato
@@ -56,6 +56,7 @@ PRIORIDADE = {
     # Depois das travas, antes do "de olho": tem ficha esperando um clique, e
     # ninguém está bloqueado — mas a pessoa acha que já se cadastrou.
     "cadastro_a_confirmar": 4,
+    "sem_resposta": 5,
     # "de olho" usa o mesmo dedupe; espera longa vence cobrança sem resposta
     "primeira_consulta": 10,
     "cobranca_sem_resposta": 11,
@@ -71,6 +72,7 @@ ROTULOS = {
     "alerta_pesquisa": "Alerta",
     "cobranca_travada": "Cobrança travada",
     "cadastro_a_confirmar": "Cadastro a confirmar",
+    "sem_resposta": "Esperando resposta",
     "primeira_consulta": "1ª consulta",
     "cobranca_sem_resposta": "Sem resposta",
     "contrato_pendente": "Contrato",
@@ -163,6 +165,47 @@ async def _cobrancas_travadas(db: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
+async def _sem_resposta(db: AsyncSession) -> list[dict[str, Any]]:
+    """Conversa com a equipe (modo humano) em que a pessoa falou por último.
+
+    26/11: a Thainá assumiu uma conversa sem escalada aberta, o paciente mandou
+    nome e horários às 18h12, e a Hoje dizia "0 esperando você". Assumir não
+    abre escalada, então nada dela entrava aqui.
+
+    "Falou por último" ignora as falas do bot: o aviso automático ("a Thainá já
+    foi avisada") não é resposta de ninguém.
+    """
+    ultima = (
+        select(func.max(Mensagem.id))
+        .where(
+            Mensagem.conversa_id == Conversa.id,
+            Mensagem.origem.in_(("paciente", "thaina")),
+        )
+        .correlate(Conversa)
+        .scalar_subquery()
+    )
+    q = (
+        select(Conversa, Mensagem)
+        .join(Mensagem, Mensagem.id == ultima)
+        .where(
+            Conversa.modo == "humano",
+            Conversa.arquivada_em.is_(None),
+            Mensagem.origem == "paciente",
+        )
+    )
+    return [
+        {
+            "tipo": "sem_resposta",
+            "conversa_id": c.id,
+            "nome": _nome(c),
+            "numero": c.numero_whatsapp,
+            "texto": "escreveu e ninguém da equipe respondeu ainda",
+            "quando": m.criada_em,
+        }
+        for c, m in (await db.execute(q)).all()
+    ]
+
+
 async def _alertas(db: AsyncSession) -> list[dict[str, Any]]:
     return [
         {
@@ -227,6 +270,7 @@ async def listar_pendencias(db: AsyncSession) -> list[dict[str, Any]]:
         + await _alertas(db)
         + await _cobrancas_travadas(db)
         + await _cadastros_a_confirmar(db)
+        + await _sem_resposta(db)
     )
     itens = await _sem_terapeutas(db, itens)
     for i in itens:

@@ -503,7 +503,8 @@ Ponto **não óbvio** que exige ler webhook + serializacao juntos:
   header `X-Tasks-Token` ou `?token=`; token vazio = endpoint **desligado**, 403).
 - `rodar_seguimentos()` acha leads que pararam de responder dentro da janela
   `[followup_horas, 24h)` (ainda no bot, sem cadastro, sem follow-up prévio) e manda **uma**
-  mensagem de texto livre. Depois de 24h da última msg do paciente a Meta exige template,
+  mensagem de texto livre. Quem tem **mensagem programada pendente** fica de fora (a
+  retomada já foi combinada). Depois de 24h da última msg do paciente a Meta exige template,
   por isso o follow-up tem que sair antes. `seguimento_enviado_em` garante 1 por conversa.
 
 ### Dashboard de KPIs (Frente 3 — `metricas.py`, `/painel/metricas`)
@@ -1123,6 +1124,10 @@ Três bugs de verdade e uma tela nova. O que volta a quebrar se alguém mexer se
     de 7 dias vale só pros números e pro bloco "resolveu sozinha".
   - **Uma linha por conversa** (`hoje.PRIORIDADE`): comprovante em cobrança abre
     escalada *e* marca `cobranca_status`, e duas linhas fariam o contador mentir.
+  - **Modo humano com a pessoa falando por último entra na fila** (`sem_resposta`,
+    26/11). Assumir não abre escalada, e a Hoje dizia "0 esperando você" com
+    paciente aguardando desde as 18h. As falas do bot (o aviso automático) não
+    contam como resposta.
   - **Só "de olho" fala com o Hamilton.** Ele fora → a fila e os números seguem.
   - O contador da aba vem da dependência `_pendencias_na_topbar`, que roda em
     **toda** página do painel — a graça é ser visto de outra tela.

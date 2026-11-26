@@ -9,10 +9,10 @@ que bate em POST /tasks/seguimentos.
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversa, Mensagem
+from app.models import Conversa, Mensagem, MensagemProgramada
 from app.services import config_negocio, conversation, whatsapp_client
 from app.utils import mascarar_telefone
 
@@ -70,6 +70,14 @@ async def buscar_leads_parados(db: AsyncSession, agora: datetime) -> list[Conver
             Conversa.pesquisa_avaliacao_id.is_(None),
             # Terapeuta não é lead: "você ainda tem interesse?" não cabe.
             Conversa.eh_terapeuta.is_(False),
+            # Retomada já combinada ("te chamo dia 10"): não é lead sumido. O
+            # follow-up chegaria antes da data perguntando "o que te impediu?"
+            # a quem acabou de explicar (conversa 148, 23/11: "recebo só dia 8").
+            ~exists().where(
+                MensagemProgramada.conversa_id == Conversa.id,
+                MensagemProgramada.enviada_em.is_(None),
+                MensagemProgramada.cancelada_em.is_(None),
+            ),
             ultima_recebida.c.ult <= limite_recente,
             ultima_recebida.c.ult >= limite_janela,
         )

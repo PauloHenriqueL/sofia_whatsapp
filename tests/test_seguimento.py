@@ -111,6 +111,26 @@ class TestBuscarLeadsParados:
         assert await seguimento.buscar_leads_parados(session, AGORA) == []
 
 
+    @pytest.mark.asyncio
+    async def test_retomada_combinada_nao_entra(self, session):
+        """Combinou "te chamo dia 10": o follow-up genérico não pode chegar antes
+        perguntando o que impediu. Programada já enviada ou cancelada libera."""
+        from app.models import MensagemProgramada
+
+        c = await _lead(session, numero="5531900000009", horas_atras=21)
+        prog = MensagemProgramada(
+            conversa_id=c.id, texto="retomar", enviar_em=AGORA + timedelta(days=10),
+            criada_por="sofia",
+        )
+        session.add(prog)
+        await session.flush()
+        assert await seguimento.buscar_leads_parados(session, AGORA) == []
+
+        prog.cancelada_em = AGORA
+        await session.flush()
+        assert len(await seguimento.buscar_leads_parados(session, AGORA)) == 1
+
+
 class TestRodarSeguimentos:
     @pytest.mark.asyncio
     async def test_envia_marca_e_nao_reenvia(self, session):
