@@ -9,6 +9,15 @@ from app.config import settings
 from app.services import llm_client
 
 
+@pytest.fixture(autouse=True)
+def _estado_da_conta(monkeypatch):
+    """`bloqueada_desde` é global do processo: um teste de bloqueio não pode
+    deixar a conta "bloqueada" para o próximo."""
+    monkeypatch.setattr(llm_client, "bloqueada_desde", None)
+    monkeypatch.setattr(llm_client, "ao_bloquear_conta", None)
+    monkeypatch.setattr(llm_client, "ao_recuperar_conta", None)
+
+
 def _resposta_openai(conteudo):
     """Monta um objeto no formato da resposta de chat.completions.create."""
     msg = MagicMock()
@@ -128,6 +137,32 @@ class TestOpenAIClient:
 
         with pytest.raises(llm_client.LLMContaBloqueada):
             await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+    @pytest.mark.asyncio
+    async def test_conta_que_volta_avisa_a_equipe_uma_vez(self, monkeypatch):
+        """Bloqueou, a tela Hoje mostra desde quando; a 1ª chamada que passa
+        limpa a marca e avisa a equipe — a 2ª não avisa de novo."""
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(
+            side_effect=[
+                OpenAIError("insufficient_quota"),
+                _resposta_openai("oi"),
+                _resposta_openai("oi de novo"),
+            ]
+        )
+        voltou = AsyncMock()
+        monkeypatch.setattr(llm_client, "ao_recuperar_conta", voltou)
+        client = llm_client.OpenAIClient(client=fake_client)
+
+        with pytest.raises(llm_client.LLMContaBloqueada):
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+        assert llm_client.bloqueada_desde is not None
+
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+        await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert llm_client.bloqueada_desde is None
+        voltou.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_temperature_none_nao_envia(self):
@@ -281,3 +316,33 @@ class TestOpenAIClient:
             await client.gerar_resposta([{"role": "user", "content": "oi"}])
 
         assert fake_client.chat.completions.create.await_count == 1
+
+
+class TestVerificarIa:
+    """Checagem do cron: descobre a conta bloqueada antes de um paciente."""
+
+    @pytest.mark.asyncio
+    async def test_ok(self, monkeypatch):
+        cliente = MagicMock()
+        cliente.gerar_resposta = AsyncMock(return_value=llm_client.LLMResposta(texto="ok"))
+        monkeypatch.setattr(llm_client, "get_llm_client", lambda: cliente)
+
+        assert await llm_client.verificar_ia() == {"ok": True}
+        # Prompt mínimo: a checagem não pode custar um turno inteiro da Sofia.
+        assert cliente.gerar_resposta.await_args.kwargs["system_prompt"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "erro, motivo",
+        [
+            (llm_client.LLMContaBloqueada("sem crédito"), "conta_bloqueada"),
+            (llm_client.LLMError("timeout"), "instavel"),
+            (RuntimeError("bug"), "erro"),
+        ],
+    )
+    async def test_falha_nunca_derruba_o_cron(self, monkeypatch, erro, motivo):
+        cliente = MagicMock()
+        cliente.gerar_resposta = AsyncMock(side_effect=erro)
+        monkeypatch.setattr(llm_client, "get_llm_client", lambda: cliente)
+
+        assert await llm_client.verificar_ia() == {"ok": False, "motivo": motivo}

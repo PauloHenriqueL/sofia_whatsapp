@@ -11,6 +11,15 @@
     <a class="btn btn-ghost" href="/painel/"><i class="bi bi-arrow-clockwise"></i> Atualizar</a>
   </div>
 
+  {% if ia_bloqueada_desde %}
+  <div class="aviso aviso--erro">
+    <i class="bi bi-exclamation-octagon"></i>
+    <strong>A IA da Sofia está fora desde {{ ia_bloqueada_desde | data }}:</strong>
+    a OpenAI recusou a conta (crédito acabou ou chave inválida). Quem escreve agora vem
+    direto pra equipe. Recarregue em platform.openai.com &gt; Billing.
+  </div>
+  {% endif %}
+
   {% if erro %}
   <div class="aviso aviso--erro">
     <i class="bi bi-exclamation-triangle"></i> {{ erro }}

@@ -337,3 +337,24 @@ class TestAvisoContaBloqueada:
         )
         assert await escalation.avisar_conta_bloqueada("insufficient_quota") is True
         assert alerta.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_volta_da_ia_avisa_e_rearma_o_aviso_de_bloqueio(self, monkeypatch):
+        """Depois do "SOFIA COM IA DE NOVO", um bloqueio novo é avisado na hora,
+        sem esperar a hora do aviso anterior vencer."""
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _sessao_falsa():
+            yield object()
+
+        monkeypatch.setattr("app.database.async_session", _sessao_falsa)
+        monkeypatch.setattr(escalation, "_ultimo_aviso_conta", None)
+        alerta = AsyncMock(return_value=True)
+        monkeypatch.setattr(escalation, "alertar_equipe", alerta)
+
+        await escalation.avisar_conta_bloqueada()
+        await escalation.avisar_conta_recuperada()
+        assert "DE NOVO" in alerta.await_args.args[2]
+        assert await escalation.avisar_conta_bloqueada() is True
+        assert alerta.await_count == 3

@@ -287,6 +287,25 @@ class TestPagina:
         assert "Nada esperando por você" in resp.text
 
     @pytest.mark.asyncio
+    async def test_ia_fora_aparece_no_topo(self, ambiente, monkeypatch):
+        """25/11: a IA ficou ~24h sem crédito e a tela não dizia nada."""
+        from datetime import datetime, timezone
+
+        from app.services import llm_client
+
+        client, _ = ambiente
+        await _login(client)
+        with patch.object(hamilton_client, "get_hamilton_client", return_value=_hamilton_vazio()):
+            resp = await client.get("/painel/")
+            assert "A IA da Sofia está fora" not in resp.text
+
+            monkeypatch.setattr(
+                llm_client, "bloqueada_desde", datetime(2026, 11, 25, 17, 37, tzinfo=timezone.utc)
+            )
+            resp = await client.get("/painel/")
+        assert "A IA da Sofia está fora desde 25/11 14:37" in resp.text
+
+    @pytest.mark.asyncio
     async def test_contador_aparece_na_aba_de_outra_tela(self, ambiente):
         """O contador precisa ser visto de FORA da home — é a graça dele."""
         client, maker = ambiente

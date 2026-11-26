@@ -18,6 +18,7 @@ from app.services import (
     config_prompt,
     contato,
     hamilton_client,
+    llm_client,
 )
 from app.services import encaminhamento as encaminhamento_service
 from app.services import hoje as hoje_service
@@ -208,6 +209,7 @@ async def pagina_hoje(
             "encaminhar": await encaminhamento_service.fila_para_painel(),
             "proposta_enviada": proposta,
             "aviso_encaminhamento": aviso,
+            "ia_bloqueada_desde": llm_client.bloqueada_desde,
         },
     )
 

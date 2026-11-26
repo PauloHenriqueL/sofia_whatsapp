@@ -890,6 +890,13 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
   429, o mesmo status do rate limit — a decisão é pelo texto do erro.
 - Pesquisa e cobrança ainda respondem `RESPOSTA_INSTABILIDADE` na falha, mas o alerta
   de conta bloqueada sai de qualquer caminho (fica no cliente).
+- **Checagem a cada 30 min** (`llm_client.verificar_ia`, no cron
+  `/tasks/lembretes-terapeutas`, só em produção): uma chamada mínima à OpenAI. Conta
+  bloqueada dispara o alerta sem esperar paciente escrever.
+- **Volta também é avisada**: a 1ª chamada que passa depois do bloqueio manda
+  "SOFIA COM IA DE NOVO" (`ao_recuperar_conta`) e rearma o aviso de bloqueio. Enquanto
+  bloqueada, a tela Hoje mostra a faixa vermelha "A IA da Sofia está fora desde…"
+  (`llm_client.bloqueada_desde`, em memória).
 - **Prevenção de verdade é fora do código**: recarga automática + alerta de saldo no
   Billing da OpenAI.
 - "Assumir controle" conta como aviso dado (`aviso_escalada_em`): antes, a 1ª mensagem

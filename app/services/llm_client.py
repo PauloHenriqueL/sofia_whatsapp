@@ -12,7 +12,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from openai import AsyncOpenAI, AuthenticationError, OpenAIError, PermissionDeniedError
@@ -68,13 +68,40 @@ def conta_bloqueada(exc: Exception) -> bool:
 ao_bloquear_conta: Callable[[str], Awaitable[None]] | None = None
 
 
+# E quem avisar quando ela VOLTAR: sem isso a equipe recebe "SOFIA SEM IA" e
+# nunca fica sabendo que pode devolver as conversas ao bot.
+ao_recuperar_conta: Callable[[], Awaitable[None]] | None = None
+
+# Desde quando a conta está recusando (None = funcionando). Mostrado na tela
+# Hoje. Em memória, como o resto do estado do processo (1 instância no Render).
+bloqueada_desde: datetime | None = None
+
+
 async def _avisar_bloqueio(exc: Exception) -> None:
+    global bloqueada_desde
+    if bloqueada_desde is None:
+        bloqueada_desde = datetime.now(timezone.utc)
     if ao_bloquear_conta is None:
         return
     try:
         await ao_bloquear_conta(str(exc))
     except Exception:  # noqa: BLE001 — avisar é conveniência; a conversa segue
         logger.exception("Não consegui avisar a equipe do bloqueio da OpenAI")
+
+
+async def _registrar_sucesso() -> None:
+    """A chamada passou: se a conta estava bloqueada, ela voltou."""
+    global bloqueada_desde
+    if bloqueada_desde is None:
+        return
+    bloqueada_desde = None
+    logger.info("OpenAI voltou a aceitar a conta")
+    if ao_recuperar_conta is None:
+        return
+    try:
+        await ao_recuperar_conta()
+    except Exception:  # noqa: BLE001
+        logger.exception("Não consegui avisar a equipe de que a OpenAI voltou")
 
 
 # Valores aceitos pelo `reasoning_effort` dos modelos de raciocínio (gpt-5.x).
@@ -285,7 +312,7 @@ class OpenAIClient(LLMClient):
         """
         for _ in range(len(self._PARAMS_OPCIONAIS) + 2):
             try:
-                return await self._client.chat.completions.create(**kwargs)
+                resposta = await self._client.chat.completions.create(**kwargs)
             except OpenAIError as exc:
                 texto = str(exc).lower()
 
@@ -334,7 +361,34 @@ class OpenAIClient(LLMClient):
                 )
                 self._marcar_omissao(culpado)
                 kwargs.pop(culpado, None)
+                continue
+            await _registrar_sucesso()
+            return resposta
         raise LLMError("Falha ao gerar resposta no OpenAI")
+
+
+async def verificar_ia() -> dict:
+    """Chamada mínima à OpenAI pra saber se a IA está de pé ANTES de um paciente
+    escrever. Roda no cron de 30 em 30 min (`/tasks/lembretes-terapeutas`).
+
+    25/11/2026 o crédito acabou às 14h37 e a equipe só soube no dia seguinte,
+    pela Thainá. Com esta checagem, conta bloqueada dispara o alerta (via
+    `_criar`) em até meia hora, com ou sem paciente escrevendo.
+    """
+    try:
+        await get_llm_client().gerar_resposta(
+            [{"role": "user", "content": "ping"}],
+            system_prompt="Responda apenas com a palavra: ok",
+        )
+    except LLMContaBloqueada:
+        return {"ok": False, "motivo": "conta_bloqueada"}
+    except LLMError:
+        return {"ok": False, "motivo": "instavel"}
+    except Exception:  # noqa: BLE001 — checagem nunca derruba o cron
+        logger.exception("Checagem da IA quebrou")
+        return {"ok": False, "motivo": "erro"}
+    logger.info("Checagem da IA: ok")
+    return {"ok": True}
 
 
 @lru_cache(maxsize=1)

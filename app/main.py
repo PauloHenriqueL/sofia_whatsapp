@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
     from app.services import escalation, llm_client
 
     llm_client.ao_bloquear_conta = escalation.avisar_conta_bloqueada
+    llm_client.ao_recuperar_conta = escalation.avisar_conta_recuperada
     yield
     logger.info("Sofia encerrada")
 

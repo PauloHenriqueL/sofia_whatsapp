@@ -274,6 +274,25 @@ class TestCron:
         assert meta == []
 
     @pytest.mark.asyncio
+    async def test_em_producao_confere_se_a_ia_esta_de_pe(self, sofia, hamilton, meta, monkeypatch):
+        """É o cron que roda de verdade a cada 30 min: sem crédito na OpenAI,
+        o alerta sai daqui sem esperar paciente. Fora de produção não chama."""
+        from unittest.mock import AsyncMock
+
+        from app.services import llm_client
+
+        checagem = AsyncMock(return_value={"ok": False, "motivo": "conta_bloqueada"})
+        monkeypatch.setattr(llm_client, "verificar_ia", checagem)
+
+        resp = await _cron(sofia)
+        assert "ia" not in resp.json()
+        checagem.assert_not_awaited()
+
+        monkeypatch.setattr(config.settings, "environment", "production")
+        resp = await _cron(sofia)
+        assert resp.json()["ia"] == {"ok": False, "motivo": "conta_bloqueada"}
+
+    @pytest.mark.asyncio
     async def test_sem_token_do_cron_e_proibido(self, sofia, hamilton, meta):
         resp = await sofia.post("/tasks/lembretes-terapeutas")
         assert resp.status_code == 403

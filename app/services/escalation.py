@@ -504,6 +504,28 @@ async def avisar_conta_bloqueada(erro: str = "") -> bool:
     return enviou
 
 
+AVISO_CONTA_RECUPERADA = (
+    "SOFIA COM IA DE NOVO: a OpenAI voltou a responder. As conversas que vieram "
+    "pra equipe enquanto ela estava fora continuam com vocês; devolva ao bot as que quiser."
+)
+
+
+async def avisar_conta_recuperada() -> bool:
+    """A IA voltou depois de um bloqueio: avisa a equipe uma vez.
+
+    Zera o intervalo do aviso de bloqueio, pra um bloqueio novo logo depois
+    ser avisado na hora, não só dali a uma hora.
+    """
+    global _ultimo_aviso_conta
+    _ultimo_aviso_conta = None
+    from app.database import async_session
+
+    async with async_session() as db:
+        enviou = await alertar_equipe(db, "Sofia (sistema)", AVISO_CONTA_RECUPERADA)
+    logger.info("Equipe avisada de que a OpenAI voltou (enviado=%s)", enviou)
+    return enviou
+
+
 async def escalar_por_falha_ia(
     session: AsyncSession, conversa: Conversa, conta_bloqueada: bool
 ) -> str:

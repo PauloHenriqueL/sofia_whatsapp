@@ -21,6 +21,7 @@ from app.services import (
     config_negocio,
     contato,
     lembretes_terapeutas,
+    llm_client,
     pagamentos,
     pesquisa,
     programadas,
@@ -135,4 +136,9 @@ async def disparar_lembretes_terapeutas(request: Request, db: AsyncSession = Dep
     # Mensagens que a equipe (ou a Sofia) programou para uma data. Aqui pelo
     # mesmo motivo: é o cron de 30 em 30 minutos que existe de verdade.
     resultado["programadas"] = await programadas.rodar(db)
+    # A IA está de pé? Sem crédito, o alerta "SOFIA SEM IA" sai daqui em até
+    # meia hora, sem esperar um paciente escrever e cair na falha. Só em
+    # produção: fora dela é uma chamada paga à OpenAI a cada teste do cron.
+    if settings.environment.strip().lower() == "production":
+        resultado["ia"] = await llm_client.verificar_ia()
     return resultado
