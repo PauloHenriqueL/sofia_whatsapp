@@ -877,6 +877,24 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
   conveniência. Loga sem o nome do paciente (LGPD).
 - Fora da janela de 24h só template funciona — por isso o alerta é template, não texto.
 
+### IA fora do ar / sem crédito (`escalation.escalar_por_falha_ia`) — 26/11/2026
+- 🔴 **25-26/11 o crédito da OpenAI acabou** e por ~24h a Sofia respondeu "tive um
+  probleminha técnico, me manda de novo" a TODO paciente, sem ninguém saber: o erro
+  (`429 insufficient_quota`) só existia no log do Render.
+- Agora **falha do modelo no turno escala a conversa** (`falha_ia`): vai pra fila Hoje,
+  dispara o `alerta_thaina` e a pessoa ouve que a Thainá vai responder. Vale para
+  falha passageira também (o SDK já reenvia; se chegou aqui, persistiu).
+- Erro **da conta** (sem crédito, chave inválida) vira `LLMContaBloqueada` e chama
+  `llm_client.ao_bloquear_conta` (registrado no `main.lifespan`), que manda à equipe
+  **um** alerta por hora: "SOFIA SEM IA … recarregue". `insufficient_quota` vem num
+  429, o mesmo status do rate limit — a decisão é pelo texto do erro.
+- Pesquisa e cobrança ainda respondem `RESPOSTA_INSTABILIDADE` na falha, mas o alerta
+  de conta bloqueada sai de qualquer caminho (fica no cliente).
+- **Prevenção de verdade é fora do código**: recarga automática + alerta de saldo no
+  Billing da OpenAI.
+- "Assumir controle" conta como aviso dado (`aviso_escalada_em`): antes, a 1ª mensagem
+  depois de assumir recebia "a Thainá já foi avisada" por cima da Thainá.
+
 ### Cadastro no Hamilton (`cadastro.py` + `hamilton_client.py`)
 - **Busca-antes-de-criar** por telefone; cria um **lead sem terapeuta** (a coordenação faz
   o match depois). Falha do Hamilton → `estado = cadastro_pendente` (não propaga erro pro

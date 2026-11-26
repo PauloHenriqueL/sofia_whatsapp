@@ -381,6 +381,11 @@ async def assumir(db: AsyncSession, conversa: Conversa) -> None:
     escalation.limpar_pendente(conversa)
 
     conversa.modo = "humano"
+    # Quem assumiu já está na conversa: o "a Thainá já foi avisada" do
+    # `_avisar_escalada_uma_vez` sairia por cima dela no meio do atendimento
+    # (26/11: a Thainá respondendo e a Sofia entrando com o aviso). Conta como
+    # já avisado; `devolver_ao_bot`/`arquivar` zeram para a próxima escalada.
+    conversa.aviso_escalada_em = datetime.now(timezone.utc)
 
     if cobranca.em_cobranca(conversa):
         await cobranca.finalizar(db, conversa, "assumida")

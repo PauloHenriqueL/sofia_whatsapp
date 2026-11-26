@@ -10,11 +10,12 @@ Claude ou outro) sem mexer no resto da aplicação.
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
 
-from openai import AsyncOpenAI, OpenAIError
+from openai import AsyncOpenAI, AuthenticationError, OpenAIError, PermissionDeniedError
 
 from app.config import settings
 from app.services import captacao, config_negocio, config_prompt
@@ -27,6 +28,53 @@ logger = logging.getLogger(__name__)
 
 class LLMError(Exception):
     """Falha ao gerar resposta no provedor LLM."""
+
+
+class LLMContaBloqueada(LLMError):
+    """A conta da OpenAI recusa TODA chamada até uma pessoa agir: sem crédito,
+    chave inválida ou revogada. Não é instabilidade — tentar de novo não adianta.
+
+    25-26/11/2026: o crédito acabou e por ~24h a Sofia respondeu "tive um
+    probleminha técnico, me manda de novo" a todo paciente, sem ninguém da
+    equipe saber. O erro só existia no log do Render.
+    """
+
+
+# Trechos do erro da OpenAI que dizem "a conta parou", não "tente de novo".
+# `insufficient_quota` vem num 429, o mesmo status do rate limit comum — por
+# isso a decisão é pelo texto, não pelo status.
+_SINAIS_CONTA_BLOQUEADA = (
+    "insufficient_quota",
+    "credit_balance",
+    "no credits remaining",
+    "billing",
+    "invalid_api_key",
+    "incorrect api key",
+    "account_deactivated",
+)
+
+
+def conta_bloqueada(exc: Exception) -> bool:
+    """Se o erro do provedor é da conta (crédito/chave), não da chamada."""
+    if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+        return True
+    texto = str(exc).lower()
+    return any(sinal in texto for sinal in _SINAIS_CONTA_BLOQUEADA)
+
+
+# Quem avisar quando a conta bloquear. Registrado no startup (`main.lifespan`)
+# para o cliente não depender de banco/WhatsApp — e para os testes não mandarem
+# alerta nenhum sem pedir. Recebe o texto do erro (sem dado de paciente).
+ao_bloquear_conta: Callable[[str], Awaitable[None]] | None = None
+
+
+async def _avisar_bloqueio(exc: Exception) -> None:
+    if ao_bloquear_conta is None:
+        return
+    try:
+        await ao_bloquear_conta(str(exc))
+    except Exception:  # noqa: BLE001 — avisar é conveniência; a conversa segue
+        logger.exception("Não consegui avisar a equipe do bloqueio da OpenAI")
 
 
 # Valores aceitos pelo `reasoning_effort` dos modelos de raciocínio (gpt-5.x).
@@ -240,6 +288,13 @@ class OpenAIClient(LLMClient):
                 return await self._client.chat.completions.create(**kwargs)
             except OpenAIError as exc:
                 texto = str(exc).lower()
+
+                # Conta sem crédito / chave inválida: nenhum reenvio resolve, e
+                # quem precisa saber é a equipe, não só o log.
+                if conta_bloqueada(exc):
+                    logger.error(f"OpenAI recusou a conta (crédito/chave): {exc}")
+                    await _avisar_bloqueio(exc)
+                    raise LLMContaBloqueada("Conta da OpenAI bloqueada") from exc
 
                 # 🔴 Caso especial, e NÃO é detalhe: com function calling, o
                 # gpt-5.6 em /v1/chat/completions recusa qualquer esforço que não

@@ -82,6 +82,54 @@ class TestOpenAIClient:
             await client.gerar_resposta([{"role": "user", "content": "oi"}])
 
     @pytest.mark.asyncio
+    async def test_sem_credito_vira_conta_bloqueada_e_avisa_a_equipe(self, monkeypatch):
+        """O erro real de 25/11 (um 429, o mesmo status do rate limit): não
+        reenvia, levanta `LLMContaBloqueada` e chama o aviso registrado."""
+        erro = OpenAIError(
+            "Error code: 429 - {'error': {'message': 'You have no credits remaining.', "
+            "'type': 'insufficient_quota', 'code': 'credit_balance_exhausted'}}"
+        )
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(side_effect=erro)
+        avisos = AsyncMock()
+        monkeypatch.setattr(llm_client, "ao_bloquear_conta", avisos)
+        client = llm_client.OpenAIClient(client=fake_client)
+
+        with pytest.raises(llm_client.LLMContaBloqueada):
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert fake_client.chat.completions.create.await_count == 1
+        avisos.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_erro_comum_nao_e_conta_bloqueada(self, monkeypatch):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(side_effect=OpenAIError("timeout"))
+        avisos = AsyncMock()
+        monkeypatch.setattr(llm_client, "ao_bloquear_conta", avisos)
+        client = llm_client.OpenAIClient(client=fake_client)
+
+        with pytest.raises(llm_client.LLMError) as exc:
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+        assert not isinstance(exc.value, llm_client.LLMContaBloqueada)
+        avisos.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_aviso_quebrado_nao_derruba_a_conversa(self, monkeypatch):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create = AsyncMock(
+            side_effect=OpenAIError("insufficient_quota")
+        )
+        monkeypatch.setattr(
+            llm_client, "ao_bloquear_conta", AsyncMock(side_effect=RuntimeError("meta fora"))
+        )
+        client = llm_client.OpenAIClient(client=fake_client)
+
+        with pytest.raises(llm_client.LLMContaBloqueada):
+            await client.gerar_resposta([{"role": "user", "content": "oi"}])
+
+    @pytest.mark.asyncio
     async def test_temperature_none_nao_envia(self):
         fake_client = MagicMock()
         fake_client.chat.completions.create = AsyncMock(return_value=_resposta_openai("oi"))

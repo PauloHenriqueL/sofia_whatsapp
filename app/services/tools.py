@@ -62,6 +62,7 @@ MOTIVO_LABELS = {
     "pedido_humano": "pediu pra falar com uma pessoa",
     "neuro_reuniao": "avaliação neuropsicológica",
     "loop_automatico": "conversa travada: parece outro robô do outro lado",
+    "falha_ia": "a IA da Sofia não respondeu (OpenAI fora ou sem crédito)",
     "preco": "dúvida ou objeção sobre o preço",
     "prefeitura": "mencionou prefeitura / convênio municipal",
     "gratuidade": "não tem como pagar (gratuidade)",

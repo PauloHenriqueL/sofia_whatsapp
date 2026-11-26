@@ -431,7 +431,47 @@ class TestProcessarPayload:
             assert conversa.estado == "escalado"
 
     @pytest.mark.asyncio
-    async def test_llm_falha_usa_fallback(self, db_em_memoria):
+    async def test_llm_falha_passa_a_conversa_pra_equipe(self, db_em_memoria):
+        """25-26/11: crédito da OpenAI acabou e por ~24h a Sofia respondeu
+        "probleminha técnico, me manda de novo" a cada mensagem, sem ninguém
+        saber. Agora a conversa escala (fila Hoje + alerta) e a pessoa ouve que
+        alguém vai responder — uma vez, e depois só o aviso único de sempre."""
+        from app.models import Escalada
+
+        class _LLMSemCredito:
+            async def gerar_resposta(self, historico, tools=None, **kwargs):
+                raise llm_client.LLMContaBloqueada("sem crédito")
+
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=_LLMSemCredito(),
+        ), patch(
+            "app.services.escalation.alertar_thaina", new_callable=AsyncMock
+        ) as mock_alerta:
+            await _rodar(_payload_texto(numero="5531900001111", texto="oi", msg_id="w.f1"))
+            await _rodar(_payload_texto(numero="5531900001111", texto="alô?", msg_id="w.f2"))
+            await _rodar(_payload_texto(numero="5531900001111", texto="??", msg_id="w.f3"))
+
+        textos = [c.args[1] for c in mock_enviar.await_args_list]
+        assert textos == [escalation.ESCALADA_FALLBACK, escalation.AVISO_EM_ATENDIMENTO]
+        assert webhook_module.FALLBACK_RESPOSTA not in textos
+        mock_alerta.assert_awaited_once()
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531900001111")
+            assert conversa.modo == "humano"
+            motivos = (
+                await s.execute(
+                    select(Escalada.motivo).where(Escalada.conversa_id == conversa.id)
+                )
+            ).scalars().all()
+            assert motivos == [escalation.MOTIVO_FALHA_IA]
+
+    @pytest.mark.asyncio
+    async def test_llm_falha_passageira_tambem_chama_a_equipe(self, db_em_memoria):
         class _LLMQuebra:
             async def gerar_resposta(self, historico, tools=None, **kwargs):
                 raise llm_client.LLMError("boom")
@@ -442,11 +482,11 @@ class TestProcessarPayload:
         ) as mock_enviar, patch(
             "app.routers.webhook.llm_client.get_llm_client",
             return_value=_LLMQuebra(),
-        ):
+        ), patch("app.services.escalation.alertar_thaina", new_callable=AsyncMock):
             await _rodar(_payload_texto(texto="oi"))
 
         _, texto = mock_enviar.await_args.args
-        assert texto == webhook_module.FALLBACK_RESPOSTA
+        assert texto == escalation.ESCALADA_FALLBACK
 
     @pytest.mark.asyncio
     async def test_modo_humano_avisa_uma_vez_e_depois_cala(self, db_em_memoria):
@@ -474,6 +514,28 @@ class TestProcessarPayload:
 
         mock_enviar.assert_awaited_once_with("5531911112222", escalation.AVISO_EM_ATENDIMENTO)
         assert fake.historicos == []  # o LLM não é consultado em modo humano
+
+    @pytest.mark.asyncio
+    async def test_quem_assumiu_nao_recebe_o_aviso_por_cima(self, db_em_memoria):
+        """26/11: a Thainá assumiu e estava respondendo; a pessoa escreveu e a
+        Sofia entrou no meio com "a Thainá já foi avisada". O aviso é para quem
+        escreve no vazio depois de uma escalada — não para quem já está sendo
+        atendido. "Assumir controle" conta como aviso dado."""
+        from app.services import painel as painel_service
+
+        async with db_em_memoria() as s:
+            conversa = await conversation.obter_ou_criar_conversa(s, "5531911114444")
+            await painel_service.assumir(s, conversa)
+
+        fake = _FakeLLM()
+        with patch(
+            "app.routers.webhook.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock,
+        ) as mock_enviar, patch("app.routers.webhook.llm_client.get_llm_client", return_value=fake):
+            await _rodar(_payload_texto(numero="5531911114444", texto="250/4?", msg_id="wamid.a1"))
+
+        mock_enviar.assert_not_awaited()
+        assert fake.historicos == []
 
     @pytest.mark.asyncio
     async def test_cobranca_em_curso_fura_o_portao_do_modo_humano(self, db_em_memoria):

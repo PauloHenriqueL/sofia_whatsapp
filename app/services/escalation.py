@@ -468,6 +468,68 @@ async def alertar_equipe(db: AsyncSession, nome: str, rotulo: str) -> bool:
     return enviou_algum
 
 
+# --------------------------------------------------------------------------- #
+# A IA parou (conta da OpenAI sem crédito ou com chave inválida)
+#
+# 25-26/11/2026: o crédito acabou e por ~24h toda pessoa que escreveu recebeu
+# "tive um probleminha técnico, me manda de novo" — sem ninguém da equipe saber.
+# Agora: cada conversa afetada é escalada (vai pra fila Hoje, com o alerta de
+# sempre) e a equipe recebe UM aviso dizendo a causa e o que fazer.
+MOTIVO_FALHA_IA = "falha_ia"
+AVISO_CONTA_BLOQUEADA = (
+    "SOFIA SEM IA: a OpenAI recusou a conta (crédito acabou ou chave inválida). "
+    "Recarregue em platform.openai.com > Billing. Até lá as conversas vêm pra equipe."
+)
+INTERVALO_AVISO_CONTA = timedelta(hours=1)
+_ultimo_aviso_conta: datetime | None = None
+
+
+async def avisar_conta_bloqueada(erro: str = "") -> bool:
+    """Avisa a equipe que a IA parou. No máximo uma vez por hora (em memória —
+    1 instância no Render): cada mensagem de paciente bate nisso.
+
+    Abre a própria sessão porque é chamado de dentro do cliente da OpenAI, que
+    não tem banco. `erro` não vai pro alerta (só a causa genérica).
+    """
+    global _ultimo_aviso_conta
+    agora = datetime.now(timezone.utc)
+    if _ultimo_aviso_conta and agora - _ultimo_aviso_conta < INTERVALO_AVISO_CONTA:
+        return False
+    _ultimo_aviso_conta = agora
+    from app.database import async_session
+
+    async with async_session() as db:
+        enviou = await alertar_equipe(db, "Sofia (sistema)", AVISO_CONTA_BLOQUEADA)
+    logger.error("Equipe avisada de que a OpenAI recusou a conta (enviado=%s)", enviou)
+    return enviou
+
+
+async def escalar_por_falha_ia(
+    session: AsyncSession, conversa: Conversa, conta_bloqueada: bool
+) -> str:
+    """O modelo não respondeu: a conversa passa pra equipe, em vez de a Sofia
+    pedir "me manda de novo" a cada mensagem. Devolve o texto pro paciente.
+
+    Vale também para falha passageira: o cliente da OpenAI já reenvia sozinho,
+    então quando o erro chega aqui ele persistiu — e errar para o lado de chamar
+    uma pessoa é o lado seguro.
+    """
+    causa = (
+        "A IA da Sofia está fora: a conta da OpenAI recusou (crédito ou chave)."
+        if conta_bloqueada
+        else "A IA da Sofia falhou ao responder esta mensagem."
+    )
+    await registrar_escalada(
+        session,
+        conversa,
+        MOTIVO_FALHA_IA,
+        contexto=f"{causa} A pessoa não recebeu resposta da Sofia; responda por aqui.",
+    )
+    await session.commit()
+    await alertar_thaina(session, conversa, MOTIVO_FALHA_IA)
+    return ESCALADA_FALLBACK
+
+
 async def alertar_thaina(db: AsyncSession, conversa: Conversa, motivo: str) -> bool:
     """Alerta de escalada: a conversa passou pra equipe."""
     return await _enviar_alerta(db, conversa, tools.MOTIVO_LABELS.get(motivo, motivo))

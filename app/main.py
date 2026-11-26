@@ -48,6 +48,11 @@ async def lifespan(app: FastAPI):
             await usuarios.migrar_usuario_do_env(db)
     except Exception:
         logger.exception("Não migrei o usuário do .env; login pode não funcionar")
+    # Conta da OpenAI sem crédito/chave inválida: a equipe recebe um alerta no
+    # WhatsApp (no máximo 1 por hora) em vez de o erro morar só no log.
+    from app.services import escalation, llm_client
+
+    llm_client.ao_bloquear_conta = escalation.avisar_conta_bloqueada
     yield
     logger.info("Sofia encerrada")
 

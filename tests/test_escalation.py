@@ -306,3 +306,34 @@ class TestTravaDeLoop:
         """É trava do sistema, não escolha da Sofia."""
         assert escalation.MOTIVO_LOOP not in tools.MOTIVOS_ESCALADA
         assert escalation.MOTIVO_LOOP in tools.MOTIVO_LABELS
+
+
+class TestAvisoContaBloqueada:
+    """Crédito da OpenAI acabou: a equipe recebe UM aviso por hora, não um por
+    mensagem de paciente (todas batem no mesmo erro)."""
+
+    @pytest.mark.asyncio
+    async def test_avisa_uma_vez_por_hora(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _sessao_falsa():
+            yield object()
+
+        monkeypatch.setattr("app.database.async_session", _sessao_falsa)
+        monkeypatch.setattr(escalation, "_ultimo_aviso_conta", None)
+        alerta = AsyncMock(return_value=True)
+        monkeypatch.setattr(escalation, "alertar_equipe", alerta)
+
+        assert await escalation.avisar_conta_bloqueada("insufficient_quota") is True
+        assert await escalation.avisar_conta_bloqueada("insufficient_quota") is False
+        alerta.assert_awaited_once()
+        assert "OpenAI" in alerta.await_args.args[2]
+
+        monkeypatch.setattr(
+            escalation,
+            "_ultimo_aviso_conta",
+            datetime.now(timezone.utc) - escalation.INTERVALO_AVISO_CONTA - timedelta(minutes=1),
+        )
+        assert await escalation.avisar_conta_bloqueada("insufficient_quota") is True
+        assert alerta.await_count == 2

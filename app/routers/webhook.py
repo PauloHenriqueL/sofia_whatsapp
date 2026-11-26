@@ -221,9 +221,14 @@ async def processar_turno_bot(session, conversa) -> str | None:
         resp = await llm_client.get_llm_client().gerar_resposta(
             historico, tools=ferramentas, captacoes=captacoes
         )
-    except llm_client.LLMError:
-        logger.error(f"LLM falhou para conversa {conversa.id}; usando fallback")
-        return FALLBACK_RESPOSTA
+    except llm_client.LLMError as exc:
+        # Antes: "probleminha técnico, me manda de novo" a cada mensagem, sem
+        # ninguém saber (25-26/11, crédito da OpenAI esgotado). Agora a conversa
+        # vai pra equipe e a pessoa ouve que alguém vai responder.
+        logger.error(f"LLM falhou para conversa {conversa.id}; escalando pra equipe")
+        return await escalation.escalar_por_falha_ia(
+            session, conversa, isinstance(exc, llm_client.LLMContaBloqueada)
+        )
 
     conversa._resultados_do_turno = None
     modo_antes = conversa.modo
