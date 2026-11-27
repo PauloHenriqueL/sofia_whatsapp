@@ -169,7 +169,7 @@ def montar_prompt(conversa: Conversa, link: str | None, contrato_dados: dict | N
     else:
         contexto.append(
             "- Link do cartão: INDISPONÍVEL nesta conversa. NÃO invente um link e NÃO "
-            "prometa mandar depois. Ofereça o Pix; se ela quiser cartão, escale pra Thainá."
+            "prometa mandar depois. Ofereça o Pix; se ela quiser cartão, escale pra coordenadora."
         )
     if pix:
         contexto.append(f"- Chave Pix (CNPJ): {pix}")

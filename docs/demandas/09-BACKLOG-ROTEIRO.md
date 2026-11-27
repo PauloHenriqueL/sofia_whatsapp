@@ -141,3 +141,62 @@ leva tempo); e a coleta dos três dados no roteiro.
   um aviso?
 - Se não houver horário livre, o que a Sofia faz — escala como hoje?
 - Quantos horários oferecer, e com que antecedência mínima?
+
+---
+
+## 5. Ciclo de 27/11/2026: conversa mais gentil, nomes da equipe e encaminhamento manual
+
+**Origem:** lista da Thainá e do Victor (27/11), discutida ponto a ponto antes de
+implementar. Cada linha é uma decisão do Victor.
+
+✅ **Implementado em 27/11/2026** (suíte com 1083 testes passando; botão do painel
+conferido no navegador em desktop e celular). Ainda **sem commit e sem deploy**.
+Seis conversas do laboratório rodaram com o modelo de produção e levaram a três
+ajustes: teto de 3 bolhas em código (`MAX_BOLHAS`), resposta a quem só devolve o
+cumprimento, e apresentação da Allos adiada um turno para quem chega contando
+sofrimento. **Não confirmado com o modelo real:** se ele escreve o marcador
+`[[CONFIRMAR_DADOS]]` (o laboratório grava a fala já sem ele). Sem o marcador a
+confirmação sai como texto, igual a antes.
+
+| # | Ponto | Decisão | Onde |
+|---|---|---|---|
+| 5.1 | Enviar ao encaminhamento à mão | Botão "Enviar para o encaminhamento" na página da conversa. Serve para quem a equipe atendeu à mão (nunca entrou na fila) e para quem precisa voltar a ela. Cadastra se faltar ficha, registra o pedido de novo e devolve a conversa à Sofia. Sem nome e nascimento, diz o que falta. Se o Hamilton responder que a pessoa já tem terapeuta, só mostra o aviso. **O Hamilton não muda**: o pedido lá já é idempotente. | `encaminhamento.enviar_manual`, `routers/painel.py`, `painel_conversa.html` |
+| 5.2 | Deficiência | Só quando a pessoa menciona. A Sofia pergunta uma vez qual é e se precisa de adaptação nas sessões, anota em `observacoes` e diz que anotou. Não promete terapeuta com preparo específico. | `prompt/sofia_v01.txt` |
+| 5.3 | Nomes da equipe | Nas falas ao paciente a Thainá é "nossa coordenadora clínica" (depois "a coordenadora") e a Amanda é "nossa diretora de neuropsicologia". Painel, alertas internos e documentação seguem com os nomes. Trava em código só para "Thainá" (trocar "Amanda" sozinho estragaria o nome de uma paciente Amanda). | prompts, falas fixas, `saida.sem_nome_da_equipe`, `escalation._PROMESSA_DE_ACIONAR` |
+| 5.4 | Call fria (follow-up de lead parado) | O texto termina em "Você ainda tem interesse?", sem oferecer a coordenadora. Quando a pessoa responde, a Sofia retoma de onde parou. | `seguimento.py`, `prompt/sofia_v01.txt` |
+| 5.5 | Tom | Primeira mensagem com "Como posso te ajudar?". Toda resposta reconhece o que a pessoa disse, com o fato que ela contou e sem espelhar emoção. Cortesias entram. "Perfeito!" e "Ótimo!" liberados, variando a abertura. Emoji segue proibido. Teto de duas bolhas, três quando a pessoa pede a explicação completa. | `prompt/sofia_v01.txt` |
+| 5.6 | Apresentar a Allos | Sempre, uma vez, assim que a Sofia souber que a pessoa busca terapia. Quem pergunta o preço primeiro recebe o preço e a apresentação logo depois. | `prompt/sofia_v01.txt` |
+| 5.7 | Botões de toque | Na call fria ("Sim, quero" / "Agora não") e na confirmação do cadastro ("Tudo certo" / "Corrigir"). Botão não precisa de template, só da janela de 24h. O toque entra na conversa como se a pessoa tivesse digitado o rótulo. | `whatsapp_client.enviar_botoes`, `webhook.py`, `seguimento.py` |
+| 5.8 | Dizer por que pede os dados | Uma frase antes de pedir nome, nascimento e horários. | `prompt/sofia_v01.txt` |
+
+**Recusado pelo Victor (27/11):** prazo de resposta da coordenadora variando com
+o horário ("amanhã cedo" à noite e no fim de semana). Fica "em pouco tempo".
+
+⚠️ **Deploy.** Os itens de roteiro só entram em produção se não houver texto salvo
+em `/painel/prompts`: o que está salvo lá tem prioridade sobre o arquivo. Se
+houver, é preciso "Resetar" na tela (perde a edição feita pelo painel). O botão,
+a call fria, as falas fixas e a trava do nome valem de qualquer jeito.
+
+⚠️ **Depois de subir**, ler uma amostra de conversas reais. O laboratório mede com
+paciente simulado, e simulação não prevê bem a percepção de gente de verdade.
+
+---
+
+## 6. Ideias da pesquisa de 27/11/2026 (a fazer depois)
+
+Levantadas em pesquisa na web. Nenhuma está decidida.
+
+- **Lista "conversas para revisar" no painel**, marcadas por sinais automáticos:
+  a pessoa repetiu a mesma pergunta, pediu humano, ou sumiu logo depois de uma
+  resposta longa.
+- **Orientação e lembrete antes da primeira sessão.** A espera é o fator mais
+  ligado a falta e desistência; um lembrete a mais reduziu faltas em 11% em
+  consultas de saúde mental num estudo grande (Kaiser Permanente, 2019). Exige
+  template aprovado na Meta.
+- **Aviso no meio da espera**: se o prazo de 36 horas estourar, a Sofia avisa que
+  a busca continua.
+- **Medir quantos chegam fora do horário comercial.** Num serviço inglês de
+  terapia, 38% dos pedidos entraram fora do expediente.
+- **Formulário dentro do WhatsApp (Flows)** para nome, data e horários. Obra
+  maior, exige empresa verificada na Meta, e pacientes do serviço inglês
+  disseram preferir a conversa ao formulário. Registrado, não recomendado agora.

@@ -87,7 +87,8 @@ class TestCarregarHistorico:
 
         hist = await conversation.carregar_historico(session, conversa)
         assert hist[1]["role"] == "assistant"
-        assert hist[1]["content"].startswith("[Thainá, coordenadora clínica]:")
+        # Sem o nome de quem atendeu: a Sofia não diz o nome de ninguém da equipe.
+        assert hist[1]["content"].startswith("[Coordenadora clínica]:")
         assert hist[-1] == {"role": "system", "content": conversation.AVISO_RETOMADA}
 
     async def test_sem_aviso_quando_a_sofia_falou_por_ultimo(self, session):

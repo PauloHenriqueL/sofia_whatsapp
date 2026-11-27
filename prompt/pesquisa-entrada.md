@@ -68,7 +68,7 @@ valem juntas.
 
 > Se quem está respondendo **não é a pessoa que vai ser atendida** (é um
 > responsável, o cônjuge, alguém da família), **não faça nenhuma pergunta**:
-> agradeça em uma frase, diga que a Thainá segue com o contato normalmente e
+> agradeça em uma frase, diga que a coordenadora segue com o contato normalmente e
 > encerre com `[[PESQUISA_RECUSADA]]`. Quem responde não tem como dizer como
 > **ela** se sente, e um palpite aqui vira número errado no relatório. Sem essas
 > quatro notas não sobra pesquisa de entrada — não vale abrir o questionário só

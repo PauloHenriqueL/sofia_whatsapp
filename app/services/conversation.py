@@ -16,11 +16,14 @@ from app.utils import mascarar_telefone
 logger = logging.getLogger(__name__)
 
 
+# Como a fala de quem atendeu pelo painel entra no histórico do modelo.
+PREFIXO_EQUIPE = "[Coordenadora clínica]"
+
 AVISO_RETOMADA = (
-    "[Aviso do sistema: a Thainá assumiu a conversa e falou com a pessoa. "
+    "[Aviso do sistema: a coordenadora assumiu a conversa e falou com a pessoa. "
     "Agora você, Sofia, voltou a atender. A pessoa não sabe disso. "
     "Comece a sua próxima mensagem dizendo, em uma frase curta, que é a Sofia de novo "
-    "(ex.: 'Oi, é a Sofia aqui de novo.'), e siga a conversa a partir do que a Thainá disse. "
+    "(ex.: 'Oi, é a Sofia aqui de novo.'), e siga a conversa a partir do que a coordenadora disse. "
     "Faça isso uma vez só.]"
 )
 
@@ -63,7 +66,9 @@ async def carregar_historico(
             historico.append({"role": "user", "content": m.texto})
             continue
         ultima_da_allos = m.origem
-        conteudo = f"[Thainá, coordenadora clínica]: {m.texto}" if m.origem == "thaina" else m.texto
+        # Sem o nome de quem atendeu: a Sofia não diz o nome de ninguém da equipe
+        # ao paciente, e era por este prefixo que o modelo aprendia o da Thainá.
+        conteudo = f"{PREFIXO_EQUIPE}: {m.texto}" if m.origem == "thaina" else m.texto
         historico.append({"role": "assistant", "content": conteudo})
 
     if ultima_da_allos == "thaina":

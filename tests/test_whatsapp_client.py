@@ -285,3 +285,60 @@ class TestMarcarComoLida:
         await wc.marcar_como_lida("wamid.x", com_digitacao=True)  # não levanta
         assert len(vistos) == 2
         assert "typing_indicator" not in vistos[1]
+
+
+class TestBotoesDeResposta:
+    """Mensagem livre com botões (27/11/2026): call fria e confirmação do cadastro."""
+
+    BOTOES = [("seg_sim", "Sim, quero"), ("seg_nao", "Agora não")]
+
+    @pytest.mark.asyncio
+    async def test_payload_dos_botoes(self, monkeypatch):
+        cap = _instalar_captura(monkeypatch)
+        await wc.enviar_botoes("5531999998888", "Você ainda tem interesse?", self.BOTOES)
+        p = cap.payload
+        assert p["type"] == "interactive" and p["to"] == "5531999998888"
+        assert p["interactive"]["type"] == "button"
+        assert p["interactive"]["body"] == {"text": "Você ainda tem interesse?"}
+        assert p["interactive"]["action"]["buttons"] == [
+            {"type": "reply", "reply": {"id": "seg_sim", "title": "Sim, quero"}},
+            {"type": "reply", "reply": {"id": "seg_nao", "title": "Agora não"}},
+        ]
+
+    @pytest.mark.parametrize(
+        "texto, botoes",
+        [
+            ("x" * 1025, [("a", "Sim")]),  # corpo acima do limite da Meta
+            ("oi", [("a", "x" * 21)]),  # rótulo acima de 20 caracteres
+            ("oi", [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")]),  # mais de 3
+            ("oi", []),
+            ("", [("a", "Sim")]),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_fora_dos_limites_nem_tenta(self, monkeypatch, texto, botoes):
+        cap = _instalar_captura(monkeypatch)
+        assert not wc.cabe_em_botoes(texto, botoes)
+        with pytest.raises(wc.WhatsAppError):
+            await wc.enviar_botoes("5531999998888", texto, botoes)
+        assert cap.requests == []
+
+    def test_le_o_toque(self):
+        mensagem = {"type": "interactive", "interactive": {
+            "type": "button_reply", "button_reply": {"id": "conf_sim", "title": "Tudo certo"}}}
+        assert wc.toque_em_botao(mensagem) == ("conf_sim", "Tudo certo")
+
+    @pytest.mark.parametrize(
+        "mensagem",
+        [
+            {"type": "text", "text": {"body": "Tudo certo"}},
+            # Botão de TEMPLATE: tem tratamento próprio (encaminhamento, lembretes).
+            {"type": "button", "button": {"text": "Pode ser", "payload": "prop_sim:42"}},
+            {"type": "interactive", "interactive": {"type": "list_reply", "list_reply": {}}},
+            {"type": "interactive", "interactive": {"button_reply": {"id": "x", "title": " "}}},
+            {"type": "interactive", "interactive": "torto"},
+            {"type": "interactive"},
+        ],
+    )
+    def test_o_que_nao_e_toque(self, mensagem):
+        assert wc.toque_em_botao(mensagem) is None

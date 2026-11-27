@@ -145,7 +145,7 @@ _TOKENS_INTERNOS = re.compile(
 # Prefixos que nós mesmos injetamos no histórico (ver conversation.py). Se o
 # modelo copiar de volta, não podem sair pro paciente.
 _PREFIXOS_NOSSOS = re.compile(
-    r"^\s*\[(Aviso do sistema|Thainá, coordenadora clínica)[^\]]*\]:?\s*",
+    r"^\s*\[(Aviso do sistema|Thainá, coordenadora clínica|Coordenadora clínica)[^\]]*\]:?\s*",
     re.IGNORECASE,
 )
 
@@ -262,6 +262,65 @@ def sem_planejamento(texto: str) -> str:
         while linhas and not linhas[0].strip():
             linhas = linhas[1:]
     return "\n".join(linhas)
+
+
+# --- Nome de quem atende ------------------------------------------------------
+#
+# Decisão do Victor (27/11/2026): a Sofia não diz o nome de ninguém da equipe ao
+# paciente. A Thainá é "a coordenadora clínica". O roteiro e as falas fixas já não
+# trazem o nome, mas o modelo ainda o encontra (a própria coordenadora se apresenta
+# no painel, o paciente escreve "quero falar com a Thainá", a ferramenta se chama
+# `escalar_para_thaina`), e regra só no roteiro este projeto já viu o modelo
+# ignorar. Então a troca é garantida aqui.
+#
+# Só a Thainá: "Amanda" é nome comum de paciente, e trocar "Oi, Amanda" por "Oi, a
+# diretora de neuropsicologia" seria pior que o defeito. Pelo mesmo motivo a troca
+# é pulada quando a própria pessoa se chama Thainá.
+_NOME_COORDENADORA = re.compile(
+    r"(?P<prep>\b(?:de|a|à|da|na|pela|pra|nossa)\s+)?\bThain[áa]\b", re.IGNORECASE
+)
+# Depois da troca, "a Thainá, nossa coordenadora clínica," vira "a coordenadora,
+# nossa coordenadora clínica,": o aposto passa a repetir o título.
+_APOSTO_REPETIDO = re.compile(
+    r"coordenadora\s*(?:,\s*|\(\s*)(?:a\s+|nossa\s+)?coordenadora"
+    r"(?!\s+de\b)(?P<clinica>\s+cl[ií]nica)?(?:\s+da\s+(?:Allos|nossa\s+cl[ií]nica))?\s*[,)]?",
+    re.IGNORECASE,
+)
+_trocas_de_nome = 0
+
+
+def trocas_de_nome() -> int:
+    """Quantas falas tiveram o nome da coordenadora trocado desde o start."""
+    return _trocas_de_nome
+
+
+def sem_nome_da_equipe(texto: str, nome_da_pessoa: str | None = None) -> str:
+    """Troca "Thainá" por "a coordenadora" na fala que vai pro paciente."""
+    global _trocas_de_nome
+    if not texto or not _NOME_COORDENADORA.search(texto):
+        return texto
+    if nome_da_pessoa and "thain" in _normalizar(nome_da_pessoa).replace("á", "a"):
+        return texto
+
+    def trocar(m: re.Match) -> str:
+        prep = m.group("prep")
+        if prep:
+            # "de Thainá" não tem artigo; o resto já traz o seu.
+            return "da coordenadora" if prep.strip().lower() == "de" else f"{prep}coordenadora"
+        antes = texto[: m.start()].rstrip(" \t")
+        inicio_de_frase = not antes or antes[-1] in ".!?:\n"
+        return "A coordenadora" if inicio_de_frase else "a coordenadora"
+
+    novo = _NOME_COORDENADORA.sub(trocar, texto)
+    novo = _APOSTO_REPETIDO.sub(
+        lambda m: "coordenadora" + (m.group("clinica") or " clínica"), novo
+    )
+    novo = re.sub(r"[ \t]{2,}", " ", novo)
+    novo = re.sub(r"[ \t]+([,.!?])", r"\1", novo)
+    _trocas_de_nome += 1
+    # Sem o texto no log (LGPD).
+    logger.warning("Saída do modelo citava a coordenadora pelo nome; trocado pelo título")
+    return novo
 
 
 def limpar(texto: str | None) -> str:

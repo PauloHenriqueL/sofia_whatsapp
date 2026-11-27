@@ -136,18 +136,64 @@ class TestRodarSeguimentos:
     async def test_envia_marca_e_nao_reenvia(self, session):
         await _lead(session, numero="5531900000007", horas_atras=21)
         with patch(
+            "app.services.seguimento.whatsapp_client.enviar_botoes", new_callable=AsyncMock
+        ) as mock_envia, patch(
             "app.services.seguimento.whatsapp_client.enviar_texto", new_callable=AsyncMock
-        ) as mock_envia:
+        ) as mock_texto:
             enviados = await seguimento.rodar_seguimentos(session, AGORA)
         assert enviados == 1
+        # Sai com os botões; o texto puro é só o plano B.
         mock_envia.assert_awaited_once()
+        mock_texto.assert_not_awaited()
+        numero, texto, botoes = mock_envia.await_args.args
+        assert numero == "5531900000007"
+        assert texto.endswith("Você ainda tem interesse?")
+        assert [rotulo for _, rotulo in botoes] == ["Sim, quero", "Agora não"]
 
         # Segunda rodada: a conversa já foi seguida, não reenvia.
         with patch(
-            "app.services.seguimento.whatsapp_client.enviar_texto", new_callable=AsyncMock
+            "app.services.seguimento.whatsapp_client.enviar_botoes", new_callable=AsyncMock
         ) as mock_envia2:
             assert await seguimento.rodar_seguimentos(session, AGORA) == 0
         mock_envia2.assert_not_awaited()
+
+    def test_a_call_fria_nao_oferece_a_coordenadora(self):
+        """Decisão do Victor (27/11/2026): termina na pergunta, e quem responde
+        é a Sofia. Nenhum nome da equipe, nenhuma oferta de chamar alguém."""
+        texto = seguimento.SEGUIMENTO_TEXTO
+        assert texto.endswith("Você ainda tem interesse?")
+        assert "Thainá" not in texto and "coordenadora" not in texto and "chame" not in texto
+
+    @pytest.mark.asyncio
+    async def test_botao_recusado_cai_pro_texto(self, session):
+        from app.services import whatsapp_client
+
+        c = await _lead(session, numero="5531900000010", horas_atras=21)
+        with patch(
+            "app.services.seguimento.whatsapp_client.enviar_botoes",
+            new_callable=AsyncMock, side_effect=whatsapp_client.WhatsAppError("x"),
+        ), patch(
+            "app.services.seguimento.whatsapp_client.enviar_texto", new_callable=AsyncMock
+        ) as mock_texto:
+            assert await seguimento.rodar_seguimentos(session, AGORA) == 1
+        mock_texto.assert_awaited_once()
+        assert c.seguimento_enviado_em is not None
+
+    @pytest.mark.asyncio
+    async def test_falha_total_nao_marca(self, session):
+        from app.services import whatsapp_client
+
+        c = await _lead(session, numero="5531900000011", horas_atras=21)
+        erro = whatsapp_client.WhatsAppError("x")
+        with patch(
+            "app.services.seguimento.whatsapp_client.enviar_botoes",
+            new_callable=AsyncMock, side_effect=erro,
+        ), patch(
+            "app.services.seguimento.whatsapp_client.enviar_texto",
+            new_callable=AsyncMock, side_effect=erro,
+        ):
+            assert await seguimento.rodar_seguimentos(session, AGORA) == 0
+        assert c.seguimento_enviado_em is None  # volta na próxima rodada
 
 
 @pytest_asyncio.fixture

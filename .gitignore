@@ -79,3 +79,6 @@ Thumbs.db
 # Node (se usar HTMX/frontend later)
 node_modules/
 npm-debug.log
+
+# Capturas do Playwright MCP (validação de tela)
+.playwright-mcp/

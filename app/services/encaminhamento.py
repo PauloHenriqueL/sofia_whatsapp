@@ -384,6 +384,78 @@ async def registrar_pedidos(db: AsyncSession, agora: datetime | None = None) -> 
     return {"registrados": registrados, "ignorados": ignorados}
 
 
+# --- 1b. Envio à mão, pelo painel ---------------------------------------------
+#
+# Pedido da Thainá (27/11/2026). O pedido automático acima só pega quem foi
+# cadastrado há menos de 14 dias e ainda não tem marca. Ficavam de fora dois
+# grupos, e nenhum tinha caminho de volta:
+#   - quem a equipe atendeu à mão (escalou, alguém resolveu na conversa) e nunca
+#     foi cadastrado, ou foi há mais tempo;
+#   - quem já passou pela fila e precisa voltar: recusou as propostas, o
+#     terapeuta não aceitou, ou a conversa ficou marcada como ignorada.
+# O Hamilton não precisou mudar: o pedido lá é idempotente (com um aberto,
+# atualiza; com o anterior fechado, abre outro).
+
+# O mínimo para existir ficha, o mesmo da tool `cadastrar_paciente`.
+_PRECISA_PARA_CADASTRAR = (
+    ("nome_completo", "o nome completo"),
+    ("data_nascimento", "a data de nascimento"),
+)
+
+
+async def enviar_manual(db: AsyncSession, conversa: Conversa) -> dict:
+    """Põe (ou repõe) o paciente desta conversa na fila do encaminhamento.
+
+    Cadastra no Hamilton se ainda não houver ficha, registra o pedido relendo a
+    conversa e devolve a conversa à Sofia, que é quem responde à proposta de
+    horário. Devolve `{"codigo": ...}` — a tela traduz, e nenhum texto vindo do
+    Hamilton ou da conversa vai parar na URL.
+
+    Nunca força: paciente que o Hamilton diz já ter terapeuta fica como está
+    (trocar de terapeuta é feito lá), e a conversa não muda de mãos.
+    """
+    from app.services import cadastro, painel
+
+    if conversa.eh_terapeuta:
+        return {"codigo": "terapeuta"}
+    cliente = hamilton_client.get_hamilton_client()
+    try:
+        if not (await cliente.fila_encaminhamentos()).get("ativo"):
+            # O pedido seria aceito, mas não apareceria em tela nenhuma.
+            return {"codigo": "desligado"}
+        if conversa.paciente_hamilton_id is None:
+            dados = conversa.dados_coletados or {}
+            faltam = [rotulo for campo, rotulo in _PRECISA_PARA_CADASTRAR if not dados.get(campo)]
+            if faltam:
+                return {"codigo": "faltam_dados", "faltam": faltam}
+            await cadastro.cadastrar_paciente(db, conversa)
+            await db.commit()
+            if conversa.paciente_hamilton_id is None:
+                return {"codigo": "hamilton"}
+        criterios = await extrair_criterios(db, conversa, await _mapa_abordagens(cliente))
+        status, corpo = await cliente.registrar_pedido_encaminhamento(
+            conversa.paciente_hamilton_id, criterios)
+    except hamilton_client.HamiltonError as exc:
+        logger.error("Envio manual ao encaminhamento da conversa %s falhou: %s", conversa.id, exc)
+        return {"codigo": "hamilton"}
+
+    enc = corpo.get("encaminhamento") or {}
+    if status != 200:
+        # 409: já tem terapeuta. 404: a ficha sumiu do Hamilton.
+        codigo = "tem_terapeuta" if status == 409 else "sem_ficha"
+        conversa.dados_coletados = {**(conversa.dados_coletados or {}), CHAVE_PEDIDO: codigo}
+        await db.commit()
+        return {"codigo": codigo}
+
+    conversa.dados_coletados = {**(conversa.dados_coletados or {}), CHAVE_PEDIDO: enc.get("id")}
+    if conversa.modo == "humano":
+        await painel.devolver_ao_bot(db, conversa)
+    await db.commit()
+    logger.info("Conversa %s enviada à mão ao encaminhamento", conversa.id)
+    # Com proposta já em curso o Hamilton devolve o pedido aberto sem mexer nele.
+    return {"codigo": "enviado" if enc.get("status", "pendente") == "pendente" else "em_andamento"}
+
+
 # --- 2. Proposta ao paciente -------------------------------------------------
 
 async def propor_ao_paciente(db: AsyncSession, enc: dict) -> bool:
@@ -554,7 +626,7 @@ async def responder_proposta_por_texto(
     orientacao = {
         "recusa_registrada": (
             "A recusa foi registrada e a equipe já foi avisada para procurar outro horário. "
-            "NÃO escale e NÃO diga que vai chamar a Thainá: o próximo passo é a nova proposta. "
+            "NÃO escale e NÃO diga que vai chamar a coordenadora: o próximo passo é a nova proposta. "
             + ("" if (motivo or "").strip() else
                "Pergunte, numa frase, o que não funcionou nessa proposta (o dia, o horário, outra coisa).")
         ),

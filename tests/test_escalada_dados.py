@@ -144,7 +144,7 @@ class TestPedeAntes:
 
         texto, _ = await _turno(db, conversa, fake)
 
-        assert texto.startswith("Pra Thainá, nossa coordenadora clínica")
+        assert texto.startswith("Pra nossa coordenadora clínica chegar sabendo")
         assert "seu nome completo, sua data de nascimento e os horários" in texto
 
 
@@ -257,7 +257,7 @@ class TestRedeDaPromessa:
         assert conversa.modo == "bot"
         alerta.assert_not_awaited()
         assert "Vou passar a conversa" not in texto  # a promessa saiu
-        assert texto.startswith("Entendo.\n\nPra Thainá")
+        assert texto.startswith("Entendo.\n\nPra nossa coordenadora clínica")
         assert escalation.escalada_pendente(conversa)["motivo"] == "outro"
 
         # Na volta, escala.

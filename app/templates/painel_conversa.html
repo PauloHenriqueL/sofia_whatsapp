@@ -29,6 +29,15 @@
           <button class="btn btn-ghost" type="submit"><i class="bi bi-clipboard-plus"></i> Cadastrar no Hamilton</button>
         </form>
       {% endif %}
+      {# Põe (ou repõe) a pessoa na fila do encaminhamento e devolve a conversa
+         à Sofia. Serve para quem a equipe atendeu à mão e para quem precisa
+         voltar à fila (services/encaminhamento.enviar_manual). #}
+      {% if not conversa.eh_terapeuta %}
+        <form method="post" action="/painel/conversas/{{ conversa.id }}/encaminhar" class="acao-inline"
+              onsubmit="return confirm('Enviar esta pessoa para o encaminhamento? Ela entra na fila da aba Hoje e a Sofia volta a responder nesta conversa.')">
+          <button class="btn btn-ghost" type="submit"><i class="bi bi-signpost-split"></i> Enviar para o encaminhamento</button>
+        </form>
+      {% endif %}
       {% if hamilton_url %}
         <a class="btn btn-ghost" href="{{ hamilton_url }}" target="_blank" rel="noopener">
           <i class="bi bi-box-arrow-up-right"></i> Completar no Hamilton
@@ -71,6 +80,13 @@
       </form>
     </div>
   </div>
+
+  {% if encaminhar_aviso %}
+    <div class="aviso {{ 'aviso--erro' if encaminhar_aviso.erro else 'aviso--ok' }}" style="margin-top:14px" role="status">
+      <i class="bi {{ 'bi-exclamation-triangle' if encaminhar_aviso.erro else 'bi-check2-circle' }}"></i>
+      {{ encaminhar_aviso.texto }}
+    </div>
+  {% endif %}
 
   {# ── A Sofia está conduzindo algo AGORA? ──────────────────────────────────
      Pesquisa e cobrança furam o portão do modo humano (Demanda D): a Sofia

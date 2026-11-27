@@ -597,6 +597,44 @@ ainda a tratava como lead.
   listados (`contato.em_modo_teste`, aceita com e sem o nono dígito) são
   atendidos como paciente. Em branco = desligado.
 
+### Ciclo de 27/11/2026: tom, nomes da equipe, botões e encaminhamento à mão
+Decisões do Victor, registradas em `docs/demandas/09-BACKLOG-ROTEIRO.md` (item 5).
+- **A Sofia não diz o nome de ninguém da equipe ao paciente.** A Thainá é "nossa
+  coordenadora clínica" (depois "a coordenadora"); a Amanda, "nossa diretora de
+  neuropsicologia". Painel, alertas e documentação seguem com os nomes. Vale para
+  os roteiros, as falas fixas, as notas ao modelo, as descrições das ferramentas e
+  o prefixo do histórico (`conversation.PREFIXO_EQUIPE`, "[Coordenadora clínica]").
+- **Trava em código só para "Thainá"** (`saida.sem_nome_da_equipe`, chamada em
+  `webhook._enviar_em_bolhas`). "Amanda" não é trocada: é nome comum de paciente.
+  A trava é pulada quando a própria pessoa se chama Thainá e **com pesquisa ou
+  cobrança em curso**, onde a fala cita o terapeuta da pessoa pelo nome.
+- 🔴 **A rede da promessa casa pelo título também** (`escalation._QUEM`). Ela
+  detectava "vou chamar a Thainá" sem ferramenta; sem "coordenadora" e "diretora"
+  na lista, a troca de nomes teria desligado a rede em silêncio.
+- **Call fria** (`seguimento.SEGUIMENTO_TEXTO`): termina em "Você ainda tem
+  interesse?", não oferece a coordenadora, e sai com os botões "Sim, quero" /
+  "Agora não". Quem responde é a Sofia, retomando de onde parou.
+- **Botões de resposta** (`whatsapp_client.enviar_botoes`): mensagem livre, sem
+  template, só dentro da janela de 24h. O toque (`interactive.button_reply`) vira
+  texto digitado logo na entrada de `ingerir_mensagem`. Botão recusado pela API
+  cai para texto puro. Não confundir com o botão de TEMPLATE (`type: button`).
+- **Confirmação do cadastro com botões**: o modelo fecha o resumo com
+  `[[CONFIRMAR_DADOS]]`; `processar_turno_bot` tira o marcador antes da revisão e
+  a última bolha sai com "Tudo certo" / "Corrigir". Só para quem não tem ficha.
+- **Teto de 3 bolhas por resposta** (`MAX_BOLHAS`, era 5). O roteiro pede duas.
+- **Enviar para o encaminhamento à mão** (`encaminhamento.enviar_manual`, botão na
+  conversa): cadastra se faltar ficha, registra o pedido de novo e devolve a
+  conversa à Sofia. Cobre quem a equipe atendeu à mão e quem precisa voltar à
+  fila. O Hamilton não mudou (o pedido lá é idempotente). "Já tem terapeuta" só
+  avisa.
+- **Roteiro**: primeira mensagem com "Como posso te ajudar?"; apresenta a Allos
+  uma vez ao saber que a pessoa busca terapia (depois do preço, se ela perguntou
+  o preço; na resposta seguinte, se ela chegou contando sofrimento); pergunta da
+  deficiência só quando a pessoa menciona; "Perfeito!"/"Ótimo!" liberados; emoji
+  proibido sempre.
+- ⚠️ Texto salvo em `/painel/prompts` tem prioridade sobre os arquivos: se houver,
+  as mudanças de roteiro só valem depois de "Resetar" lá.
+
 ### Revisão da fala antes do envio (`revisao.py`) — 24/11/2026
 Ideia tirada do Parlant (que **não** foi adotado: ver a análise na conversa de
 24/11 — mudaria o motor do turno, a persistência e o custo). O prompt já proibia
@@ -947,7 +985,7 @@ Herda o trabalho que a Juliana fazia à mão. Exige ler `pesquisa.py` + `signals
   `seguimento` manda constante hardcoded, não precisa.
 - Remove: JSON/estrutura com campo de `tools.py` (linha inteira **ou** embutido na fala),
   tokens internos (`@endsection`, `to=final`, ```` ``` ````, `<|...|>`) e os prefixos que **nós**
-  injetamos no histórico (`[Thainá, coordenadora clínica]:`, `[Aviso do sistema: ...]`).
+  injetamos no histórico (`[Coordenadora clínica]:`, `[Aviso do sistema: ...]`).
 - **Falso positivo > falso negativo**: cortar fala legítima quebra a conversa. O casamento é
   conservador de propósito (`"Ele disse {isso}"` passa intacto). Há bateria de teste pra isso.
 - Se limpar tudo, **nenhuma bolha é enviada**. Loga WARN (sem o conteúdo — LGPD) e conta em

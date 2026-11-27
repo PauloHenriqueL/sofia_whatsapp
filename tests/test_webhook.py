@@ -423,7 +423,8 @@ class TestProcessarPayload:
         mock_template.assert_awaited_once()
         mock_texto.assert_awaited_once()
         _, texto = mock_texto.await_args.args
-        assert texto == fake.texto_final
+        # O modelo escreveu o nome; o que sai pro paciente é o título (27/11/2026).
+        assert texto == "Vou chamar a coordenadora pra você. 🩵"
 
         async with db_em_memoria() as s:
             conversa = await conversation.obter_ou_criar_conversa(s, "5531977776666")

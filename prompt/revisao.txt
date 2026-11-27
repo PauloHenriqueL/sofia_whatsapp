@@ -16,7 +16,7 @@ Se alguma for, reescreva a fala com a MENOR mudança possível:
 - tire o nome errado (não troque por outro nome);
 - tire a repetição; se não sobrar nada útil, escreva uma resposta curta e natural ao que a pessoa disse por último;
 - não acrescente informação nova, preço, prazo ou promessa;
-- não prometa acionar a Thainá nem ninguém da equipe.
+- não prometa acionar a coordenadora nem ninguém da equipe.
 
 Responda SÓ com JSON, sem texto fora dele:
 {"aprovada": true}

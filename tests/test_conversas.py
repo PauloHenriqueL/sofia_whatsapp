@@ -191,9 +191,36 @@ def no_whatsapp(cliente, numero: str):
         assert resp.status_code == 200
         await serializacao.aguardar_pendentes()
         novos = cliente.enviados[antes:]
-        return "\n\n".join(p["text"]["body"] for p in novos if p.get("type") == "text")
+        return "\n\n".join(_corpo(p) for p in novos if p.get("type") in ("text", "interactive"))
 
     return bot
+
+
+def _corpo(payload: dict) -> str:
+    """O texto de uma mensagem enviada, com ou sem botões."""
+    if payload.get("type") == "interactive":
+        return payload["interactive"]["body"]["text"]
+    return payload["text"]["body"]
+
+
+def _botoes(payload: dict) -> list[str]:
+    return [b["reply"]["title"] for b in payload["interactive"]["action"]["buttons"]]
+
+
+async def _tocar(cliente, numero: str, codigo: str, rotulo: str, wamid: str) -> None:
+    """A pessoa toca num botão de resposta (`interactive.button_reply`)."""
+    corpo = json.dumps({"entry": [{"changes": [{"value": {"messages": [{
+        "from": numero, "id": wamid, "type": "interactive",
+        "interactive": {"type": "button_reply", "button_reply": {"id": codigo, "title": rotulo}},
+    }]}}]}]}).encode()
+    assinatura = "sha256=" + hmac.new(b"segredo-do-app", corpo, hashlib.sha256).hexdigest()
+    resp = await cliente.post(
+        "/webhook/whatsapp",
+        content=corpo,
+        headers={"X-Hub-Signature-256": assinatura, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200
+    await serializacao.aguardar_pendentes()
 
 
 async def _conversa(cliente, numero, **campos):
@@ -307,4 +334,101 @@ class TestRevisaoAntesDeEnviar:
             await convo.say_async("Quero falar com alguém da equipe sobre o pagamento")
 
         assert "- escalar_para_thaina: escalado" in revisor.pedidos[0], revisor.pedidos[0]
-        expect.contains(convo.last.bot, "Thainá")
+        # O nome que o modelo escreveu não chega ao paciente: sai o título.
+        expect.contains(convo.last.bot, "Vou chamar a coordenadora pra continuar")
+        assert "Thainá" not in convo.last.bot
+
+
+class ModeloQueLembra(ModeloRoteirizado):
+    """Como o roteirizado, guardando o que recebeu em cada turno."""
+
+    def __init__(self, *falas: str):
+        super().__init__(*falas)
+        self.historicos: list[list[dict]] = []
+
+    async def gerar_resposta(self, historico, tools=None, **kwargs):
+        self.historicos.append(list(historico))
+        return await super().gerar_resposta(historico, tools=tools, **kwargs)
+
+
+RESUMO = (
+    "Deixa eu confirmar rapidinho: Joana Lima, 01/01/1990, livre à noite. "
+    "Tá tudo certo assim?\n[[CONFIRMAR_DADOS]]"
+)
+
+
+class TestBotoesDeResposta:
+    """27/11/2026: a confirmação do cadastro sai com botões, e o toque entra na
+    conversa como texto digitado."""
+
+    @pytest.mark.asyncio
+    async def test_confirmacao_sai_com_botoes_e_o_toque_vira_texto(self, sofia):
+        modelo = ModeloQueLembra(RESUMO, "Pronto, anotei tudo.")
+        convo = Conversation(bot=no_whatsapp(sofia, JOANA))
+        with patch("app.routers.webhook.llm_client.get_llm_client", return_value=modelo), \
+                patch.object(revisao, "get_revisor", return_value=RevisorDeTeste()):
+            await convo.say_async("Joana Lima, 01/01/1990, posso à noite")
+            [confirmacao] = sofia.enviados
+            assert confirmacao["type"] == "interactive"
+            assert _botoes(confirmacao) == ["Tudo certo", "Corrigir"]
+            # O marcador é do nosso código: a pessoa não o vê.
+            assert "[[" not in _corpo(confirmacao)
+            assert _corpo(confirmacao).endswith("Tá tudo certo assim?")
+
+            await _tocar(sofia, JOANA, "conf_sim", "Tudo certo", "wamid.toque.1")
+
+        # O toque chegou ao modelo como se ela tivesse escrito o rótulo.
+        assert modelo.historicos[1][-1] == {"role": "user", "content": "Tudo certo"}
+        assert sofia.enviados[-1]["text"]["body"] == "Pronto, anotei tudo."
+
+    @pytest.mark.asyncio
+    async def test_quem_ja_tem_ficha_nao_recebe_botoes(self, sofia):
+        """O marcador fora de hora (modelo se confundiu) não vira botão nem vaza."""
+        await _conversa(
+            sofia, JOANA, paciente_hamilton_id=5, dados_coletados={"nome_completo": "Joana Lima"}
+        )
+        convo = Conversation(bot=no_whatsapp(sofia, JOANA))
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=ModeloRoteirizado(RESUMO),
+        ), patch.object(revisao, "get_revisor", return_value=RevisorDeTeste()):
+            await convo.say_async("oi")
+        [enviada] = sofia.enviados
+        assert enviada["type"] == "text"
+        assert "[[" not in enviada["text"]["body"]
+
+    @pytest.mark.asyncio
+    async def test_botao_recusado_pela_meta_cai_pro_texto(self, sofia, monkeypatch):
+        """Botão é conveniência: a API recusar não pode custar a mensagem."""
+        from app.services import whatsapp_client
+
+        async def _recusa(*args, **kwargs):
+            raise whatsapp_client.WhatsAppError("recusado")
+
+        monkeypatch.setattr(whatsapp_client, "enviar_botoes", _recusa)
+        convo = Conversation(bot=no_whatsapp(sofia, JOANA))
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=ModeloRoteirizado(RESUMO),
+        ), patch.object(revisao, "get_revisor", return_value=RevisorDeTeste()):
+            await convo.say_async("Joana Lima, 01/01/1990, posso à noite")
+        [enviada] = sofia.enviados
+        assert enviada["type"] == "text"
+        assert enviada["text"]["body"].endswith("Tá tudo certo assim?")
+
+
+class TestNomeDaEquipe:
+    """27/11/2026: a Sofia não diz o nome de ninguém da equipe ao paciente."""
+
+    @pytest.mark.asyncio
+    async def test_paciente_chamada_thaina_nao_perde_o_nome(self, sofia):
+        await _conversa(
+            sofia, JOANA, dados_coletados={"nome_completo": "Thainá Souza"}
+        )
+        convo = Conversation(bot=no_whatsapp(sofia, JOANA))
+        with patch(
+            "app.routers.webhook.llm_client.get_llm_client",
+            return_value=ModeloRoteirizado("Oi, Thainá! Como posso te ajudar?"),
+        ), patch.object(revisao, "get_revisor", return_value=RevisorDeTeste()):
+            await convo.say_async("oi")
+        expect.contains(convo.last.bot, "Oi, Thainá!")

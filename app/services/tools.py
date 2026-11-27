@@ -169,7 +169,7 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "Observações livres: qualquer info relevante que a pessoa "
-                            "mencionar e que ajude a Thainá/o terapeuta (preferências mais "
+                            "mencionar e que ajude a coordenadora/o terapeuta (preferências mais "
                             "detalhadas sobre o terapeuta, contexto do que busca, questões "
                             "ou sensibilidades específicas). Resumo curto e factual, sem "
                             "interpretar clinicamente. Opcional."
@@ -192,9 +192,9 @@ TOOLS = [
         "function": {
             "name": ESCALAR_PARA_THAINA,
             "description": (
-                "Escalar a conversa pra coordenadora humana (Thainá) em casos "
+                "Escalar a conversa pra coordenadora clínica (uma pessoa) em casos "
                 "específicos. Mande junto os dados que a pessoa já passou: eles vão "
-                "pra ficha que a Thainá vê ao abrir a conversa. Se faltar nome "
+                "pra ficha que a coordenadora vê ao abrir a conversa. Se faltar nome "
                 "completo, data de nascimento ou horários, a primeira chamada NÃO "
                 "escala: volta `faltam_dados`, e você pede o que falta numa mensagem "
                 "só. Na chamada seguinte ela escala com o que houver. Em crise, "
@@ -207,7 +207,7 @@ TOOLS = [
                     "contexto": {
                         "type": "string",
                         "description": (
-                            "Resumo curto do que aconteceu pra Thainá saber o " "contexto"
+                            "Resumo curto do que aconteceu pra coordenadora saber o contexto"
                         ),
                     },
                     "nome_completo": {
@@ -254,7 +254,7 @@ TOOLS = [
                 "explícita que não tem como pagar. Você NÃO escolhe o valor: esta "
                 "ferramenta devolve quanto você pode oferecer. Nunca invente um valor "
                 "nem prometa desconto antes de chamá-la. Vale só pra terapia; na "
-                "avaliação neuropsicológica quem trata valor é a Amanda, na reunião."
+                "avaliação neuropsicológica quem trata valor é a diretora de neuropsicologia, na reunião."
             ),
             "parameters": {
                 "type": "object",
@@ -367,7 +367,7 @@ TOOLS_COBRANCA = [
             "name": REGISTRAR_FORMA_PAGAMENTO,
             "description": (
                 "Registrar como a pessoa decidiu pagar, assim que ela disser. Serve "
-                "pra Thainá saber, no painel, de quem esperar comprovante (Pix) e "
+                "pra coordenadora saber, no painel, de quem esperar comprovante (Pix) e "
                 "quem já resolveu no cartão. Chame uma vez, quando a escolha ficar "
                 "clara; se ela mudar de ideia depois, chame de novo com o valor novo. "
                 "Não chame antes de a pessoa escolher — 'vou ver' não é escolha."
@@ -408,7 +408,7 @@ TOOL_RESPONDER_PROPOSTA = {
             "aquela proposta ('esse dia não dá', 'prefiro outro horário', 'não quero'). "
             "Tem o mesmo efeito dos botões da proposta. NÃO chame para dúvida sobre a "
             "proposta ('é online?', 'quem é?'): responda a dúvida e deixe ela decidir. "
-            "Recusa NUNCA é motivo para escalar pra Thainá: a equipe já é avisada por aqui."
+            "Recusa NUNCA é motivo para escalar pra coordenadora: a equipe já é avisada por aqui."
         ),
         "parameters": {
             "type": "object",

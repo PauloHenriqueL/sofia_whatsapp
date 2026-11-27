@@ -181,7 +181,7 @@ def carregar_system_prompt(captacoes: list[dict] | None = None) -> str:
             "# Base de conhecimento (pra responder dúvidas em linguagem simples)\n\n"
             "Use o conteúdo abaixo pra responder dúvidas (valores, faltas, sigilo, online, "
             "equipe, etc.). Adapte ao contexto, não leia verbatim. Se não houver resposta "
-            "aqui, diz que confirma com a Thainá e escala.\n\n"
+            "aqui, diz que confirma com a coordenadora e escala.\n\n"
             f"{kb}"
         )
     for token, valor in _valores_prompt().items():

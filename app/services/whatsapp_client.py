@@ -25,7 +25,12 @@ GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 # Máximo de bolhas (mensagens) por turno, pra não floodar o paciente. O excedente
 # é redistribuído entre as bolhas menores, não empilhado na última. Ver
 # `dividir_em_bolhas`.
-MAX_BOLHAS = 5
+#
+# Eram 5 até 27/11/2026. O roteiro pede duas bolhas por resposta (três quando a
+# pessoa pede a explicação completa), e o modelo, com o roteiro já dizendo isso,
+# mandou quatro em duas das quatro conversas do laboratório: "me manda, por
+# favor:" num balão e a lista em outro. O teto do roteiro passou a valer aqui.
+MAX_BOLHAS = 3
 
 # Ritmo das bolhas: simula ~25 caracteres "digitados" por segundo, entre 0,8s e
 # 4s por bolha, pra a conversa não chegar instantânea (parecer um humano digitando).
@@ -151,6 +156,77 @@ async def enviar_texto(
         descricao=f"texto para {mascarar_telefone(numero)}",
         sigiloso=sigiloso,
     )
+
+
+# Limites da Cloud API para mensagem com botões de resposta.
+MAX_BOTOES = 3
+MAX_TITULO_BOTAO = 20
+MAX_CORPO_COM_BOTOES = 1024
+
+
+def cabe_em_botoes(texto: str, botoes: list[tuple[str, str]] | None) -> bool:
+    """A mensagem pode sair com botões? Senão quem chama manda texto puro."""
+    return bool(
+        botoes
+        and texto
+        and len(texto) <= MAX_CORPO_COM_BOTOES
+        and len(botoes) <= MAX_BOTOES
+        and all(codigo and 0 < len(titulo) <= MAX_TITULO_BOTAO for codigo, titulo in botoes)
+    )
+
+
+async def enviar_botoes(
+    numero: str, texto: str, botoes: list[tuple[str, str]], responder_a: str | None = None
+) -> dict[str, Any]:
+    """Envia texto com até 3 botões de resposta (`[(código, rótulo)]`).
+
+    Não precisa de template aprovado: é mensagem livre, e por isso só sai dentro
+    da janela de 24h, como `enviar_texto`. O toque volta no webhook como
+    `interactive.button_reply`, com o código e o rótulo.
+
+    Raises:
+        WhatsAppError: limites da API estourados, ou a chamada falhou.
+    """
+    if not cabe_em_botoes(texto, botoes):
+        raise WhatsAppError("mensagem com botões fora dos limites da Cloud API")
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": numero,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": texto},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": codigo, "title": titulo}}
+                    for codigo, titulo in botoes
+                ]
+            },
+        },
+    }
+    return await _enviar(
+        _citar(payload, responder_a), descricao=f"botões para {mascarar_telefone(numero)}"
+    )
+
+
+def toque_em_botao(mensagem: dict[str, Any]) -> tuple[str, str] | None:
+    """`(código, rótulo)` do botão de resposta tocado nesta mensagem do webhook.
+
+    Só os botões de `enviar_botoes` (`type: interactive`). O toque em botão de
+    TEMPLATE chega como `type: button` e tem tratamento próprio (encaminhamento,
+    lembretes).
+    """
+    if mensagem.get("type") != "interactive":
+        return None
+    interativo = mensagem.get("interactive") or {}
+    resposta = interativo.get("button_reply") if isinstance(interativo, dict) else None
+    if not isinstance(resposta, dict):
+        return None
+    codigo, titulo = resposta.get("id"), resposta.get("title")
+    if not isinstance(codigo, str) or not isinstance(titulo, str) or not titulo.strip():
+        return None
+    return codigo, titulo.strip()
 
 
 async def subir_midia(conteudo: bytes, mime: str, nome: str) -> str:

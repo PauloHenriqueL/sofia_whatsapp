@@ -640,9 +640,12 @@ async def pagina_conversa(
     contato: str = "",
     de: str = "",
     programada: str = "",
+    encaminhar: str = "",
+    faltam: str = "",
     db: AsyncSession = Depends(get_db),
 ):
     """`pagamento=invalido` é o aviso de referência Stripe rejeitada (redirect).
+    `encaminhar=`/`faltam=`: resultado do envio manual ao encaminhamento (códigos).
     `de=terapeutas`: aberta pela aba Terapeutas, o "voltar" leva pra lá.
     `programada=`: resultado de programar/cancelar mensagem (código, nunca texto)."""
     from app.services import cobranca as cobranca_service
@@ -686,6 +689,7 @@ async def pagina_conversa(
             "janela_aberta": inicio_contato.janela_aberta(janela_ate),
             "template_inicio": inicio_contato.template_configurado(),
             "contato_aviso": AVISOS_CONTATO.get(contato_msg),
+            "encaminhar_aviso": _aviso_encaminhar(encaminhar, faltam),
             "programadas": [
                 _programada_na_tela(p) for p in await programadas.da_conversa(db, conversa)
             ],
@@ -1006,6 +1010,47 @@ async def cadastrar(conversa_id: int, db: AsyncSession = Depends(get_db)):
     await cadastro.cadastrar_paciente(db, conversa)
     await db.commit()
     return RedirectResponse(f"/painel/conversas/{conversa_id}/", status_code=303)
+
+
+# Resultado do "Enviar para o encaminhamento" (services/encaminhamento.enviar_manual).
+# O redirect leva só o código; o texto mora aqui.
+AVISOS_ENCAMINHAR = {
+    "enviado": (False, "Enviado para o encaminhamento. A pessoa está na fila da aba Hoje, "
+                "e a Sofia voltou a responder nesta conversa."),
+    "em_andamento": (False, "Esta pessoa já tem uma proposta de horário em andamento. Nada mudou."),
+    "faltam_dados": (True, "Não deu para cadastrar: falta {faltam}. Peça à pessoa e tente de novo."),
+    "tem_terapeuta": (True, "O Hamilton diz que esta pessoa já tem terapeuta, então ela não "
+                      "entra na fila. Para trocar de terapeuta, faça a mudança no Hamilton."),
+    "sem_ficha": (True, "O Hamilton não achou a ficha desta pessoa. Confira o cadastro lá."),
+    "desligado": (True, "O encaminhamento está desligado no Hamilton. Ligue lá antes de enviar."),
+    "hamilton": (True, "Não consegui falar com o Hamilton agora. Tente de novo em alguns minutos."),
+    "terapeuta": (True, "Esta conversa é de terapeuta, não de paciente."),
+}
+_FALTAM_NO_AVISO = {"nome": "o nome completo", "nascimento": "a data de nascimento"}
+
+
+def _aviso_encaminhar(codigo: str, faltam: str) -> dict | None:
+    aviso = AVISOS_ENCAMINHAR.get(codigo)
+    if aviso is None:
+        return None
+    erro, texto = aviso
+    # `faltam` vem da URL: só entram os rótulos conhecidos, nunca o que foi digitado.
+    itens = [_FALTAM_NO_AVISO[c] for c in faltam.split(",") if c in _FALTAM_NO_AVISO]
+    return {"erro": erro, "texto": texto.format(faltam=" e ".join(itens) or "um dado do cadastro")}
+
+
+@router.post("/conversas/{conversa_id}/encaminhar")
+async def encaminhar(conversa_id: int, db: AsyncSession = Depends(get_db)):
+    """Põe (ou repõe) o paciente na fila do encaminhamento e devolve a conversa à Sofia."""
+    conversa = await painel.obter_conversa(db, conversa_id)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    resultado = await encaminhamento_service.enviar_manual(db, conversa)
+    destino = f"/painel/conversas/{conversa_id}/?encaminhar={resultado['codigo']}"
+    if resultado.get("faltam"):
+        chaves = {v: k for k, v in _FALTAM_NO_AVISO.items()}
+        destino += "&faltam=" + ",".join(chaves[r] for r in resultado["faltam"] if r in chaves)
+    return RedirectResponse(destino, status_code=303)
 
 
 @router.post("/conversas/{conversa_id}/reiniciar")

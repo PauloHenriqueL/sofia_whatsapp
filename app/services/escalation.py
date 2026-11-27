@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 # Texto de acolhimento usado quando o LLM escala mas não gera uma fala própria.
 # Alinhado ao briefing (seção System prompt): sem travessões, acolhedor.
 ESCALADA_FALLBACK = (
-    "Vou chamar a Thainá pra continuar daqui contigo. Ela é a coordenadora "
-    "da nossa clínica e vai te responder em pouco tempo."
+    "Vou chamar a nossa coordenadora clínica pra continuar daqui contigo. "
+    "Ela te responde em pouco tempo."
 )
 
 # Resposta a quem escreve DEPOIS de a conversa já ter sido escalada. Sai uma vez
@@ -31,7 +31,7 @@ ESCALADA_FALLBACK = (
 # abrir o painel. Texto fixo de propósito — em modo humano a Sofia não pode
 # retomar o fluxo nem escrever por cima de quem assumiu a conversa.
 AVISO_EM_ATENDIMENTO = (
-    "Sua mensagem chegou aqui e a Thainá já foi avisada. "
+    "Sua mensagem chegou aqui e a nossa coordenadora clínica já foi avisada. "
     "Ela vai te responder por aqui mesmo, assim que puder."
 )
 
@@ -56,13 +56,18 @@ _VERBOS_DE_ACIONAR = (
     r"chamar|acionar|avisar|confirmar|pedir|passar|repassar|encaminhar|levar|"
     r"ver|verificar|checar|conferir|perguntar|falar|consultar|marcar|agendar"
 )
+# Desde 27/11/2026 a Sofia não diz o nome de ninguém da equipe: a Thainá é "a
+# coordenadora" e a Amanda "a diretora de neuropsicologia". Os nomes seguem na
+# lista porque o modelo ainda pode escrevê-los (a trava que troca o nome roda
+# depois desta conferência).
+_QUEM = "thaina|amanda|coordenadora|diretora"
 _PROMESSA_DE_ACIONAR = re.compile(
     # "vou confirmar com a Thainá", "vou pedir para a Thainá te orientar"
-    rf"\b(?:vou|irei)\s+(?:ja\s+)?(?:{_VERBOS_DE_ACIONAR})\b[^.!?\n]{{0,70}}?\b(thaina|amanda)\b"
+    rf"\b(?:vou|irei)\s+(?:ja\s+)?(?:{_VERBOS_DE_ACIONAR})\b[^.!?\n]{{0,70}}?\b({_QUEM})\b"
     # "já avisei a Thainá", "chamei a Thainá"
-    r"|\b(?:chamei|avisei|acionei)\s+(?:a\s+)?(thaina|amanda)\b"
+    rf"|\b(?:chamei|avisei|acionei)\s+(?:a\s+)?(?:nossa\s+)?({_QUEM})\b"
     # "estou chamando a Thainá", "tô passando pra Thainá"
-    r"|\b(?:estou|to|tou)\s+(?:chamando|acionando|avisando|passando)\b[^.!?\n]{0,40}?\b(thaina|amanda)\b",
+    rf"|\b(?:estou|to|tou)\s+(?:chamando|acionando|avisando|passando)\b[^.!?\n]{{0,40}}?\b({_QUEM})\b",
     re.IGNORECASE,
 )
 
@@ -84,8 +89,10 @@ def promessa_de_acionar(texto: str | None) -> tuple[str, str] | None:
     for frase in re.split(r"(?<=[.!?])\s+|\n+", texto):
         m = _PROMESSA_DE_ACIONAR.search(_sem_acento(frase))
         if m:
-            quem = next(g for g in m.groups() if g).lower()
-            return frase.strip(), quem
+            achado = next(g for g in m.groups() if g).lower()
+            # "coordenadora de neuropsicologia" era o título antigo da Amanda.
+            neuro = achado in ("amanda", "diretora") or "neuro" in _sem_acento(frase).lower()
+            return frase.strip(), "amanda" if neuro else "thaina"
     return None
 
 
@@ -149,23 +156,26 @@ VALIDADE_PENDENTE = timedelta(hours=24)
 
 # O que vai pro modelo quando a escalada é segurada (resultado da tool).
 INSTRUCAO_PEDIR_DADOS = (
-    "Ainda NÃO passei a conversa pra Thainá. Peça agora, numa mensagem só, o que "
-    "falta (lista em `faltam`), dizendo que é pra Thainá chegar sabendo e não "
+    "Ainda NÃO passei a conversa pra coordenadora. Peça agora, numa mensagem só, o que "
+    "falta (lista em `faltam`), dizendo que é pra coordenadora chegar sabendo e não "
     "precisar perguntar tudo de novo. Responda antes o que você souber da mensagem "
-    "dela. Não diga que já chamou ou que vai chamar a Thainá agora: diga que passa "
+    "dela. Não diga que já chamou ou que vai chamar a coordenadora agora: diga que passa "
     "a conversa pra ela assim que a pessoa mandar. Se ela mandar, recusar ou "
     "insistir, chame `escalar_para_thaina` de novo no próximo turno, com os dados "
     "que ela der."
 )
 # Nota de sistema no turno seguinte ao pedido.
 NOTA_ESCALADA_PENDENTE = (
-    "Você já pediu os dados desta pessoa para passar a conversa à Thainá (motivo "
+    "Você já pediu os dados desta pessoa para passar a conversa à coordenadora (motivo "
     "`{motivo}`). Agora chame `escalar_para_thaina` com esse motivo e com os dados "
     "que ela mandou (nome_completo, data_nascimento no formato YYYY-MM-DD, "
     "horarios_disponiveis), mesmo que ela não tenha mandado nada, e avise que "
     "passou a conversa. Não peça os dados de novo."
 )
-AVISO_PASSEI = "Pronto, passei a conversa pra Thainá. Ela te responde por aqui mesmo, em pouco tempo."
+AVISO_PASSEI = (
+    "Pronto, passei a conversa pra nossa coordenadora clínica. "
+    "Ela te responde por aqui mesmo, em pouco tempo."
+)
 
 
 def _texto(valor) -> str:
@@ -247,7 +257,7 @@ def pedido_de_dados(faltam: list[str]) -> str:
     itens = rotulos(faltam)
     lista = itens[0] if len(itens) == 1 else ", ".join(itens[:-1]) + " e " + itens[-1]
     return (
-        "Pra Thainá, nossa coordenadora clínica, chegar sabendo e não precisar te "
+        "Pra nossa coordenadora clínica chegar sabendo e não precisar te "
         f"perguntar tudo de novo, me manda {lista}? Assim que você mandar, eu passo "
         "a conversa pra ela."
     )

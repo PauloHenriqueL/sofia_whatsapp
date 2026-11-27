@@ -241,3 +241,65 @@ class TestRaciocinioNaFala:
     def test_fala_legitima_fica(self, fala):
         assert saida.limpar(fala) == fala
         assert saida.bloqueios() == 0
+
+
+class TestNomeDaEquipe:
+    """27/11/2026: a Sofia não diz o nome de ninguém da equipe ao paciente.
+
+    O roteiro já pede o título, mas o modelo ainda encontra o nome (a própria
+    coordenadora se apresenta no painel, o paciente escreve "quero falar com a
+    Thainá"), então a troca é garantida em código."""
+
+    @pytest.mark.parametrize(
+        "antes, depois",
+        [
+            ("Vou chamar a Thainá pra continuar daqui contigo.",
+             "Vou chamar a coordenadora pra continuar daqui contigo."),
+            ("Vou chamar a Thainá, nossa coordenadora clínica, pra continuar daqui.",
+             "Vou chamar a coordenadora clínica pra continuar daqui."),
+            ("A Thainá, coordenadora clínica da Allos, vai ver qual terapeuta tem horário.",
+             "A coordenadora clínica vai ver qual terapeuta tem horário."),
+            ("Anotei tudo.\n\nThainá te chama em até 36 horas.",
+             "Anotei tudo.\n\nA coordenadora te chama em até 36 horas."),
+            ("Vou passar isso pra Thainá.", "Vou passar isso pra coordenadora."),
+            ("Quem confere é a Thainá (coordenadora clínica).",
+             "Quem confere é a coordenadora clínica."),
+            ("Isso é com Thainá.", "Isso é com a coordenadora."),
+            ("Sem acento: a Thaina te responde.", "Sem acento: a coordenadora te responde."),
+        ],
+    )
+    def test_troca_o_nome_pelo_titulo(self, antes, depois):
+        assert saida.sem_nome_da_equipe(antes) == depois
+
+    def test_fala_sem_o_nome_nao_muda(self):
+        texto = "A nossa coordenadora clínica te chama em até 36 horas."
+        assert saida.sem_nome_da_equipe(texto) == texto
+
+    def test_paciente_chamada_thaina_fica_com_o_nome(self):
+        texto = "Oi, Thainá! Como posso te ajudar?"
+        assert saida.sem_nome_da_equipe(texto, "Thainá Souza") == texto
+        assert saida.sem_nome_da_equipe(texto, "Maria Thaina Lima") == texto
+
+    def test_amanda_nao_e_trocada(self):
+        """Nome comum de paciente: trocar seria pior que o defeito."""
+        texto = "Oi, Amanda! Como posso te ajudar?"
+        assert saida.sem_nome_da_equipe(texto, "Amanda Reis") == texto
+        assert saida.sem_nome_da_equipe(texto) == texto
+
+    def test_prefixo_novo_do_historico_nao_vaza(self):
+        assert saida.limpar("[Coordenadora clínica]: Oi, tudo bem?") == "Oi, tudo bem?"
+
+
+def test_roteiros_nao_citam_ninguem_da_equipe_pelo_nome():
+    """O que o modelo lê não pode ensinar o nome que ele não deve dizer."""
+    from pathlib import Path
+
+    pasta = Path(__file__).resolve().parent.parent / "prompt"
+    for arquivo in pasta.iterdir():
+        if arquivo.name == "contrato-terapeutico-allos.md":
+            continue  # documento assinado, não vai pro modelo
+        texto = arquivo.read_text(encoding="utf-8")
+        # A única menção permitida é o exemplo de como responder a quem diz o nome.
+        texto = texto.replace('("quero falar com a Thainá")', "")
+        assert "Thainá" not in texto, arquivo.name
+        assert "Amanda" not in texto, arquivo.name

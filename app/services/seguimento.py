@@ -22,12 +22,18 @@ logger = logging.getLogger(__name__)
 # livre (exigiria template). O follow-up tem que sair dentro dessa janela.
 JANELA_META_HORAS = 24
 
-# Texto do follow-up. Fácil de ajustar aqui (acolhedor, sem emoji, sem travessão).
+# Texto do follow-up (a "call fria"). Fácil de ajustar aqui (acolhedor, sem emoji,
+# sem travessão). Decisão do Victor, 27/11/2026: termina na pergunta e NÃO oferece
+# a coordenadora. Quem responde é a Sofia, que retoma de onde a conversa parou
+# (ver "Quando a pessoa volta depois do seu chamado" no roteiro).
 SEGUIMENTO_TEXTO = (
     "Oi, aqui é a Sofia, da Allos. A gente começou a conversar e acabou ficando "
-    "pelo caminho. Você ainda tem interesse? Se quiser, me conta o que te impediu "
-    "de seguir, ou se prefere que eu chame a Thainá. Tô por aqui."
+    "pelo caminho. Você ainda tem interesse?"
 )
+# Um toque custa menos que uma resposta escrita. Os rótulos entram na conversa
+# como texto digitado (ver `whatsapp_client.toque_em_botao`), então são lidos pelo
+# modelo: têm que fazer sentido como resposta à pergunta acima.
+SEGUIMENTO_BOTOES = [("seg_sim", "Sim, quero"), ("seg_nao", "Agora não")]
 
 # Estados que NÃO recebem follow-up: já resolvidos ou em tratamento humano.
 ESTADOS_FINALIZADOS = ("cadastrado", "cadastro_pendente", "escalado")
@@ -92,11 +98,22 @@ async def enviar_seguimento(db: AsyncSession, conversa: Conversa, agora: datetim
     elegível na próxima rodada (seguimento_enviado_em só é setado no sucesso).
     """
     try:
-        await whatsapp_client.enviar_texto(conversa.numero_whatsapp, SEGUIMENTO_TEXTO)
+        try:
+            envio = await whatsapp_client.enviar_botoes(
+                conversa.numero_whatsapp, SEGUIMENTO_TEXTO, SEGUIMENTO_BOTOES
+            )
+        except whatsapp_client.WhatsAppError:
+            # Botão recusado não pode custar o follow-up: sai o texto puro.
+            envio = await whatsapp_client.enviar_texto(conversa.numero_whatsapp, SEGUIMENTO_TEXTO)
     except whatsapp_client.WhatsAppError:
         logger.error(f"Follow-up falhou pro número {mascarar_telefone(conversa.numero_whatsapp)}")
         return False
-    await conversation.registrar_mensagem_enviada(db, conversa, texto=SEGUIMENTO_TEXTO)
+    await conversation.registrar_mensagem_enviada(
+        db,
+        conversa,
+        texto=SEGUIMENTO_TEXTO,
+        whatsapp_message_id=whatsapp_client.id_da_resposta(envio),
+    )
     conversa.seguimento_enviado_em = agora
     await db.flush()
     return True

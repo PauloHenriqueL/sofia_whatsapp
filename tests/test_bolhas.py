@@ -56,7 +56,21 @@ class TestDividirEmBolhas:
         assert dividir_em_bolhas(texto, max_bolhas=5) == ["p1", "p2", "p3", "p4", "p5"]
 
     def test_max_bolhas_padrao(self):
-        assert whatsapp_client.MAX_BOLHAS == 5
+        # 27/11/2026: o teto do roteiro (duas bolhas, três na explicação completa).
+        assert whatsapp_client.MAX_BOLHAS == 3
+
+    def test_pedido_e_lista_nao_chegam_picados(self):
+        """O caso do laboratório: "me manda, por favor:" num balão, a lista em outro."""
+        texto = (
+            "Pra começar, a coordenadora procura um terapeuta com horário que combine "
+            "com o seu e te chama em até 36 horas.\n\n"
+            "Me manda, por favor:\n\n"
+            "• Seu nome completo\n• Sua data de nascimento\n\n"
+            "Entendi que você consegue à noite."
+        )
+        bolhas = dividir_em_bolhas(texto)
+        assert len(bolhas) == 3
+        assert bolhas[1].startswith("Me manda, por favor:") and "• Seu nome completo" in bolhas[1]
 
 
 class TestIntervaloDigitacao:

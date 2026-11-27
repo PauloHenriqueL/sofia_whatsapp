@@ -861,3 +861,128 @@ class TestDuasPropostas:
         await _logar(sofia, sofia.banco)
         html = (await sofia.get("/painel/encaminhamentos/42")).text
         assert 'id="enc-alt-adicionar"' in html and 'name="alt_terapeuta_id"' in html
+
+
+class TestEnvioManual:
+    """27/11/2026: a equipe põe (ou repõe) a pessoa na fila pelo botão da conversa."""
+
+    async def _conversa(self, sofia):
+        async with sofia.banco() as s:
+            return (await s.execute(select(Conversa))).scalar_one()
+
+    async def _enviar(self, sofia):
+        llm = LLMDeCriterios(json.dumps({"modalidade": "online", "horarios": []}))
+        with patch.object(llm_client, "get_llm_client", return_value=llm):
+            resp = await sofia.post("/painel/conversas/1/encaminhar")
+        assert resp.status_code == 303
+        return resp.headers["location"]
+
+    @pytest.mark.asyncio
+    async def test_quem_a_equipe_atendeu_volta_pra_fila_e_pra_sofia(self, sofia, hamilton, meta):
+        """Cadastro de 30 dias atrás, conversa em modo humano: o cron nunca pegaria."""
+        async with sofia.banco() as s:
+            c = (await s.execute(select(Conversa))).scalar_one()
+            c.cadastrado_em = datetime.now(timezone.utc) - timedelta(days=30)
+            c.modo = "humano"
+            await s.commit()
+        await _logar(sofia, sofia.banco)
+        assert await self._enviar(sofia) == "/painel/conversas/1/?encaminhar=enviado"
+        [pedido] = hamilton.pedidos
+        assert pedido["paciente_id"] == 579
+        c = await self._conversa(sofia)
+        assert c.modo == "bot"  # a Sofia responde à proposta de horário
+        assert c.dados_coletados[encaminhamento.CHAVE_PEDIDO] == 42
+        html = (await sofia.get("/painel/conversas/1/?encaminhar=enviado")).text
+        assert "Enviado para o encaminhamento" in html
+
+    @pytest.mark.asyncio
+    async def test_marca_antiga_de_ignorado_nao_impede(self, sofia, hamilton, meta):
+        """Quem ficou marcado como ignorado numa rodada antiga volta pela mão."""
+        async with sofia.banco() as s:
+            c = (await s.execute(select(Conversa))).scalar_one()
+            c.dados_coletados = {**c.dados_coletados, encaminhamento.CHAVE_PEDIDO: "tem_terapeuta"}
+            await s.commit()
+        await _logar(sofia, sofia.banco)
+        assert (await self._enviar(sofia)).endswith("encaminhar=enviado")
+        assert (await self._conversa(sofia)).dados_coletados[encaminhamento.CHAVE_PEDIDO] == 42
+
+    @pytest.mark.asyncio
+    async def test_quem_ja_tem_terapeuta_nao_e_forcado(self, sofia, hamilton, meta):
+        hamilton.tem_terapeuta.add(579)
+        async with sofia.banco() as s:
+            c = (await s.execute(select(Conversa))).scalar_one()
+            c.modo = "humano"
+            await s.commit()
+        await _logar(sofia, sofia.banco)
+        assert (await self._enviar(sofia)).endswith("encaminhar=tem_terapeuta")
+        assert (await self._conversa(sofia)).modo == "humano"  # a conversa não muda de mãos
+        html = (await sofia.get("/painel/conversas/1/?encaminhar=tem_terapeuta")).text
+        assert "já tem terapeuta" in html
+
+    @pytest.mark.asyncio
+    async def test_sem_ficha_e_sem_dados_diz_o_que_falta(self, sofia, hamilton, meta):
+        async with sofia.banco() as s:
+            c = (await s.execute(select(Conversa))).scalar_one()
+            c.paciente_hamilton_id = None
+            c.dados_coletados = {"nome_completo": "Maria Clara Souza"}
+            await s.commit()
+        await _logar(sofia, sofia.banco)
+        destino = await self._enviar(sofia)
+        assert destino == "/painel/conversas/1/?encaminhar=faltam_dados&faltam=nascimento"
+        assert hamilton.pedidos == []
+        html = (await sofia.get(destino)).text
+        assert "falta a data de nascimento" in html
+
+    @pytest.mark.asyncio
+    async def test_trava_desligada_avisa_em_vez_de_sumir(self, sofia, hamilton, meta):
+        hamilton.ativo = False
+        await _logar(sofia, sofia.banco)
+        assert (await self._enviar(sofia)).endswith("encaminhar=desligado")
+        assert hamilton.pedidos == []
+
+    @pytest.mark.asyncio
+    async def test_proposta_em_andamento_nao_e_dita_como_enviada(self, sofia, hamilton, meta):
+        """Com proposta em curso o Hamilton devolve o pedido aberto, sem mexer."""
+        original = hamilton.__call__
+
+        def _com_proposta(request):
+            if request.url.path == "/api/v1/encaminhamentos/pedido/":
+                return httpx.Response(200, json={
+                    "encaminhamento": {"id": 42, "status": "aguardando_paciente"}})
+            return original(request)
+
+        _ligar_hamilton(_MonkeySimples(), _com_proposta)
+        await _logar(sofia, sofia.banco)
+        assert (await self._enviar(sofia)).endswith("encaminhar=em_andamento")
+
+    @pytest.mark.asyncio
+    async def test_aviso_nao_repete_texto_vindo_da_url(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        html = (await sofia.get(
+            "/painel/conversas/1/?encaminhar=faltam_dados&faltam=<script>x</script>,nome")).text
+        assert "<script>x</script>" not in html
+        assert "falta o nome completo" in html
+
+    @pytest.mark.asyncio
+    async def test_conversa_de_terapeuta_nao_tem_o_botao(self, sofia, hamilton, meta):
+        await _logar(sofia, sofia.banco)
+        assert "Enviar para o encaminhamento" in (await sofia.get("/painel/conversas/1/")).text
+        async with sofia.banco() as s:
+            c = (await s.execute(select(Conversa))).scalar_one()
+            c.eh_terapeuta = True
+            await s.commit()
+        assert "Enviar para o encaminhamento" not in (await sofia.get("/painel/conversas/1/")).text
+
+    @pytest.mark.asyncio
+    async def test_sem_login_nao_envia(self, sofia, hamilton, meta):
+        resp = await sofia.post("/painel/conversas/1/encaminhar")
+        assert resp.status_code in (303, 401, 403)
+        assert hamilton.pedidos == []
+
+
+class _MonkeySimples:
+    """`_ligar_hamilton` só precisa de `setattr`; aqui ele vale até o fim do teste
+    porque o fixture `hamilton` (monkeypatch de verdade) já restaura depois."""
+
+    def setattr(self, alvo, nome, valor):
+        setattr(alvo, nome, valor)

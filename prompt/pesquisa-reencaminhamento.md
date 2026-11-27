@@ -10,7 +10,7 @@ São 6 perguntas. Faça uma por mensagem, com as suas palavras.
 
 Deixe claro, com naturalidade e logo no começo, que ela **continua na Allos** e
 que a conversa é pra entender como foi até aqui e ajudar no encaixe com o
-próximo terapeuta. Diga que a Thainá, coordenadora clínica, vai entrar em contato
+próximo terapeuta. Diga que a nossa coordenadora clínica vai entrar em contato
 pra combinar os detalhes — **sem prometer prazo**.
 
 Ofereça saída fácil em uma frase (se não for uma boa hora, é só dizer). Não peça

@@ -51,10 +51,24 @@ FALLBACK_RESPOSTA = (
 )
 
 # Áudio: a Sofia não transcreve; escala imediatamente pra Thainá.
-AUDIO_RECEBIDO = "Recebi seu áudio. Vou chamar a Thainá pra te responder direito."
+AUDIO_RECEBIDO = (
+    "Recebi seu áudio. Vou chamar a nossa coordenadora clínica pra te responder direito."
+)
 
 # Imagem/documento: a Sofia guarda o anexo e chama a Thainá, que abre no painel.
-ANEXO_RECEBIDO = "Recebi seu arquivo. Vou chamar a Thainá pra dar uma olhada e te responder."
+ANEXO_RECEBIDO = (
+    "Recebi seu arquivo. Vou chamar a nossa coordenadora clínica pra dar uma olhada "
+    "e te responder."
+)
+
+# Confirmação do cadastro com botões (27/11/2026). No laboratório, 2 de 3
+# conversas da persona `chega-com-a-dor` terminaram no "tá tudo certo assim?": a
+# pessoa passou os dados, entendeu o próximo passo e foi embora sem responder, e
+# do lado de dentro não existia ficha. Um toque custa menos que uma resposta
+# escrita. O modelo fecha a mensagem de confirmação com o marcador; o código o
+# tira e manda a última bolha com os botões. Sem o marcador, sai texto como antes.
+MARCADOR_CONFIRMAR = "[[CONFIRMAR_DADOS]]"
+BOTOES_CONFIRMACAO = [("conf_sim", "Tudo certo"), ("conf_nao", "Corrigir")]
 
 # Resposta fixa pros outros tipos sem texto (vídeo, sticker, localização...).
 PEDIR_TEXTO = "Por enquanto consigo ler só mensagens de texto. Pode me escrever?"
@@ -184,6 +198,7 @@ async def processar_turno_bot(session, conversa) -> str | None:
     """
     # Antes de qualquer coisa: se a Sofia já respondeu demais nesta conversa na
     # última hora, provavelmente é outro robô do outro lado (ver escalation).
+    conversa._confirmar_com_botoes = False
     if await escalation.travar_se_for_loop(session, conversa):
         return None
 
@@ -233,6 +248,13 @@ async def processar_turno_bot(session, conversa) -> str | None:
     conversa._resultados_do_turno = None
     modo_antes = conversa.modo
     texto = await _texto_do_turno(session, conversa, historico, resp)
+    # Sai antes da revisão: o revisor reescreve a fala e não sabe o que é o marcador.
+    if texto and MARCADOR_CONFIRMAR in texto:
+        texto = texto.replace(MARCADOR_CONFIRMAR, "").strip()
+        # Só faz sentido para quem ainda não tem ficha e segue com a Sofia.
+        conversa._confirmar_com_botoes = (
+            conversa.paciente_hamilton_id is None and conversa.modo == "bot"
+        )
     if pendente is not None:
         texto = await escalation.cumprir_pendente(session, conversa, pendente, texto)
     # Confere a fala contra as regras críticas antes de sair (ver services/revisao.py):
@@ -398,7 +420,7 @@ async def _autorizar_desconto(session, conversa, motivo: str | None) -> dict:
         return {
             "autorizado": False,
             "instrucao": (
-                "Você não pode oferecer desconto. Diga que quem vê valor é a Thainá "
+                "Você não pode oferecer desconto. Diga que quem vê valor é a coordenadora "
                 "e ofereça chamá-la."
             ),
         }
@@ -424,11 +446,11 @@ async def _autorizar_desconto(session, conversa, motivo: str | None) -> dict:
         "instrucao": (
             f"Ofereça R$ {valor} por mês no lugar de R$ {mensalidade}. Este é o menor "
             "valor que você pode fazer: se a pessoa pedir menos, diga que abaixo disso "
-            "você não consegue resolver por aqui e ofereça chamar a Thainá."
+            "você não consegue resolver por aqui e ofereça chamar a coordenadora."
             if not ja_ofereceu
             else (
                 f"Você já ofereceu R$ {valor} nesta conversa. Não baixe mais nem repita "
-                "a oferta: se ela continua inviável, ofereça chamar a Thainá."
+                "a oferta: se ela continua inviável, ofereça chamar a coordenadora."
             )
         ),
     }
@@ -551,6 +573,12 @@ async def ingerir_mensagem(mensagem: dict[str, Any]) -> None:
         juntando a rajada numa resposta só.
     """
     numero = mensagem.get("from")
+    # Toque num botão de resposta (call fria, confirmação do cadastro): entra na
+    # conversa como se a pessoa tivesse digitado o rótulo. O botão só poupa a
+    # digitação; quem decide o que fazer com "Tudo certo" continua sendo o turno.
+    toque = whatsapp_client.toque_em_botao(mensagem)
+    if toque is not None:
+        mensagem = {**mensagem, "type": "text", "text": {"body": toque[1]}}
     tipo = mensagem.get("type")
     wamid = mensagem.get("id")
     if not numero:
@@ -915,7 +943,8 @@ async def _responder_turno(session, conversa, numero: str) -> None:
     resposta = await processar_turno_bot(session, conversa)
     await session.commit()
     if resposta is not None:  # None: ex. round-trip pós-tool sem fala final
-        await _enviar_em_bolhas(session, conversa, numero, resposta)
+        botoes = BOTOES_CONFIRMACAO if getattr(conversa, "_confirmar_com_botoes", False) else None
+        await _enviar_em_bolhas(session, conversa, numero, resposta, botoes=botoes)
 
     # ORS de linha de base, emendado no cadastro: a Sofia confirma o cadastro e,
     # na mensagem seguinte, convida pra pesquisa de entrada. Vem DEPOIS do envio
@@ -928,21 +957,46 @@ async def _responder_turno(session, conversa, numero: str) -> None:
         await pesquisa.iniciar_entrada(session, conversa)
 
 
-async def _enviar_em_bolhas(session, conversa, numero: str, resposta: str) -> None:
+async def _enviar_bolha(numero: str, bolha: str, botoes) -> dict:
+    """Uma bolha, com botões se couber. Botão recusado pela API não pode custar a
+    mensagem: cai pro texto puro, que é o que sairia sem eles."""
+    if whatsapp_client.cabe_em_botoes(bolha, botoes):
+        try:
+            return await whatsapp_client.enviar_botoes(numero, bolha, botoes)
+        except whatsapp_client.WhatsAppError:
+            logger.warning("Botões recusados para %s; envio como texto", mascarar_telefone(numero))
+    return await whatsapp_client.enviar_texto(numero, bolha)
+
+
+async def _enviar_em_bolhas(
+    session, conversa, numero: str, resposta: str, botoes: list[tuple[str, str]] | None = None
+) -> None:
     """Quebra a resposta em bolhas curtas e envia em ordem, persistindo cada uma.
 
     Sanitiza antes de tudo: este é o único ponto por onde a fala do bot sai, então
     é aqui que a rede de proteção fica (ver `saida.limpar` e o P0 do docs/demandas/99-backlog-entregue.md).
     Se uma bolha falhar, pára (não adianta mandar o resto fora de ordem).
+
+    `botoes`: botões de resposta que acompanham a ÚLTIMA bolha, que é onde fica a
+    pergunta (ver `whatsapp_client.enviar_botoes`).
     """
     resposta = saida.limpar(resposta)
+    # A Sofia não diz o nome de ninguém da equipe (ver `saida.sem_nome_da_equipe`).
+    # Fora da pesquisa e da cobrança: ali a fala cita o TERAPEUTA da pessoa pelo
+    # nome (ele vem do Hamilton), e uma terapeuta chamada Thainá viraria "a
+    # coordenadora".
+    if not (pesquisa.em_pesquisa(conversa) or cobranca.em_cobranca(conversa)):
+        resposta = saida.sem_nome_da_equipe(
+            resposta, (conversa.dados_coletados or {}).get("nome_completo")
+        )
     if not resposta:
         return
-    for bolha in whatsapp_client.dividir_em_bolhas(resposta):
+    bolhas = whatsapp_client.dividir_em_bolhas(resposta)
+    for i, bolha in enumerate(bolhas):
         if config_negocio.valor("simular_digitacao"):
             await asyncio.sleep(whatsapp_client.intervalo_digitacao(bolha))
         try:
-            envio = await whatsapp_client.enviar_texto(numero, bolha)
+            envio = await _enviar_bolha(numero, bolha, botoes if i == len(bolhas) - 1 else None)
         except whatsapp_client.WhatsAppError:
             logger.error(f"Não consegui responder ao número {mascarar_telefone(numero)}")
             break

@@ -89,7 +89,7 @@ regra, apenas não perguntando.
 
 Se a pessoa indicar sofrimento agudo, ideação suicida ou risco a si ou a outros,
 **pare a pesquisa imediatamente**. Acolha com cuidado, diga que vai avisar a
-Thainá, coordenadora clínica, agora, e ofereça o CVV 188 (24h, gratuito e
+coordenadora clínica agora, e ofereça o CVV 188 (24h, gratuito e
 sigiloso) ou o SAMU 192 em caso de risco imediato. Termine a mensagem com
 `[[PESQUISA_RECUSADA]]` (a pesquisa acabou; o cuidado com a pessoa vem antes).
 

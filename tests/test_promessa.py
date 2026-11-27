@@ -33,6 +33,13 @@ PROMETEM = [
     "Tô passando seu caso pra Thainá agora.",
     "Isso eu vou ver com a Thainá e te falo.",
     "Vou marcar uma conversa com a Amanda, nossa coordenadora de neuropsicologia.",
+    # 27/11/2026: a Sofia passou a dizer o título, não o nome. A rede tem que
+    # continuar pegando a mesma promessa.
+    "Vou chamar a nossa coordenadora clínica pra continuar daqui contigo.",
+    "Isso eu vou ver com a coordenadora e te falo.",
+    "Já avisei a coordenadora.",
+    "Tô passando seu caso pra coordenadora agora.",
+    "Vou marcar uma conversa com a nossa diretora de neuropsicologia.",
 ]
 
 # Falas legítimas que citam a Thainá e NÃO são promessa de escalada. A primeira é
@@ -50,6 +57,13 @@ NAO_PROMETEM = [
     "Vou te explicar como funciona. A Thainá entra em contato depois.",
     "Se preferir, eu posso chamar a Thainá.",
     "Vou deixar anotado pra Thainá levar em conta.",
+    "Pronto, anotei tudo. A nossa coordenadora clínica vai ver qual terapeuta da equipe "
+    "tem horário que combina com o seu e te chama aqui no WhatsApp em até 36 horas.",
+    "Pra nossa coordenadora clínica encontrar um terapeuta com horário que combine com "
+    "o seu, me manda, por favor, seu nome completo.",
+    "Quem faz esse encaixe é a coordenadora. Ela te chama aqui antes da primeira sessão.",
+    "Já anotei, e a coordenadora leva isso em conta ao procurar o terapeuta.",
+    "Quer que eu marque uma conversa com a nossa diretora de neuropsicologia?",
     "",
     None,
 ]
@@ -240,3 +254,16 @@ class TestPesquisa:
         (escalada,) = await _escaladas(db, conversa)
         assert escalada.motivo == "outro"
         assert conversa._escalou_na_pesquisa is True
+
+
+@pytest.mark.parametrize(
+    "fala, quem",
+    [
+        ("Vou chamar a coordenadora pra continuar daqui contigo.", "thaina"),
+        ("Vou marcar uma conversa com a nossa diretora de neuropsicologia.", "amanda"),
+        # Título antigo da Amanda: ainda é ela.
+        ("Vou marcar com a coordenadora de neuropsicologia.", "amanda"),
+    ],
+)
+def test_titulo_no_lugar_do_nome_diz_quem_e(fala, quem):
+    assert escalation.promessa_de_acionar(fala)[1] == quem

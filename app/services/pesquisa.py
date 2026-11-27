@@ -155,7 +155,7 @@ def _contexto_encerramento(avaliacao: dict) -> str:
             "trocar de terapeuta e continua sendo atendida. Deixe isso claro logo no começo, "
             "com naturalidade. NÃO pergunte por que ela decidiu interromper (ela não "
             "interrompeu nada). Pergunte como foi a experiência com o terapeuta anterior. "
-            "Diga que a Thainá, coordenadora clínica, vai entrar em contato pra combinar os "
+            "Diga que a coordenadora clínica vai entrar em contato pra combinar os "
             "detalhes e tirar dúvidas, sem prometer prazo."
         )
     elif tipo == "alta":
@@ -283,7 +283,7 @@ def montar_prompt(avaliacao: dict, conversa=None) -> str:
             "ou um acompanhante (responsável, cônjuge). Confirme isso em UMA frase "
             "curta e natural ANTES de começar as perguntas. Se for acompanhante, "
             "NÃO faça nenhuma das perguntas: agradeça em uma frase, diga que a "
-            "Thainá segue com o contato normalmente e encerre com "
+            "coordenadora segue com o contato normalmente e encerre com "
             f"{MARCADOR_RECUSA}. Não explique a regra."
         )
     else:
